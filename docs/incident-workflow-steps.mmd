@@ -1,0 +1,22 @@
+flowchart LR
+    subgraph step1 ["Step 1: Select type"]
+        direction TB
+        T1["Incident template"]
+        T2["Category + type"]
+    end
+
+    subgraph step2 ["Step 2: Capture"]
+        direction TB
+        C1["Template guide"]
+        C2["Stop message"]
+        C3["Field notes"]
+    end
+
+    subgraph step3 ["Step 3: Generate"]
+        direction TB
+        G1{"Fire report?"}
+        G1 -->|Yes| G2["Fire report"]
+        G1 -->|Always| G3["Slides"]
+    end
+
+    step1 --> step2 --> step3

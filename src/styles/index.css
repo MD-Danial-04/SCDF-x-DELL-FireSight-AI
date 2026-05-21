@@ -1,0 +1,24 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+/* docx-preview renders each page as a separate section inside the wrapper */
+.docx-preview-viewport {
+  display: block;
+}
+
+.docx-preview-scaler {
+  margin-inline: auto;
+  overflow: visible;
+}
+
+.docx-preview-host > .docx-preview-wrapper {
+  background: #e5e7eb;
+  padding: 8px;
+  padding-bottom: 0;
+}
+
+.docx-preview-host > .docx-preview-wrapper > section.docx-preview {
+  margin-bottom: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
