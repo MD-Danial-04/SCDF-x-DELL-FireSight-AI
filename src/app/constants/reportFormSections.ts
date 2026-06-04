@@ -174,7 +174,7 @@ export const REPORT_FORM_SECTIONS: ReportFormSectionConfig[] = [
 ];
 
 export function getDefaultOpenSections(): string[] {
-  return REPORT_FORM_SECTIONS.filter((s) => s.defaultOpen).map((s) => s.id);
+  return [];
 }
 
 export function getAllSectionFields(section: ReportFormSectionConfig): ReportFormFieldConfig[] {

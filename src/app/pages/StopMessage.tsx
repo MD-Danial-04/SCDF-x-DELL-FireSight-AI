@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
@@ -33,6 +33,18 @@ import {
   type DemoScenario,
 } from "../constants/demoScenarios";
 
+const FAM_DEMO_SELECT_ID = "demo-fam";
+const FAM_TYPEWRITER_DURATION_MS = 2500;
+
+const NON_DEMO_STOP_MESSAGE =
+  "Red Rhino 1 stop at location, case of fire mod. Upon arrival, white smoke seen in the lift shaft. Upon investigation, fire found in CRC of block 123 involving rubbish contents. CD extinguished fire using 2x hosereel. Case classified as C2 accidental due to naked light. Case handed over to SGT John Tan T123456 from Ang Mo Kio NPC.";
+
+function scrollPageToTop() {
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  });
+}
+
 export function StopMessage() {
   const { pathname } = useLocation();
   const mode = pathname.startsWith("/late-activation") ? "late" : "incident";
@@ -47,6 +59,45 @@ export function StopMessage() {
   const [fieldNotes, setFieldNotes] = useState("");
   const [showGeneration, setShowGeneration] = useState(false);
   const [documentType, setDocumentType] = useState<"report" | "slides" | null>(null);
+  const [famDemoPending, setFamDemoPending] = useState<{
+    stopMessage: string;
+    fieldNotes: string;
+  } | null>(null);
+  const [famFieldNotesRevealed, setFamFieldNotesRevealed] = useState(false);
+
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearRecordingTimers = useCallback(() => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (typewriterTimerRef.current) {
+      clearInterval(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearRecordingTimers(), [clearRecordingTimers]);
+
+  const startFamTypewriter = useCallback((stopMessage: string) => {
+    const chunks = stopMessage.split(/\s+/).filter(Boolean);
+    if (chunks.length === 0) return;
+
+    const intervalMs = Math.max(50, Math.floor(FAM_TYPEWRITER_DURATION_MS / chunks.length));
+    let index = 0;
+    setVoiceTranscript("");
+
+    typewriterTimerRef.current = setInterval(() => {
+      index += 1;
+      setVoiceTranscript(chunks.slice(0, index).join(" "));
+      if (index >= chunks.length && typewriterTimerRef.current) {
+        clearInterval(typewriterTimerRef.current);
+        typewriterTimerRef.current = null;
+      }
+    }, intervalMs);
+  }, []);
 
   const loadDemoScenario = useCallback((scenario: DemoScenario, selectId: string) => {
     const type = incidentTypes.find((t) => t.id === scenario.incidentTypeId);
@@ -57,6 +108,20 @@ export function StopMessage() {
     setSelectedSelectValue(selectId);
     setIsDemoSelection(true);
     setSelectedIncidentType(type);
+
+    if (selectId === FAM_DEMO_SELECT_ID) {
+      setFamDemoPending({
+        stopMessage: scenario.stopMessage,
+        fieldNotes: scenario.fieldNotes,
+      });
+      setFamFieldNotesRevealed(false);
+      setVoiceTranscript("");
+      setFieldNotes("");
+      return;
+    }
+
+    setFamDemoPending(null);
+    setFamFieldNotesRevealed(false);
     setVoiceTranscript(scenario.stopMessage);
     setFieldNotes(scenario.fieldNotes);
     toast.success("Demo sample loaded");
@@ -69,13 +134,29 @@ export function StopMessage() {
         if (scenario) loadDemoScenario(scenario, value);
         return;
       }
+      clearRecordingTimers();
+      setIsRecording(false);
+      setRecordingTime(0);
+      setFamDemoPending(null);
+      setFamFieldNotesRevealed(false);
       setIsDemoSelection(false);
       setSelectedSelectValue(value);
       const type = incidentTypes.find((t) => t.id === value);
       setSelectedIncidentType(type || null);
     },
-    [loadDemoScenario]
+    [loadDemoScenario, clearRecordingTimers]
   );
+
+  const handleFieldNotesFocus = useCallback(() => {
+    if (
+      famDemoPending?.fieldNotes &&
+      !famFieldNotesRevealed &&
+      !fieldNotes.trim()
+    ) {
+      setFieldNotes(famDemoPending.fieldNotes);
+      setFamFieldNotesRevealed(true);
+    }
+  }, [famDemoPending, famFieldNotesRevealed, fieldNotes]);
 
   useEffect(() => {
     if (selectedIncidentType) {
@@ -85,20 +166,26 @@ export function StopMessage() {
 
   const handleRecord = () => {
     if (!isRecording) {
+      clearRecordingTimers();
       setIsRecording(true);
-      const interval = setInterval(() => {
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
         setRecordingTime((prev) => prev + 1);
       }, 1000);
-      setTimeout(() => {
-        clearInterval(interval);
-      }, 60000);
+
+      if (famDemoPending) {
+        startFamTypewriter(famDemoPending.stopMessage);
+      }
     } else {
+      clearRecordingTimers();
       setIsRecording(false);
       setRecordingTime(0);
       toast.success("Recording stopped and transcribed");
-      setVoiceTranscript(
-        "Red Rhino 1 stop at location, case of fire mod. Upon arrival, white smoke seen in the lift shaft. Upon investigation, fire found in CRC of block 123 involving rubbish contents. CD extinguished fire using 2x hosereel. Case classified as C2 accidental due to naked light. Case handed over to SGT John Tan T123456 from Ang Mo Kio NPC."
-      );
+      if (famDemoPending) {
+        setVoiceTranscript(famDemoPending.stopMessage);
+      } else {
+        setVoiceTranscript(NON_DEMO_STOP_MESSAGE);
+      }
     }
   };
 
@@ -106,12 +193,14 @@ export function StopMessage() {
     toast.success("Generating Fire Investigation Report...");
     setDocumentType("report");
     setShowGeneration(true);
+    scrollPageToTop();
   };
 
   const handleGenerateSlides = () => {
     toast.success("Generating Activation Slides...");
     setDocumentType("slides");
     setShowGeneration(true);
+    scrollPageToTop();
   };
 
   const formatTime = (seconds: number) => {
@@ -141,7 +230,13 @@ export function StopMessage() {
             fieldNotes: fieldNotes.trim(),
           }}
         >
-          <ReportGeneration />
+          <ReportGeneration
+            onBack={() => {
+              setShowGeneration(false);
+              setDocumentType(null);
+              scrollPageToTop();
+            }}
+          />
         </ReportSessionProvider>
       );
     }
@@ -159,7 +254,13 @@ export function StopMessage() {
           premisesUen: demoScenario?.premisesUen,
         }}
       >
-        <SlidesGeneration />
+        <SlidesGeneration
+          onBack={() => {
+            setShowGeneration(false);
+            setDocumentType(null);
+            scrollPageToTop();
+          }}
+        />
       </ReportSessionProvider>
     );
   }
@@ -219,9 +320,11 @@ export function StopMessage() {
                             >
                               <span className="flex w-full items-center justify-between gap-3">
                                 <span className="text-foreground/90">{scenario.label}</span>
-                                <span className="text-xs text-brand-slides font-medium shrink-0">
-                                  Demo
-                                </span>
+                                {selectId !== FAM_DEMO_SELECT_ID && (
+                                  <span className="text-xs text-brand-slides font-medium shrink-0">
+                                    Demo
+                                  </span>
+                                )}
                               </span>
                             </SelectItem>
                           )
@@ -329,6 +432,7 @@ export function StopMessage() {
                   id="field-notes"
                   value={fieldNotes}
                   onChange={(e) => setFieldNotes(e.target.value)}
+                  onFocus={handleFieldNotesFocus}
                   placeholder="Paste incident notes, interview snippets, observations..."
                   rows={8}
                   className="font-mono text-sm"

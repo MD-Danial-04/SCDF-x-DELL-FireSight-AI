@@ -3,15 +3,27 @@
  * Run: npm run export-workflow-diagram
  */
 import { spawnSync } from "child_process";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const input = path.join(root, "docs/incident-workflow-steps.mmd");
+const config = path.join(root, "docs/incident-workflow-steps.config.json");
 const output = path.join(root, "docs/incident-workflow-steps.png");
 
 const mmdc = path.join(root, "node_modules/.bin/mmdc");
+const env = { ...process.env };
+if (!env.PUPPETEER_EXECUTABLE_PATH) {
+  for (const browser of ["/usr/bin/chromium", "/usr/bin/google-chrome", "/usr/bin/chromium-browser"]) {
+    if (fs.existsSync(browser)) {
+      env.PUPPETEER_EXECUTABLE_PATH = browser;
+      break;
+    }
+  }
+}
+
 const result = spawnSync(
   mmdc,
   [
@@ -19,16 +31,16 @@ const result = spawnSync(
     input,
     "-o",
     output,
+    "-c",
+    config,
     "-b",
     "white",
-    "-t",
-    "default",
     "-w",
-    "1800",
+    "2400",
     "-s",
-    "2",
+    "4",
   ],
-  { stdio: "inherit", cwd: root }
+  { stdio: "inherit", cwd: root, env }
 );
 
 if (result.status !== 0) {

@@ -64,6 +64,7 @@ export function fitDocxPreviewToWidth({
   const naturalHeight = measurePagesHeight(innerWrapper) + WRAPPER_PADDING * 2;
 
   host.style.width = `${naturalWidth}px`;
+  host.style.setProperty("--docx-fit-scale", String(clampedScale));
   host.style.transform = `scale(${clampedScale})`;
   host.style.transformOrigin = "top left";
   scaler.style.width = `${naturalWidth * clampedScale}px`;

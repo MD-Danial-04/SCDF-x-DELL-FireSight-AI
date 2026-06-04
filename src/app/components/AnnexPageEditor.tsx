@@ -62,11 +62,12 @@ function PageCard({
   const label = getPageLabel(pageIndex, annexId, subIndex);
 
   return (
-    <div className="flex flex-col w-[140px] shrink-0">
-      <p className="text-xs text-gray-600 mb-1 truncate" title={label}>
+    <div className="flex flex-col w-full min-w-0">
+      <p className="text-[10px] text-gray-600 mb-0.5 truncate" title={label}>
+        Annex {annexId}
         {annexId === "F" && subIndex !== undefined
-          ? `F-${subIndex + 1}`
-          : `Page ${pageIndex}`}
+          ? ` · F-${subIndex + 1}`
+          : ` · Page ${pageIndex}`}
       </p>
       <div
         tabIndex={0}
@@ -82,9 +83,9 @@ function PageCard({
         {displayUrl ? (
           <img src={displayUrl} alt={label} className="w-full h-full object-contain" />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full p-2 text-center text-xs text-amber-700 bg-amber-50">
-            <ImagePlus className="w-6 h-6 mb-1 opacity-60" />
-            Paste image required
+          <div className="flex flex-col items-center justify-center h-full p-1 text-center text-[10px] text-amber-700 bg-amber-50">
+            <ImagePlus className="w-4 h-4 mb-0.5 opacity-60" />
+            Paste required
           </div>
         )}
         {(focused || needsPaste) && (
@@ -100,12 +101,12 @@ function PageCard({
         className="hidden"
         onChange={handleFileChange}
       />
-      <div className="flex gap-1 mt-1">
+      <div className="flex gap-0.5 mt-0.5">
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="flex-1 h-7 text-xs px-1"
+          className="flex-1 h-6 text-[10px] px-1"
           onClick={() => fileRef.current?.click()}
         >
           Upload
@@ -115,11 +116,11 @@ function PageCard({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0"
+            className="h-6 w-6 p-0"
             title="Clear pasted image"
             onClick={() => onOverrideChange(pageIndex, null)}
           >
-            <X className="w-3 h-3" />
+            <X className="w-2.5 h-2.5" />
           </Button>
         )}
       </div>
@@ -132,7 +133,19 @@ export function AnnexPageEditor({
   overrides,
   onOverrideChange,
 }: AnnexPageEditorProps) {
+  const allPages = selectedIds.flatMap((annexId) => {
+    const annex = getAnnexById(annexId);
+    if (!annex) return [];
+    return annex.pageIndices.map((pageIndex, subIndex) => ({
+      annexId,
+      pageIndex,
+      subIndex: annexId === "F" ? subIndex : undefined,
+    }));
+  });
+
   if (selectedIds.length === 0) return null;
+
+  const totalPages = allPages.length;
 
   return (
     <div className="space-y-4 mt-4 border-t pt-4">
@@ -140,32 +153,24 @@ export function AnnexPageEditor({
       <p className="text-xs text-gray-500">
         Focus a card and paste (Ctrl+V) to replace a slide, or upload an image.
       </p>
-      {selectedIds.map((annexId) => {
-        const annex = getAnnexById(annexId);
-        if (!annex) return null;
-        return (
-          <div key={annexId}>
-            <p className="text-xs font-semibold text-gray-700 mb-2">
-              Annex {annexId}
-              <span className="font-normal text-gray-500 ml-1">
-                ({annex.pageIndices.length} page{annex.pageIndices.length > 1 ? "s" : ""})
-              </span>
-            </p>
-            <div className="flex flex-wrap gap-3 overflow-x-auto pb-1">
-              {annex.pageIndices.map((pageIndex, subIndex) => (
-                <PageCard
-                  key={pageIndex}
-                  pageIndex={pageIndex}
-                  annexId={annexId}
-                  subIndex={annexId === "F" ? subIndex : undefined}
-                  previewUrl={overrides[pageIndex]}
-                  onOverrideChange={onOverrideChange}
-                />
-              ))}
-            </div>
-          </div>
-        );
-      })}
+      <p className="text-xs font-semibold text-gray-700">
+        Annexes {selectedIds.join(", ")}
+        <span className="font-normal text-gray-500 ml-1">
+          ({totalPages} page{totalPages !== 1 ? "s" : ""})
+        </span>
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full items-start">
+        {allPages.map(({ annexId, pageIndex, subIndex }) => (
+          <PageCard
+            key={pageIndex}
+            pageIndex={pageIndex}
+            annexId={annexId}
+            subIndex={subIndex}
+            previewUrl={overrides[pageIndex]}
+            onOverrideChange={onOverrideChange}
+          />
+        ))}
+      </div>
     </div>
   );
 }

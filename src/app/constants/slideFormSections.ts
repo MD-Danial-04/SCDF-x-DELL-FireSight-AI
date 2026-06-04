@@ -136,5 +136,5 @@ export const SLIDE_EXTRACTABLE_KEYS: ActivationSlideFieldKey[] = [
 ];
 
 export function getDefaultOpenSlideSections(): string[] {
-  return ["general", "incident"];
+  return [];
 }

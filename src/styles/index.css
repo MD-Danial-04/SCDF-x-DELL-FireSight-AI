@@ -5,6 +5,12 @@
 /* docx-preview renders each page as a separate section inside the wrapper */
 .docx-preview-viewport {
   display: block;
+  /* Initial commit used 16px root; keep 14px app UI but restore preview typography */
+  font-size: 16px;
+}
+
+.docx-preview-host {
+  font-size: 16px;
 }
 
 .docx-preview-scaler {
@@ -21,4 +27,24 @@
 .docx-preview-host > .docx-preview-wrapper > section.docx-preview {
   margin-bottom: 8px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Undo global border-border; compensate for transform:scale() so lines stay ≥1px on screen */
+.docx-preview-host table td,
+.docx-preview-host table th {
+  border-color: #000 !important;
+  border-style: solid !important;
+  border-width: calc(1px / var(--docx-fit-scale, 1)) !important;
+}
+
+.slide-preview-viewport table td,
+.slide-preview-viewport table th {
+  border-color: #000 !important;
+  border-style: solid !important;
+  border-width: calc(1px / var(--slide-fit-scale, 1)) !important;
+}
+
+/* Slide preview panel: match initial commit typography */
+.slide-preview-viewport {
+  font-size: 16px;
 }

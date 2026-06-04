@@ -24,7 +24,7 @@ export const FIRE_MOD_RUBBISH_DEMO_SCENARIO: DemoScenario = {
 
 export const FAM_DEMO_SCENARIO: DemoScenario = {
   id: "fam",
-  label: "False Alarm Malfunction (FAM) — demo",
+  label: "False Alarm Malfunction (FAM)",
   incidentTypeId: "false-alarm-malfunction",
   stopMessage:
     "LF812 prepare for stop message. LF812 stop for location at 7 Gul Ave. Case classified as False alarm malfunction of manual Call point, at zone 7. Upon investigation No smoke no fire. Liase w Mr zaini, saferty officer. Case handed over to S3 alsyraf waT190350 from Nanyang NPC",

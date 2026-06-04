@@ -37,6 +37,7 @@ export function fitSlidePreviewToViewport({
   const clampedScale = Math.max(scale, MIN_SCALE);
 
   host.style.width = `${naturalWidth}px`;
+  host.style.setProperty("--slide-fit-scale", String(clampedScale));
   host.style.transform = `scale(${clampedScale})`;
   host.style.transformOrigin = "top left";
   scaler.style.width = `${naturalWidth * clampedScale}px`;

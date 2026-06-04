@@ -1,7 +1,7 @@
 flowchart LR
     subgraph step1 ["Step 1: Select type"]
         direction TB
-        T1["Incident template"]
+        T1["Template"]
         T2["Category + type"]
     end
 
@@ -12,11 +12,18 @@ flowchart LR
         C3["Field notes"]
     end
 
-    subgraph step3 ["Step 3: Generate"]
+    subgraph pipeline ["Step 3: Extract and review"]
+        direction TB
+        P1["ASR"]
+        P2["NER"]
+        P3["Confidence scores"]
+    end
+
+    subgraph step4 ["Step 4: Generate"]
         direction TB
         G1{"Fire report?"}
-        G1 -->|Yes| G2["Fire report"]
+        G1 -->|Yes| G2["Report"]
         G1 -->|Always| G3["Slides"]
     end
 
-    step1 --> step2 --> step3
+    step1 --> step2 --> pipeline --> step4

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { FileText, Download, Loader2, RefreshCw } from "lucide-react";
+import { FileText, Download, Loader2, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBanner } from "../components/StatusBanner";
@@ -22,7 +23,12 @@ import { ReportFormFields } from "../components/ReportFormFields";
 
 type Step = "review" | "edit";
 
-export function ReportGeneration() {
+interface ReportGenerationProps {
+  onBack?: () => void;
+}
+
+export function ReportGeneration({ onBack }: ReportGenerationProps) {
+  const navigate = useNavigate();
   const { incidentType, stopMessage, fieldNotes } = useReportSession();
   const [step, setStep] = useState<Step>("review");
   const [reportFields, setReportFields] = useState<FireReportData>(() => createEmptyReportFields());
@@ -211,6 +217,11 @@ export function ReportGeneration() {
     return fieldNotes.length > 80 ? `${fieldNotes.slice(0, 80)}…` : fieldNotes;
   }, [fieldNotes]);
 
+  const handlePrevious = () => {
+    if (onBack) onBack();
+    else navigate("/incident");
+  };
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -229,6 +240,30 @@ export function ReportGeneration() {
           ) : undefined
         }
       />
+
+      <div className="flex items-center justify-between gap-3">
+        <Button type="button" variant="outline" onClick={handlePrevious}>
+          <ChevronLeft className="mr-2 h-4 w-4" />
+          Previous
+        </Button>
+        {step === "review" &&
+          (docBlob ? (
+            <Button type="button" variant="outline" onClick={() => setStep("edit")}>
+              Next
+              <ChevronRight className="ml-2 h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              disabled
+              title="Generate report to continue"
+            >
+              Next
+              <ChevronRight className="ml-2 h-4 w-4" />
+            </Button>
+          ))}
+      </div>
 
       <StatusBanner variant="success" title="Stop message captured">
         {stopMessage ? (
