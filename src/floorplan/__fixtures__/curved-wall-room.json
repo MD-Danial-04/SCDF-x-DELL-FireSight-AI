@@ -1,0 +1,36 @@
+{
+  "walls": [
+    {
+      "identifier": "wall-straight-a",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [2, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 1]
+    },
+    {
+      "identifier": "wall-arc",
+      "story": 0,
+      "curve": {
+        "radius": 2,
+        "startAngle": 0,
+        "endAngle": 1.5707963267948966
+      },
+      "parentIdentifier": null,
+      "dimensions": [3.14159, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    },
+    {
+      "identifier": "wall-straight-b",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [2, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1]
+    }
+  ],
+  "openings": []
+}

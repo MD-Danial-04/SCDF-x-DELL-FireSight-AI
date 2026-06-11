@@ -1,0 +1,48 @@
+{
+  "rooms": [
+    {
+      "walls": [],
+      "openings": []
+    }
+  ],
+  "walls": [
+    {
+      "identifier": "merged-wall-a",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [3, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 0, 1]
+    },
+    {
+      "identifier": "merged-wall-b",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [3, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1.5, 1]
+    },
+    {
+      "identifier": "merged-wall-c",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [3, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 3, 1]
+    }
+  ],
+  "openings": [
+    {
+      "identifier": "merged-opening",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": "merged-wall-c",
+      "dimensions": [0.9, 2, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 3, 1]
+    }
+  ]
+}

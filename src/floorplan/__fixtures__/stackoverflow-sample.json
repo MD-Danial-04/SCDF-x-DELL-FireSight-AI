@@ -1,0 +1,22 @@
+{
+  "walls": [
+    {
+      "identifier": "1786EBF8-1C92-486A-9B99-D6168FDF6052",
+      "completedEdges": [],
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "confidence": { "high": {} },
+      "category": { "wall": {} },
+      "dimensions": [2.6529655, 2.415, 0],
+      "transform": [
+        -0.50751626, 0, 0.8616421, 0,
+        0, 1, 0, 0,
+        0.8616421, 0, 0.50751626, 0,
+        -0.49793836, -0.16968237, -0.6089062, 1
+      ],
+      "polygonCorners": []
+    }
+  ],
+  "openings": []
+}

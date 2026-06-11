@@ -17,7 +17,11 @@ import {
   type ReportFormFieldConfig,
 } from "../constants/reportFormSections";
 import { AnnexSelector, parseSelectedAnnexes } from "./AnnexSelector";
-import { getAnnexById } from "../constants/annexDefinitions";
+import {
+  buildAnnexAttachmentList,
+  getAnnexById,
+  sortAnnexIds,
+} from "../constants/annexDefinitions";
 
 interface ReportFormFieldsProps {
   fields: FireReportData;
@@ -144,6 +148,20 @@ export function ReportFormFields({
                     selectedIds={parseSelectedAnnexes(fields.selectedAnnexes)}
                     overrides={annexPreviewUrls}
                     onOverrideChange={onAnnexOverrideChange}
+                    onEnsureAnnexSelected={(id) => {
+                      const ids = parseSelectedAnnexes(fields.selectedAnnexes);
+                      if (ids.includes(id)) return;
+                      const next = sortAnnexIds([...ids, id]);
+                      onChange("selectedAnnexes", next.join(","));
+                      onChange("annexAttachmentList", buildAnnexAttachmentList(next));
+                      const annex = getAnnexById(id);
+                      if (id === "A" && annex) {
+                        onChange("annexLayoutPlan", annex.title);
+                      }
+                      if (id === "B" && annex) {
+                        onChange("annexPhotographs", annex.title);
+                      }
+                    }}
                     onChange={(ids, attachmentList) => {
                       onChange("selectedAnnexes", ids.join(","));
                       onChange("annexAttachmentList", attachmentList);
