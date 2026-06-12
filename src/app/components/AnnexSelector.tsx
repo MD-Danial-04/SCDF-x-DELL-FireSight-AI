@@ -7,6 +7,7 @@ import {
   sortAnnexIds,
 } from "../constants/annexDefinitions";
 import { AnnexPageEditor } from "./AnnexPageEditor";
+import { FloorplanAnnexEditor } from "./FloorplanAnnexEditor";
 
 interface AnnexSelectorProps {
   selectedIds: string[];
@@ -59,6 +60,12 @@ export function AnnexSelector({
           ))}
         </div>
       </div>
+      {onOverrideChange && (
+        <FloorplanAnnexEditor
+          enabled={selectedIds.includes("A")}
+          onOverrideChange={onOverrideChange}
+        />
+      )}
       {onOverrideChange && (
         <AnnexPageEditor
           selectedIds={selectedIds}
