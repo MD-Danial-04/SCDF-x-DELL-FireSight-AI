@@ -141,9 +141,10 @@ export function AnnexPageEditor({
       pageIndex,
       subIndex: annexId === "F" ? subIndex : undefined,
     }));
-  });
+  }).filter(({ annexId, pageIndex }) => !(annexId === "A" && pageIndex === 0));
 
   if (selectedIds.length === 0) return null;
+  if (allPages.length === 0) return null;
 
   const totalPages = allPages.length;
 
