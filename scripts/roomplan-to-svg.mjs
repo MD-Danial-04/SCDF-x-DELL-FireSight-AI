@@ -6,7 +6,7 @@ import { convertRoomPlan } from "../src/floorplan/convert.ts";
 function printUsage() {
   console.error(`Usage: roomplan-to-svg <input.json> [-o output.svg]
 
-Converts Apple RoomPlan JSON to a 2D SVG floorplan.
+Converts Apple RoomPlan JSON or FireSight room-scan JSON to a 2D SVG floorplan.
 
 Options:
   -o, --output   Output SVG file path (default: stdout)

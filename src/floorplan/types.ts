@@ -65,6 +65,7 @@ export interface ConvertOptions {
   strokeWidthM?: number;
   paddingM?: number;
   includeOpeningGaps?: boolean;
+  straighten?: boolean;
 }
 
 export const DEFAULT_CONVERT_OPTIONS: Required<ConvertOptions> = {
@@ -73,6 +74,7 @@ export const DEFAULT_CONVERT_OPTIONS: Required<ConvertOptions> = {
   strokeWidthM: 0.05,
   paddingM: 0.5,
   includeOpeningGaps: false,
+  straighten: false,
 };
 
 /** 2D point in meters (world X and Z). */

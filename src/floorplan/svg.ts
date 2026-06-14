@@ -1,3 +1,5 @@
+import type { OpeningMarker } from "./openingMarkers";
+import { escapeSvgText } from "./roomLabel";
 import { distance2D } from "./matrix";
 import { pointOnArc } from "./project";
 import type { Arc2D, Point2D, Segment2D, WallPrimitive2D } from "./types";
@@ -32,11 +34,19 @@ function collectPoints(primitives: WallPrimitive2D[]): Point2D[] {
   return points;
 }
 
+function collectMarkerPoints(markers: OpeningMarker[]): Point2D[] {
+  return markers.flatMap((marker) => marker.points);
+}
+
 export function computeBounds(
   primitives: WallPrimitive2D[],
   paddingM: number,
+  openingMarkers: OpeningMarker[] = [],
 ): SvgBounds {
-  const points = collectPoints(primitives);
+  const points = [
+    ...collectPoints(primitives),
+    ...collectMarkerPoints(openingMarkers),
+  ];
   if (points.length === 0) {
     return { minX: -paddingM, minZ: -paddingM, width: paddingM * 2, height: paddingM * 2 };
   }
@@ -87,26 +97,58 @@ function fmt(n: number): string {
 export interface SvgOptions {
   strokeWidthM: number;
   paddingM: number;
+  openingMarkers?: OpeningMarker[];
+  openingStrokeWidthM?: number;
+  roomLabel?: {
+    text: string;
+    center: Point2D;
+    fontSizeM: number;
+  };
 }
 
 export function buildSvg(
   primitives: WallPrimitive2D[],
   options: SvgOptions,
 ): string {
-  const bounds = computeBounds(primitives, options.paddingM);
+  const openingMarkers = options.openingMarkers ?? [];
+  const bounds = computeBounds(primitives, options.paddingM, openingMarkers);
   const { minX, minZ, width, height } = bounds;
 
-  const shapes = primitives
+  const wallShapes = primitives
     .map((p) => (p.kind === "segment" ? segmentToSvg(p) : arcToSvg(p)))
     .join("\n    ");
+
+  const openingShapes = openingMarkers.map((marker) => marker.svg).join("\n    ");
+  const openingStrokeWidth = fmt(options.openingStrokeWidthM ?? options.strokeWidthM);
+
+  const layers = [
+    `  <g data-layer="walls" fill="none" stroke="#000000" stroke-width="${fmt(options.strokeWidthM)}" stroke-linecap="square">`,
+    `    ${wallShapes}`,
+    `  </g>`,
+  ];
+
+  if (openingShapes) {
+    layers.push(
+      `  <g data-layer="openings" fill="none" stroke="#000000" stroke-width="${openingStrokeWidth}" stroke-linecap="round">`,
+      `    ${openingShapes}`,
+      `  </g>`,
+    );
+  }
+
+  const roomLabel = options.roomLabel;
+  if (roomLabel?.text) {
+    layers.push(
+      `  <g data-layer="labels" fill="#000000" stroke="none">`,
+      `    <text x="${fmt(roomLabel.center.x)}" y="${fmt(roomLabel.center.z)}" text-anchor="middle" dominant-baseline="middle" font-family="Arial, Helvetica, sans-serif" font-size="${fmt(roomLabel.fontSizeM)}">${escapeSvgText(roomLabel.text)}</text>`,
+      `  </g>`,
+    );
+  }
 
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(minX)} ${fmt(minZ)} ${fmt(width)} ${fmt(height)}" width="${fmt(width)}" height="${fmt(height)}">`,
     `  <rect x="${fmt(minX)}" y="${fmt(minZ)}" width="${fmt(width)}" height="${fmt(height)}" fill="#ffffff" />`,
-    `  <g fill="none" stroke="#000000" stroke-width="${fmt(options.strokeWidthM)}" stroke-linecap="square">`,
-    `    ${shapes}`,
-    `  </g>`,
+    ...layers,
     `</svg>`,
   ].join("\n");
 }

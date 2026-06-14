@@ -1,17 +1,28 @@
 import { useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { ImagePlus, Loader2, X } from "lucide-react";
-import { toast } from "sonner";
 import { getAnnexById } from "../constants/annexDefinitions";
 import { getPageLabel, hasDefaultPageAsset } from "../constants/annexPageDefaults";
 import { getDefaultPagePreviewUrl } from "../lib/annexImageAssets";
-import { importRoomPlanFloorplan } from "../lib/importRoomPlanFloorplan";
+import type { PhotoLogAnnexPreviewUrls } from "../types/photoLog";
 
 interface AnnexPageEditorProps {
   selectedIds: string[];
   overrides: Record<number, string>;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
-  onEnsureAnnexSelected?: (annexId: string) => void;
+  headerPreviewUrls?: Record<number, string>;
+  photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
+  photoLogPreviewLoading?: boolean;
+}
+
+interface PageEntry {
+  key: string;
+  annexId: string;
+  pageIndex: number;
+  subIndex?: number;
+  generatedPreviewUrl?: string;
+  readOnly?: boolean;
+  readOnlyCaption?: string;
 }
 
 function PageCard({
@@ -19,25 +30,30 @@ function PageCard({
   annexId,
   subIndex,
   previewUrl,
+  generatedPreviewUrl,
+  headerPreviewUrl,
+  readOnly = false,
+  readOnlyCaption,
+  loading = false,
   onOverrideChange,
-  onEnsureAnnexSelected,
 }: {
   pageIndex: number;
   annexId: string;
   subIndex?: number;
   previewUrl?: string;
+  generatedPreviewUrl?: string;
+  headerPreviewUrl?: string;
+  readOnly?: boolean;
+  readOnlyCaption?: string;
+  loading?: boolean;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
-  onEnsureAnnexSelected?: (annexId: string) => void;
 }) {
   const [focused, setFocused] = useState(false);
-  const [importingRoomPlan, setImportingRoomPlan] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const roomPlanRef = useRef<HTMLInputElement>(null);
   const defaultUrl = getDefaultPagePreviewUrl(pageIndex);
-  const displayUrl = previewUrl ?? defaultUrl;
-  const hasOverride = Boolean(previewUrl);
-  const needsPaste = !hasDefaultPageAsset(pageIndex) && !hasOverride;
-  const isAnnexA = annexId === "A" && pageIndex === 0;
+  const displayUrl = generatedPreviewUrl ?? previewUrl ?? headerPreviewUrl ?? defaultUrl;
+  const hasOverride = Boolean(previewUrl || generatedPreviewUrl);
+  const needsPaste = !readOnly && !hasDefaultPageAsset(pageIndex) && !hasOverride;
 
   const applyImageBlob = (blob: Blob | null) => {
     if (!blob) return;
@@ -46,7 +62,7 @@ function PageCard({
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
-    if (isAnnexA) return;
+    if (readOnly) return;
     const items = e.clipboardData?.items;
     if (!items) return;
     for (let i = 0; i < items.length; i++) {
@@ -68,178 +84,182 @@ function PageCard({
     e.target.value = "";
   };
 
-  const handleRoomPlanChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-
-    setImportingRoomPlan(true);
-    try {
-      const { pngBlob, warnings } = await importRoomPlanFloorplan(file);
-      onEnsureAnnexSelected?.("A");
-      onOverrideChange(pageIndex, pngBlob);
-      toast.success("Layout plan generated from RoomPlan scan");
-      for (const warning of warnings) {
-        toast.warning(warning);
-      }
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to import RoomPlan JSON";
-      toast.error(message);
-    } finally {
-      setImportingRoomPlan(false);
-    }
-  };
-
   const label = getPageLabel(pageIndex, annexId, subIndex);
-
-  const previewCardClass = isAnnexA
-    ? "relative rounded-md border-2 overflow-hidden aspect-[719/1058] bg-gray-100 border-gray-200"
-    : `relative rounded-md border-2 overflow-hidden aspect-[719/1058] bg-gray-100 cursor-pointer transition-colors ${
-        focused ? "border-red-500 ring-2 ring-red-200" : "border-gray-200 hover:border-gray-300"
-      }`;
+  const annexLabel =
+    annexId === "F" && subIndex !== undefined
+      ? ` · F-${subIndex + 1}`
+      : annexId === "D" && subIndex !== undefined
+        ? ` · D-${subIndex + 1}`
+        : ` · Page ${pageIndex}`;
 
   return (
     <div className="flex flex-col w-full min-w-0">
       <p className="text-[10px] text-gray-600 mb-0.5 truncate" title={label}>
         Annex {annexId}
-        {annexId === "F" && subIndex !== undefined
-          ? ` · F-${subIndex + 1}`
-          : ` · Page ${pageIndex}`}
+        {annexLabel}
       </p>
       <div
-        tabIndex={isAnnexA ? undefined : 0}
-        role={isAnnexA ? undefined : "button"}
-        onFocus={isAnnexA ? undefined : () => setFocused(true)}
-        onBlur={isAnnexA ? undefined : () => setFocused(false)}
-        onPaste={isAnnexA ? undefined : handlePaste}
-        onClick={isAnnexA ? undefined : () => fileRef.current?.click()}
-        className={previewCardClass}
+        tabIndex={readOnly ? undefined : 0}
+        role={readOnly ? undefined : "button"}
+        onFocus={readOnly ? undefined : () => setFocused(true)}
+        onBlur={readOnly ? undefined : () => setFocused(false)}
+        onPaste={handlePaste}
+        onClick={readOnly ? undefined : () => fileRef.current?.click()}
+        className={`relative rounded-md border-2 overflow-hidden aspect-[719/1058] bg-gray-100 transition-colors ${
+          readOnly
+            ? "border-gray-200"
+            : `cursor-pointer ${focused ? "border-red-500 ring-2 ring-red-200" : "border-gray-200 hover:border-gray-300"}`
+        }`}
       >
         {displayUrl ? (
           <img src={displayUrl} alt={label} className="w-full h-full object-contain" />
         ) : (
           <div className="flex flex-col items-center justify-center h-full p-1 text-center text-[10px] text-amber-700 bg-amber-50">
             <ImagePlus className="w-4 h-4 mb-0.5 opacity-60" />
-            {isAnnexA ? "Import layout plan" : "Paste required"}
+            Paste required
           </div>
         )}
-        {!isAnnexA && (focused || needsPaste) && (
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+            <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
+          </div>
+        )}
+        {!readOnly && (focused || needsPaste) && (
           <div className="absolute inset-x-0 bottom-0 bg-black/60 text-white text-[10px] py-1 text-center">
             {needsPaste ? "Paste or upload" : "Click to paste"}
           </div>
         )}
       </div>
-      {!isAnnexA && (
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/png,image/jpeg"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-      )}
-      {isAnnexA && (
-        <input
-          ref={roomPlanRef}
-          type="file"
-          accept=".json,application/json"
-          className="hidden"
-          onChange={handleRoomPlanChange}
-        />
-      )}
-      {isAnnexA ? (
-        <div className="flex gap-0.5 mt-0.5">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="flex-1 h-6 text-[10px] px-1"
-            disabled={importingRoomPlan}
-            onClick={() => roomPlanRef.current?.click()}
-          >
-            {importingRoomPlan ? (
-              <>
-                <Loader2 className="w-3 h-3 mr-1 animate-spin inline" />
-                Importing…
-              </>
-            ) : (
-              "Import layout plan"
-            )}
-          </Button>
-          {hasOverride && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              title="Clear layout plan"
-              onClick={() => onOverrideChange(pageIndex, null)}
-            >
-              <X className="w-2.5 h-2.5" />
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div className="flex gap-0.5 mt-0.5">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="flex-1 h-6 text-[10px] px-1"
-            onClick={() => fileRef.current?.click()}
-          >
-            Upload
-          </Button>
-          {hasOverride && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              title="Clear pasted image"
-              onClick={() => onOverrideChange(pageIndex, null)}
-            >
-              <X className="w-2.5 h-2.5" />
-            </Button>
-          )}
-        </div>
-      )}
-      {isAnnexA && (
-        <p className="text-[9px] text-gray-500 mt-0.5 leading-tight">
-          Import Apple RoomPlan JSON (.json)
+      {readOnly ? (
+        <p className="mt-0.5 text-[10px] text-gray-500">
+          {readOnlyCaption ??
+            (annexId === "A" && pageIndex === 0
+              ? "Edited in layout plan editor above"
+              : annexId === "E" && pageIndex === 4
+                ? "Edited in Annex E photo-log editor above"
+                : "Read-only preview")}
         </p>
+      ) : (
+        <>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <div className="flex gap-0.5 mt-0.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex-1 h-6 text-[10px] px-1"
+              onClick={() => fileRef.current?.click()}
+            >
+              Upload
+            </Button>
+            {hasOverride && !generatedPreviewUrl && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                title="Clear pasted image"
+                onClick={() => onOverrideChange(pageIndex, null)}
+              >
+                <X className="w-2.5 h-2.5" />
+              </Button>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
+}
+
+function buildPhotoLogPages(
+  annexId: "D" | "F",
+  pageIndices: number[],
+  previews: string[],
+): PageEntry[] {
+  if (previews.length > 0) {
+    return previews.map((url, subIndex) => ({
+      key: `${annexId}-${subIndex}`,
+      annexId,
+      pageIndex: annexId === "F" ? (pageIndices[subIndex] ?? 5 + subIndex) : 3,
+      subIndex,
+      generatedPreviewUrl: url,
+      readOnly: true,
+      readOnlyCaption: "Generated from photo log",
+    }));
+  }
+
+  if (annexId === "D") {
+    return [
+      {
+        key: "D-0",
+        annexId: "D",
+        pageIndex: 3,
+        subIndex: 0,
+        readOnly: true,
+        readOnlyCaption: "Add photos to generate preview",
+      },
+    ];
+  }
+
+  return pageIndices.map((pageIndex, subIndex) => ({
+    key: `F-${subIndex}`,
+    annexId: "F",
+    pageIndex,
+    subIndex,
+    readOnly: true,
+    readOnlyCaption: "Add photos to generate preview",
+  }));
 }
 
 export function AnnexPageEditor({
   selectedIds,
   overrides,
   onOverrideChange,
-  onEnsureAnnexSelected,
+  headerPreviewUrls = {},
+  photoLogAnnexPreviewUrls = { D: [], F: [] },
+  photoLogPreviewLoading = false,
 }: AnnexPageEditorProps) {
-  const allPages = selectedIds.flatMap((annexId) => {
+  const allPages: PageEntry[] = selectedIds.flatMap((annexId) => {
     const annex = getAnnexById(annexId);
     if (!annex) return [];
+
+    if (annexId === "D") {
+      return buildPhotoLogPages("D", annex.pageIndices, photoLogAnnexPreviewUrls.D);
+    }
+
+    if (annexId === "F") {
+      return buildPhotoLogPages("F", annex.pageIndices, photoLogAnnexPreviewUrls.F);
+    }
+
     return annex.pageIndices.map((pageIndex, subIndex) => ({
+      key: `${annexId}-${pageIndex}`,
       annexId,
       pageIndex,
       subIndex: annexId === "F" ? subIndex : undefined,
+      readOnly: (annexId === "A" && pageIndex === 0) || (annexId === "E" && pageIndex === 4),
     }));
-  }).filter(({ annexId, pageIndex }) => !(annexId === "A" && pageIndex === 0));
+  });
 
   if (selectedIds.length === 0) return null;
   if (allPages.length === 0) return null;
 
   const totalPages = allPages.length;
+  const showPhotoLogLoading =
+    photoLogPreviewLoading &&
+    selectedIds.some((id) => id === "D" || id === "F");
 
   return (
     <div className="space-y-4 mt-4 border-t pt-4">
       <p className="text-sm font-medium">Annex page images</p>
       <p className="text-xs text-gray-500">
-        Annex A: use Import layout plan. Other annexes: paste or upload an image.
+        Paste or upload an image for each selected annex page. Annex D and F update
+        automatically from the photo log.
       </p>
       <p className="text-xs font-semibold text-gray-700">
         Annexes {selectedIds.join(", ")}
@@ -248,17 +268,31 @@ export function AnnexPageEditor({
         </span>
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full items-start">
-        {allPages.map(({ annexId, pageIndex, subIndex }) => (
-          <PageCard
-            key={pageIndex}
-            pageIndex={pageIndex}
-            annexId={annexId}
-            subIndex={subIndex}
-            previewUrl={overrides[pageIndex]}
-            onOverrideChange={onOverrideChange}
-            onEnsureAnnexSelected={onEnsureAnnexSelected}
-          />
-        ))}
+        {allPages.map(
+          ({
+            key,
+            annexId,
+            pageIndex,
+            subIndex,
+            generatedPreviewUrl,
+            readOnly,
+            readOnlyCaption,
+          }) => (
+            <PageCard
+              key={key}
+              pageIndex={pageIndex}
+              annexId={annexId}
+              subIndex={subIndex}
+              previewUrl={overrides[pageIndex]}
+              generatedPreviewUrl={generatedPreviewUrl}
+              headerPreviewUrl={headerPreviewUrls[pageIndex]}
+              readOnly={readOnly ?? ((annexId === "A" && pageIndex === 0) || (annexId === "E" && pageIndex === 4))}
+              readOnlyCaption={readOnlyCaption}
+              loading={showPhotoLogLoading && (annexId === "D" || annexId === "F")}
+              onOverrideChange={onOverrideChange}
+            />
+          ),
+        )}
       </div>
     </div>
   );

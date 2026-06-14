@@ -1,25 +1,18 @@
 import { convertRoomPlan } from "../../floorplan/convert";
 import { RoomPlanParseError } from "../../floorplan/parse";
-import { svgStringToAnnexPngBlob } from "./svgToAnnexPng";
 
-export interface ImportRoomPlanResult {
-  pngBlob: Blob;
+export interface ConvertRoomPlanFileResult {
+  svg: string;
   warnings: string[];
 }
 
-async function readFileAsText(file: File): Promise<string> {
-  return file.text();
-}
-
-export async function importRoomPlanFloorplan(
+export async function convertRoomPlanFile(
   file: File,
-): Promise<ImportRoomPlanResult> {
-  const json = await readFileAsText(file);
+): Promise<ConvertRoomPlanFileResult> {
+  const json = await file.text();
 
-  let svg: string;
-  let warnings: string[];
   try {
-    ({ svg, warnings } = convertRoomPlan(json));
+    return convertRoomPlan(json);
   } catch (err) {
     if (err instanceof RoomPlanParseError) {
       throw new Error(err.message);
@@ -28,7 +21,4 @@ export async function importRoomPlanFloorplan(
       ? err
       : new Error("Failed to convert RoomPlan JSON");
   }
-
-  const pngBlob = await svgStringToAnnexPngBlob(svg);
-  return { pngBlob, warnings };
 }

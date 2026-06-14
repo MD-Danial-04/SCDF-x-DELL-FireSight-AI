@@ -22,7 +22,7 @@ function snapPoint(point: Point2D, canonical: Point2D[]): Point2D {
   return point;
 }
 
-function snapEndpoints(
+export function snapEndpoints(
   segments: Segment2D[],
   tolerance: number,
 ): Segment2D[] {

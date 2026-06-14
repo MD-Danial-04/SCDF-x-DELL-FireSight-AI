@@ -241,3 +241,19 @@ export function splitArc(arc: Arc2D, t0: number, t1: number): Arc2D[] {
   }
   return result;
 }
+
+export function sliceArc(arc: Arc2D, t0: number, t1: number): Arc2D {
+  const lo = Math.max(0, Math.min(t0, t1));
+  const hi = Math.min(1, Math.max(t0, t1));
+  let sweep = arc.endAngle - arc.startAngle;
+  while (sweep < 0) sweep += 2 * Math.PI;
+
+  return {
+    kind: "arc",
+    center: arc.center,
+    radius: arc.radius,
+    startAngle: arc.startAngle + sweep * lo,
+    endAngle: arc.startAngle + sweep * hi,
+    wallId: arc.wallId,
+  };
+}
