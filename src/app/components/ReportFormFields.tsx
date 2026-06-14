@@ -17,7 +17,12 @@ import {
   type ReportFormFieldConfig,
 } from "../constants/reportFormSections";
 import { AnnexSelector, parseSelectedAnnexes } from "./AnnexSelector";
-import { getAnnexById } from "../constants/annexDefinitions";
+import { InterviewRecordingCard } from "./InterviewRecordingCard";
+import {
+  buildAnnexAttachmentList,
+  getAnnexById,
+  sortAnnexIds,
+} from "../constants/annexDefinitions";
 
 interface ReportFormFieldsProps {
   fields: FireReportData;
@@ -144,6 +149,20 @@ export function ReportFormFields({
                     selectedIds={parseSelectedAnnexes(fields.selectedAnnexes)}
                     overrides={annexPreviewUrls}
                     onOverrideChange={onAnnexOverrideChange}
+                    onEnsureAnnexSelected={(id) => {
+                      const ids = parseSelectedAnnexes(fields.selectedAnnexes);
+                      if (ids.includes(id)) return;
+                      const next = sortAnnexIds([...ids, id]);
+                      onChange("selectedAnnexes", next.join(","));
+                      onChange("annexAttachmentList", buildAnnexAttachmentList(next));
+                      const annex = getAnnexById(id);
+                      if (id === "A" && annex) {
+                        onChange("annexLayoutPlan", annex.title);
+                      }
+                      if (id === "B" && annex) {
+                        onChange("annexPhotographs", annex.title);
+                      }
+                    }}
                     onChange={(ids, attachmentList) => {
                       onChange("selectedAnnexes", ids.join(","));
                       onChange("annexAttachmentList", attachmentList);
@@ -169,19 +188,32 @@ export function ReportFormFields({
                   onChange={onChange}
                 />
               )}
-              {section.subsections?.map((sub) => (
-                <div key={sub.title} className="mb-5 last:mb-0">
-                  <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3 border-l-2 border-red-400 pl-2">
-                    {sub.title}
-                  </h5>
-                  <FieldsGrid
-                    fieldConfigs={sub.fields}
-                    fields={fields}
-                    extractedKeys={extractedKeys}
-                    onChange={onChange}
-                  />
-                </div>
-              ))}
+              {section.subsections?.map((sub) => {
+                const factsKey =
+                  sub.fields.find((f) => f.key === "interviewee1Facts")?.key ??
+                  sub.fields.find((f) => f.key === "interviewee2Facts")?.key;
+
+                return (
+                  <div key={sub.title} className="mb-5 last:mb-0">
+                    <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3 border-l-2 border-red-400 pl-2">
+                      {sub.title}
+                    </h5>
+                    {factsKey && (
+                      <InterviewRecordingCard
+                        initialTranscript={fields[factsKey]}
+                        onStop={(text) => onChange(factsKey, text)}
+                        className="mb-4"
+                      />
+                    )}
+                    <FieldsGrid
+                      fieldConfigs={sub.fields}
+                      fields={fields}
+                      extractedKeys={extractedKeys}
+                      onChange={onChange}
+                    />
+                  </div>
+                );
+              })}
             </AccordionContent>
           </AccordionItem>
         );

@@ -14,6 +14,7 @@ interface AnnexSelectorProps {
   onChange: (selectedIds: string[], attachmentList: string) => void;
   overrides?: Record<number, string>;
   onOverrideChange?: (pageIndex: number, blob: Blob | null) => void;
+  onEnsureAnnexSelected?: (annexId: string) => void;
 }
 
 export function AnnexSelector({
@@ -21,6 +22,7 @@ export function AnnexSelector({
   onChange,
   overrides = {},
   onOverrideChange,
+  onEnsureAnnexSelected,
 }: AnnexSelectorProps) {
   const toggle = (id: string, checked: boolean) => {
     const next = checked
@@ -71,6 +73,7 @@ export function AnnexSelector({
           selectedIds={selectedIds}
           overrides={overrides}
           onOverrideChange={onOverrideChange}
+          onEnsureAnnexSelected={onEnsureAnnexSelected}
         />
       )}
     </div>

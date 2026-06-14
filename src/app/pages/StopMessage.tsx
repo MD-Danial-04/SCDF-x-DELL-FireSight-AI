@@ -32,6 +32,7 @@ import {
   isDemoSelectId,
   type DemoScenario,
 } from "../constants/demoScenarios";
+import { useRecordingTimer } from "../hooks/useRecordingTimer";
 
 const FAM_DEMO_SELECT_ID = "demo-fam";
 const FAM_TYPEWRITER_DURATION_MS = 2500;
@@ -52,8 +53,7 @@ export function StopMessage() {
   const [selectedSelectValue, setSelectedSelectValue] = useState("");
   const [isDemoSelection, setIsDemoSelection] = useState(false);
   const [selectedIncidentType, setSelectedIncidentType] = useState<IncidentType | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
+  const { isRecording, recordingTime, start, stop, formatTime } = useRecordingTimer();
   const [textInput, setTextInput] = useState("");
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [fieldNotes, setFieldNotes] = useState("");
@@ -65,21 +65,21 @@ export function StopMessage() {
   } | null>(null);
   const [famFieldNotesRevealed, setFamFieldNotesRevealed] = useState(false);
 
-  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const clearRecordingTimers = useCallback(() => {
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
+  const clearTypewriterTimer = useCallback(() => {
     if (typewriterTimerRef.current) {
       clearInterval(typewriterTimerRef.current);
       typewriterTimerRef.current = null;
     }
   }, []);
 
-  useEffect(() => () => clearRecordingTimers(), [clearRecordingTimers]);
+  const clearRecordingState = useCallback(() => {
+    stop();
+    clearTypewriterTimer();
+  }, [stop, clearTypewriterTimer]);
+
+  useEffect(() => () => clearRecordingState(), [clearRecordingState]);
 
   const startFamTypewriter = useCallback((stopMessage: string) => {
     const chunks = stopMessage.split(/\s+/).filter(Boolean);
@@ -134,9 +134,7 @@ export function StopMessage() {
         if (scenario) loadDemoScenario(scenario, value);
         return;
       }
-      clearRecordingTimers();
-      setIsRecording(false);
-      setRecordingTime(0);
+      clearRecordingState();
       setFamDemoPending(null);
       setFamFieldNotesRevealed(false);
       setIsDemoSelection(false);
@@ -144,7 +142,7 @@ export function StopMessage() {
       const type = incidentTypes.find((t) => t.id === value);
       setSelectedIncidentType(type || null);
     },
-    [loadDemoScenario, clearRecordingTimers]
+    [loadDemoScenario, clearRecordingState]
   );
 
   const handleFieldNotesFocus = useCallback(() => {
@@ -166,20 +164,14 @@ export function StopMessage() {
 
   const handleRecord = () => {
     if (!isRecording) {
-      clearRecordingTimers();
-      setIsRecording(true);
-      setRecordingTime(0);
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
-
+      clearTypewriterTimer();
+      start();
       if (famDemoPending) {
         startFamTypewriter(famDemoPending.stopMessage);
       }
     } else {
-      clearRecordingTimers();
-      setIsRecording(false);
-      setRecordingTime(0);
+      clearTypewriterTimer();
+      stop();
       toast.success("Recording stopped and transcribed");
       if (famDemoPending) {
         setVoiceTranscript(famDemoPending.stopMessage);
@@ -201,12 +193,6 @@ export function StopMessage() {
     setDocumentType("slides");
     setShowGeneration(true);
     scrollPageToTop();
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
   const effectiveStopMessage = voiceTranscript.trim() || textInput.trim();
