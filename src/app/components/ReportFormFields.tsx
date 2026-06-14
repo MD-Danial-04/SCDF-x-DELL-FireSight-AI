@@ -17,6 +17,7 @@ import {
   type ReportFormFieldConfig,
 } from "../constants/reportFormSections";
 import { AnnexSelector, parseSelectedAnnexes } from "./AnnexSelector";
+import { InterviewRecordingCard } from "./InterviewRecordingCard";
 import {
   buildAnnexAttachmentList,
   getAnnexById,
@@ -187,19 +188,32 @@ export function ReportFormFields({
                   onChange={onChange}
                 />
               )}
-              {section.subsections?.map((sub) => (
-                <div key={sub.title} className="mb-5 last:mb-0">
-                  <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3 border-l-2 border-red-400 pl-2">
-                    {sub.title}
-                  </h5>
-                  <FieldsGrid
-                    fieldConfigs={sub.fields}
-                    fields={fields}
-                    extractedKeys={extractedKeys}
-                    onChange={onChange}
-                  />
-                </div>
-              ))}
+              {section.subsections?.map((sub) => {
+                const factsKey =
+                  sub.fields.find((f) => f.key === "interviewee1Facts")?.key ??
+                  sub.fields.find((f) => f.key === "interviewee2Facts")?.key;
+
+                return (
+                  <div key={sub.title} className="mb-5 last:mb-0">
+                    <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3 border-l-2 border-red-400 pl-2">
+                      {sub.title}
+                    </h5>
+                    {factsKey && (
+                      <InterviewRecordingCard
+                        initialTranscript={fields[factsKey]}
+                        onStop={(text) => onChange(factsKey, text)}
+                        className="mb-4"
+                      />
+                    )}
+                    <FieldsGrid
+                      fieldConfigs={sub.fields}
+                      fields={fields}
+                      extractedKeys={extractedKeys}
+                      onChange={onChange}
+                    />
+                  </div>
+                );
+              })}
             </AccordionContent>
           </AccordionItem>
         );
