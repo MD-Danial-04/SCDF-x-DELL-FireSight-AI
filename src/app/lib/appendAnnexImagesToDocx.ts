@@ -81,10 +81,45 @@ function ensureContentType(
   return contentTypesXml.replace("</Types>", `${insert}</Types>`);
 }
 
+function appendImageData(
+  imageData: AnnexImageData,
+  zip: PizZip,
+  annexBlock: string[],
+  relIdRef: { value: number },
+  mediaIndexRef: { value: number },
+  docPrIdRef: { value: number },
+  relsXmlRef: { value: string },
+  contentTypesXmlRef: { value: string },
+): void {
+  const { buffer, extension, width, height } = imageData;
+  const { cx, cy } = scaleToMaxWidth(width, height);
+  const ext = extension === "jpeg" ? "jpeg" : "png";
+  const mediaName = `annex-media-${mediaIndexRef.value}.${ext}`;
+  const mediaPath = `word/media/${mediaName}`;
+
+  zip.file(mediaPath, buffer);
+  contentTypesXmlRef.value = ensureContentType(
+    contentTypesXmlRef.value,
+    `/${mediaPath}`,
+    extension,
+  );
+
+  relsXmlRef.value = relsXmlRef.value.replace(
+    "</Relationships>",
+    `<Relationship Id="rId${relIdRef.value}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/></Relationships>`,
+  );
+
+  annexBlock.push(buildImageParagraph(relIdRef.value, docPrIdRef.value, cx, cy));
+  relIdRef.value += 1;
+  mediaIndexRef.value += 1;
+  docPrIdRef.value += 1;
+}
+
 export async function appendAnnexImagesToDocx(
   zip: PizZip,
   selectedAnnexIds: string[],
-  overrides?: Map<number, Blob>
+  overrides?: Map<number, Blob>,
+  generatedPages?: Map<string, AnnexImageData[]>,
 ): Promise<void> {
   const sorted = sortAnnexIds(selectedAnnexIds);
   if (sorted.length === 0) return;
@@ -98,9 +133,11 @@ export async function appendAnnexImagesToDocx(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>`;
 
   const annexBlock: string[] = [buildPageBreak(), buildHeading("ANNEXES")];
-  let relId = nextRelId(relsXml);
-  let mediaIndex = nextMediaIndex(zip);
-  let docPrId = 1000;
+  const relIdRef = { value: nextRelId(relsXml) };
+  const mediaIndexRef = { value: nextMediaIndex(zip) };
+  const docPrIdRef = { value: 1000 };
+  const relsXmlRef = { value: relsXml };
+  const contentTypesXmlRef = { value: contentTypesXml };
 
   for (const annexId of sorted) {
     const annex = getAnnexById(annexId);
@@ -108,30 +145,40 @@ export async function appendAnnexImagesToDocx(
 
     annexBlock.push(buildPageBreak(), buildHeading(annex.title));
 
+    const generated = generatedPages?.get(annexId);
+    if (generated && generated.length > 0) {
+      for (const imageData of generated) {
+        appendImageData(
+          imageData,
+          zip,
+          annexBlock,
+          relIdRef,
+          mediaIndexRef,
+          docPrIdRef,
+          relsXmlRef,
+          contentTypesXmlRef,
+        );
+      }
+      continue;
+    }
+
     for (const pageIndex of annex.pageIndices) {
-      const { buffer, extension, width, height } = await loadPageImageData(
-        pageIndex,
-        overrides
+      const imageData = await loadPageImageData(pageIndex, overrides);
+      appendImageData(
+        imageData,
+        zip,
+        annexBlock,
+        relIdRef,
+        mediaIndexRef,
+        docPrIdRef,
+        relsXmlRef,
+        contentTypesXmlRef,
       );
-      const { cx, cy } = scaleToMaxWidth(width, height);
-      const ext = extension === "jpeg" ? "jpeg" : "png";
-      const mediaName = `annex-media-${mediaIndex}.${ext}`;
-      const mediaPath = `word/media/${mediaName}`;
-
-      zip.file(mediaPath, buffer);
-      contentTypesXml = ensureContentType(contentTypesXml, `/${mediaPath}`, extension);
-
-      relsXml = relsXml.replace(
-        "</Relationships>",
-        `<Relationship Id="rId${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/></Relationships>`
-      );
-
-      annexBlock.push(buildImageParagraph(relId, docPrId, cx, cy));
-      relId += 1;
-      mediaIndex += 1;
-      docPrId += 1;
     }
   }
+
+  relsXml = relsXmlRef.value;
+  contentTypesXml = contentTypesXmlRef.value;
 
   const insertXml = annexBlock.join("");
   if (documentXml.includes("<w:sectPr")) {

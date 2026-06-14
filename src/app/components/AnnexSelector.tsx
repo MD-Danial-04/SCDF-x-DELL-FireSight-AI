@@ -8,21 +8,48 @@ import {
 } from "../constants/annexDefinitions";
 import { AnnexPageEditor } from "./AnnexPageEditor";
 import { FloorplanAnnexEditor } from "./FloorplanAnnexEditor";
+import { AnnexEEditor } from "./AnnexEEditor";
+import { PhotoLogEditor } from "./PhotoLogEditor";
+import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
 
 interface AnnexSelectorProps {
   selectedIds: string[];
   onChange: (selectedIds: string[], attachmentList: string) => void;
+  incidentNo?: string;
+  locationOfFire?: string;
   overrides?: Record<number, string>;
+  headerPreviewUrls?: Record<number, string>;
   onOverrideChange?: (pageIndex: number, blob: Blob | null) => void;
-  onEnsureAnnexSelected?: (annexId: string) => void;
+  photos?: PhotoLogEntry[];
+  photoPreviewUrls?: Record<string, string>;
+  onAddPhotos?: (files: FileList | File[]) => void;
+  onRemovePhoto?: (id: string) => void;
+  onReorderPhoto?: (id: string, direction: "up" | "down") => void;
+  onCopyPhoto?: (id: string) => void;
+  photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
+  photoLogPreviewLoading?: boolean;
+  floorplanSvg?: string | null;
+  onFloorplanSvgChange?: (svg: string | null) => void;
 }
 
 export function AnnexSelector({
   selectedIds,
   onChange,
+  incidentNo,
+  locationOfFire,
   overrides = {},
+  headerPreviewUrls = {},
   onOverrideChange,
-  onEnsureAnnexSelected,
+  photos = [],
+  photoPreviewUrls = {},
+  onAddPhotos,
+  onRemovePhoto,
+  onReorderPhoto,
+  onCopyPhoto,
+  photoLogAnnexPreviewUrls = { D: [], F: [] },
+  photoLogPreviewLoading = false,
+  floorplanSvg = null,
+  onFloorplanSvgChange,
 }: AnnexSelectorProps) {
   const toggle = (id: string, checked: boolean) => {
     const next = checked
@@ -65,6 +92,34 @@ export function AnnexSelector({
       {onOverrideChange && (
         <FloorplanAnnexEditor
           enabled={selectedIds.includes("A")}
+          incidentNo={incidentNo}
+          locationOfFire={locationOfFire}
+          onOverrideChange={onOverrideChange}
+          onFloorplanSvgChange={onFloorplanSvgChange}
+        />
+      )}
+      {onAddPhotos && onRemovePhoto && onReorderPhoto && onCopyPhoto && (
+        <PhotoLogEditor
+          enabled={
+            selectedIds.includes("D") ||
+            selectedIds.includes("E") ||
+            selectedIds.includes("F")
+          }
+          photos={photos}
+          previewUrls={photoPreviewUrls}
+          onAddPhotos={onAddPhotos}
+          onRemovePhoto={onRemovePhoto}
+          onReorderPhoto={onReorderPhoto}
+          onCopyPhoto={onCopyPhoto}
+        />
+      )}
+      {onOverrideChange && (
+        <AnnexEEditor
+          enabled={selectedIds.includes("E")}
+          floorplanSvg={floorplanSvg}
+          photos={photos}
+          incidentNo={incidentNo}
+          locationOfFire={locationOfFire}
           onOverrideChange={onOverrideChange}
         />
       )}
@@ -73,7 +128,9 @@ export function AnnexSelector({
           selectedIds={selectedIds}
           overrides={overrides}
           onOverrideChange={onOverrideChange}
-          onEnsureAnnexSelected={onEnsureAnnexSelected}
+          headerPreviewUrls={headerPreviewUrls}
+          photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
+          photoLogPreviewLoading={photoLogPreviewLoading}
         />
       )}
     </div>

@@ -18,6 +18,7 @@ import {
 } from "../constants/reportFormSections";
 import { AnnexSelector, parseSelectedAnnexes } from "./AnnexSelector";
 import { InterviewRecordingCard } from "./InterviewRecordingCard";
+import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
 import {
   buildAnnexAttachmentList,
   getAnnexById,
@@ -29,7 +30,18 @@ interface ReportFormFieldsProps {
   extractedKeys: Set<string>;
   onChange: (key: FireReportFieldKey, value: string) => void;
   annexPreviewUrls?: Record<number, string>;
+  annexHeaderPreviewUrls?: Record<number, string>;
   onAnnexOverrideChange?: (pageIndex: number, blob: Blob | null) => void;
+  photos?: PhotoLogEntry[];
+  photoPreviewUrls?: Record<string, string>;
+  onAddPhotos?: (files: FileList | File[]) => void;
+  onRemovePhoto?: (id: string) => void;
+  onReorderPhoto?: (id: string, direction: "up" | "down") => void;
+  onCopyPhoto?: (id: string) => void;
+  photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
+  photoLogPreviewLoading?: boolean;
+  floorplanSvg?: string | null;
+  onFloorplanSvgChange?: (svg: string | null) => void;
 }
 
 function Field({
@@ -111,7 +123,18 @@ export function ReportFormFields({
   extractedKeys,
   onChange,
   annexPreviewUrls = {},
+  annexHeaderPreviewUrls = {},
   onAnnexOverrideChange,
+  photos = [],
+  photoPreviewUrls = {},
+  onAddPhotos,
+  onRemovePhoto,
+  onReorderPhoto,
+  onCopyPhoto,
+  photoLogAnnexPreviewUrls = { D: [], F: [] },
+  photoLogPreviewLoading = false,
+  floorplanSvg = null,
+  onFloorplanSvgChange,
 }: ReportFormFieldsProps) {
   const countAutoFilled = (sectionId: string) => {
     const section = REPORT_FORM_SECTIONS.find((s) => s.id === sectionId);
@@ -147,22 +170,21 @@ export function ReportFormFields({
                 <div className="mb-4">
                   <AnnexSelector
                     selectedIds={parseSelectedAnnexes(fields.selectedAnnexes)}
+                    incidentNo={fields.incidentNo}
+                    locationOfFire={fields.locationOfFire}
                     overrides={annexPreviewUrls}
+                    headerPreviewUrls={annexHeaderPreviewUrls}
                     onOverrideChange={onAnnexOverrideChange}
-                    onEnsureAnnexSelected={(id) => {
-                      const ids = parseSelectedAnnexes(fields.selectedAnnexes);
-                      if (ids.includes(id)) return;
-                      const next = sortAnnexIds([...ids, id]);
-                      onChange("selectedAnnexes", next.join(","));
-                      onChange("annexAttachmentList", buildAnnexAttachmentList(next));
-                      const annex = getAnnexById(id);
-                      if (id === "A" && annex) {
-                        onChange("annexLayoutPlan", annex.title);
-                      }
-                      if (id === "B" && annex) {
-                        onChange("annexPhotographs", annex.title);
-                      }
-                    }}
+                    photos={photos}
+                    photoPreviewUrls={photoPreviewUrls}
+                    onAddPhotos={onAddPhotos}
+                    onRemovePhoto={onRemovePhoto}
+                    onReorderPhoto={onReorderPhoto}
+                    onCopyPhoto={onCopyPhoto}
+                    photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
+                    photoLogPreviewLoading={photoLogPreviewLoading}
+                    floorplanSvg={floorplanSvg}
+                    onFloorplanSvgChange={onFloorplanSvgChange}
                     onChange={(ids, attachmentList) => {
                       onChange("selectedAnnexes", ids.join(","));
                       onChange("annexAttachmentList", attachmentList);

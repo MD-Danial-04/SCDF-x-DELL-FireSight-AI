@@ -1,3 +1,8 @@
+import {
+  type FireSightRoomScan,
+  type FireSightWall,
+  isFireSightRoomScan,
+} from "./firesight";
 import type {
   CapturedRoom,
   CapturedStructure,
@@ -5,6 +10,8 @@ import type {
   RoomPlanInput,
   RoomPlanSurface,
 } from "./types";
+
+export { isFireSightRoomScan };
 
 export class RoomPlanParseError extends Error {
   constructor(message: string) {
@@ -45,6 +52,45 @@ function validateSurface(surface: RoomPlanSurface, label: string): void {
       `${label} ${surface.identifier} needs dimensions, polygonCorners, or curve`,
     );
   }
+}
+
+function isFireSightPoint(value: unknown): value is { x: number; y: number } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { x?: unknown }).x === "number" &&
+    typeof (value as { y?: unknown }).y === "number"
+  );
+}
+
+function validateFireSightWall(wall: unknown, index: number): FireSightWall {
+  if (!wall || typeof wall !== "object") {
+    throw new RoomPlanParseError(`Wall ${index + 1} is invalid`);
+  }
+  const record = wall as Record<string, unknown>;
+  const id = record.id;
+  if (typeof id !== "string" || !id) {
+    throw new RoomPlanParseError(`Wall ${index + 1} missing id`);
+  }
+  if (!isFireSightPoint(record.start)) {
+    throw new RoomPlanParseError(`Wall ${id} missing valid start point`);
+  }
+  if (!isFireSightPoint(record.end)) {
+    throw new RoomPlanParseError(`Wall ${id} missing valid end point`);
+  }
+  return {
+    id,
+    start: record.start,
+    end: record.end,
+  };
+}
+
+export function normalizeFireSightScan(doc: FireSightRoomScan): FireSightRoomScan {
+  if (!Array.isArray(doc.walls) || doc.walls.length === 0) {
+    throw new RoomPlanParseError("No walls found in room scan");
+  }
+  const walls = doc.walls.map(validateFireSightWall);
+  return { ...doc, walls };
 }
 
 export function parseRoomPlanJson(json: string): RoomPlanInput {

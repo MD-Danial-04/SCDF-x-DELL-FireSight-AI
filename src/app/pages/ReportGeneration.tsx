@@ -13,15 +13,31 @@ import { useReportSession } from "../context/ReportSessionContext";
 import { createEmptyReportFields, type FireReportData } from "../types/fireReport";
 import { extractReportFields, mergeReportFields } from "../lib/extractReportFields";
 import { parseSelectedAnnexes } from "../components/AnnexSelector";
-import { validateAnnexPages } from "../constants/annexDefinitions";
+import { validateAnnexPages, getRequiredPageIndices } from "../constants/annexDefinitions";
 import { downloadDocx, generateFireReportDocx } from "../lib/generateFireReportDocx";
+import {
+  compositeHeaderValuesOntoTemplate,
+  ANNEX_E_PAGE_INDEX,
+  hasHeaderValues,
+} from "../lib/annexHeaderOverlay";
+import { getDefaultPagePreviewUrl } from "../lib/annexImageAssets";
 import {
   observeDocxPreviewFit,
   scheduleDocxPreviewFit,
 } from "../lib/fitDocxPreviewToViewport";
 import { ReportFormFields } from "../components/ReportFormFields";
+import { generateAnnexDBlobs, generateAnnexFBlobs } from "../lib/photoLogAnnexes";
+import {
+  createPhotoCopy,
+  createPhotoLogEntry,
+  type PhotoLogAnnexPreviewUrls,
+  type PhotoLogEntry,
+} from "../types/photoLog";
 
 type Step = "review" | "edit";
+
+/** Static annex template pages (A/B/C/E/G) that receive header value overlays. */
+const STATIC_HEADER_PAGE_INDICES = [0, 1, 2, 4, 8];
 
 interface ReportGenerationProps {
   onBack?: () => void;
@@ -39,6 +55,13 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     () => new Map()
   );
   const [annexPreviewUrls, setAnnexPreviewUrls] = useState<Record<number, string>>({});
+  const [annexHeaderPreviewUrls, setAnnexHeaderPreviewUrls] = useState<Record<number, string>>({});
+  const [photos, setPhotos] = useState<PhotoLogEntry[]>([]);
+  const [photoPreviewUrls, setPhotoPreviewUrls] = useState<Record<string, string>>({});
+  const [photoLogAnnexPreviewUrls, setPhotoLogAnnexPreviewUrls] =
+    useState<PhotoLogAnnexPreviewUrls>({ D: [], F: [] });
+  const [photoLogPreviewLoading, setPhotoLogPreviewLoading] = useState(false);
+  const [floorplanSvg, setFloorplanSvg] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewVersion, setPreviewVersion] = useState(0);
 
@@ -58,15 +81,221 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     });
   }, []);
 
+  const handleAddPhotos = useCallback((files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (fileArray.length === 0) return;
+
+    const entries = fileArray.map((file) => createPhotoLogEntry(file));
+    setPhotos((prev) => [...prev, ...entries]);
+    setPhotoPreviewUrls((prev) => {
+      const next = { ...prev };
+      for (const entry of entries) {
+        next[entry.id] = URL.createObjectURL(entry.blob);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleRemovePhoto = useCallback((id: string) => {
+    setPhotos((prev) => {
+      const removedIds = new Set<string>([id]);
+      for (const photo of prev) {
+        if (photo.copyOfId === id) removedIds.add(photo.id);
+      }
+
+      setPhotoPreviewUrls((urls) => {
+        const next = { ...urls };
+        for (const removedId of removedIds) {
+          if (next[removedId]) {
+            URL.revokeObjectURL(next[removedId]);
+            delete next[removedId];
+          }
+        }
+        return next;
+      });
+
+      return prev.filter((p) => !removedIds.has(p.id));
+    });
+  }, []);
+
+  const handleCopyPhoto = useCallback((id: string) => {
+    setPhotos((prev) => {
+      const index = prev.findIndex((p) => p.id === id);
+      if (index === -1) return prev;
+
+      const original = prev[index];
+      if (original.isCopy) return prev;
+
+      const copy = createPhotoCopy(original);
+      setPhotoPreviewUrls((urls) => ({
+        ...urls,
+        [copy.id]: URL.createObjectURL(copy.blob),
+      }));
+
+      const next = [...prev];
+      next.splice(index + 1, 0, copy);
+      return next;
+    });
+  }, []);
+
+  const handleReorderPhoto = useCallback((id: string, direction: "up" | "down") => {
+    setPhotos((prev) => {
+      const index = prev.findIndex((p) => p.id === id);
+      if (index === -1) return prev;
+      const target = direction === "up" ? index - 1 : index + 1;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }, []);
+
+  const selectedAnnexes = useMemo(
+    () => parseSelectedAnnexes(reportFields.selectedAnnexes),
+    [reportFields.selectedAnnexes],
+  );
+
   const annexPreviewUrlsRef = useRef(annexPreviewUrls);
   annexPreviewUrlsRef.current = annexPreviewUrls;
+  const annexHeaderPreviewUrlsRef = useRef(annexHeaderPreviewUrls);
+  annexHeaderPreviewUrlsRef.current = annexHeaderPreviewUrls;
+  const annexImageOverridesRef = useRef(annexImageOverrides);
+  annexImageOverridesRef.current = annexImageOverrides;
+  const photoPreviewUrlsRef = useRef(photoPreviewUrls);
+  photoPreviewUrlsRef.current = photoPreviewUrls;
+  const photoLogAnnexPreviewUrlsRef = useRef(photoLogAnnexPreviewUrls);
+  photoLogAnnexPreviewUrlsRef.current = photoLogAnnexPreviewUrls;
+
+  const revokePhotoLogAnnexUrls = useCallback((urls: PhotoLogAnnexPreviewUrls) => {
+    urls.D.forEach((url) => URL.revokeObjectURL(url));
+    urls.F.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
+
   useEffect(() => {
     return () => {
       Object.values(annexPreviewUrlsRef.current).forEach((url) =>
-        URL.revokeObjectURL(url)
+        URL.revokeObjectURL(url),
       );
+      Object.values(annexHeaderPreviewUrlsRef.current).forEach((url) =>
+        URL.revokeObjectURL(url),
+      );
+      Object.values(photoPreviewUrlsRef.current).forEach((url) =>
+        URL.revokeObjectURL(url),
+      );
+      revokePhotoLogAnnexUrls(photoLogAnnexPreviewUrlsRef.current);
     };
-  }, []);
+  }, [revokePhotoLogAnnexUrls]);
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      const dSelected = selectedAnnexes.includes("D");
+      const fSelected = selectedAnnexes.includes("F");
+
+      if ((!dSelected && !fSelected) || photos.length === 0) {
+        revokePhotoLogAnnexUrls(photoLogAnnexPreviewUrlsRef.current);
+        const empty = { D: [], F: [] };
+        photoLogAnnexPreviewUrlsRef.current = empty;
+        setPhotoLogAnnexPreviewUrls(empty);
+        return;
+      }
+
+      setPhotoLogPreviewLoading(true);
+      try {
+        const header = {
+          incidentNo: reportFields.incidentNo,
+          locationOfFire: reportFields.locationOfFire,
+        };
+
+        const [dBlobs, fBlobs] = await Promise.all([
+          dSelected ? generateAnnexDBlobs(photos, header) : Promise.resolve([]),
+          fSelected ? generateAnnexFBlobs(photos, header) : Promise.resolve([]),
+        ]);
+
+        revokePhotoLogAnnexUrls(photoLogAnnexPreviewUrlsRef.current);
+
+        const next: PhotoLogAnnexPreviewUrls = {
+          D: dBlobs.map((blob) => URL.createObjectURL(blob)),
+          F: fBlobs.map((blob) => URL.createObjectURL(blob)),
+        };
+        photoLogAnnexPreviewUrlsRef.current = next;
+        setPhotoLogAnnexPreviewUrls(next);
+      } catch (err) {
+        console.error("Photo log annex preview failed:", err);
+      } finally {
+        setPhotoLogPreviewLoading(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [
+    photos,
+    reportFields.incidentNo,
+    reportFields.locationOfFire,
+    selectedAnnexes,
+    revokePhotoLogAnnexUrls,
+  ]);
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      const header = {
+        incidentNo: reportFields.incidentNo,
+        locationOfFire: reportFields.locationOfFire,
+      };
+
+      const requiredPages = getRequiredPageIndices(selectedAnnexes);
+      const pagesToRender = STATIC_HEADER_PAGE_INDICES.filter(
+        (pageIndex) =>
+          requiredPages.includes(pageIndex) &&
+          !annexImageOverridesRef.current.has(pageIndex),
+      );
+
+      if (!hasHeaderValues(header) || pagesToRender.length === 0) {
+        Object.values(annexHeaderPreviewUrlsRef.current).forEach((url) =>
+          URL.revokeObjectURL(url),
+        );
+        annexHeaderPreviewUrlsRef.current = {};
+        setAnnexHeaderPreviewUrls({});
+        return;
+      }
+
+      try {
+        const entries = await Promise.all(
+          pagesToRender.map(async (pageIndex) => {
+            const templateUrl = getDefaultPagePreviewUrl(pageIndex);
+            if (!templateUrl) return null;
+            const response = await fetch(templateUrl);
+            const templateBlob = await response.blob();
+            const withHeader = await compositeHeaderValuesOntoTemplate(
+              templateBlob,
+              header,
+              { boldUnderline: pageIndex === ANNEX_E_PAGE_INDEX },
+            );
+            return [pageIndex, URL.createObjectURL(withHeader)] as const;
+          }),
+        );
+
+        const next: Record<number, string> = {};
+        for (const entry of entries) {
+          if (entry) next[entry[0]] = entry[1];
+        }
+
+        Object.values(annexHeaderPreviewUrlsRef.current).forEach((url) =>
+          URL.revokeObjectURL(url),
+        );
+        annexHeaderPreviewUrlsRef.current = next;
+        setAnnexHeaderPreviewUrls(next);
+      } catch (err) {
+        console.error("Annex header preview failed:", err);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [
+    reportFields.incidentNo,
+    reportFields.locationOfFire,
+    selectedAnnexes,
+    annexImageOverrides,
+  ]);
 
   useEffect(() => {
     const extracted = extractReportFields(stopMessage, incidentType?.name);
@@ -160,7 +389,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       const blob = await generateFireReportDocx(
         reportFields,
         selected,
-        annexImageOverrides
+        annexImageOverrides,
+        photos,
       );
       setDocBlob(blob);
       setStep("edit");
@@ -188,7 +418,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       const blob = await generateFireReportDocx(
         reportFields,
         selected,
-        annexImageOverrides
+        annexImageOverrides,
+        photos,
       );
       setDocBlob(blob);
       await renderPreview(blob);
@@ -295,7 +526,18 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               extractedKeys={extractedKeys}
               onChange={updateField}
               annexPreviewUrls={annexPreviewUrls}
+              annexHeaderPreviewUrls={annexHeaderPreviewUrls}
               onAnnexOverrideChange={handleAnnexOverrideChange}
+              photos={photos}
+              photoPreviewUrls={photoPreviewUrls}
+              onAddPhotos={handleAddPhotos}
+              onRemovePhoto={handleRemovePhoto}
+              onReorderPhoto={handleReorderPhoto}
+              onCopyPhoto={handleCopyPhoto}
+              photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
+              photoLogPreviewLoading={photoLogPreviewLoading}
+              floorplanSvg={floorplanSvg}
+              onFloorplanSvgChange={setFloorplanSvg}
             />
             <Button onClick={handleGenerate} disabled={isGenerating} size="lg">
               {isGenerating ? (
@@ -327,7 +569,18 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 extractedKeys={extractedKeys}
                 onChange={updateField}
                 annexPreviewUrls={annexPreviewUrls}
+                annexHeaderPreviewUrls={annexHeaderPreviewUrls}
                 onAnnexOverrideChange={handleAnnexOverrideChange}
+                photos={photos}
+                photoPreviewUrls={photoPreviewUrls}
+                onAddPhotos={handleAddPhotos}
+                onRemovePhoto={handleRemovePhoto}
+                onReorderPhoto={handleReorderPhoto}
+                onCopyPhoto={handleCopyPhoto}
+                photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
+                photoLogPreviewLoading={photoLogPreviewLoading}
+                floorplanSvg={floorplanSvg}
+                onFloorplanSvgChange={setFloorplanSvg}
               />
               <div className="flex flex-wrap gap-3 pt-4 border-t">
                 <Button

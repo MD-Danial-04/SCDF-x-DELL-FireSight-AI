@@ -3,7 +3,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { convertRoomPlan, convertRoomPlanToSvg } from "../convert";
-import { RoomPlanParseError, normalizeScan } from "../parse";
+import { isFireSightRoomScan, projectFireSightWalls } from "../firesight";
+import { RoomPlanParseError, normalizeFireSightScan, normalizeScan } from "../parse";
+import { straightenFireSightScan } from "../straighten";
 import { transformLocalToXZ } from "../matrix";
 import { projectWallTo2D, segmentLength } from "../project";
 import { applyOpeningGaps } from "../openings";
@@ -17,6 +19,13 @@ function loadFixture(name: string): CapturedRoom | CapturedStructure {
   const raw = readFileSync(join(fixturesDir, name), "utf-8");
   return JSON.parse(raw) as CapturedRoom | CapturedStructure;
 }
+
+function loadRawFixture(name: string): unknown {
+  const raw = readFileSync(join(fixturesDir, name), "utf-8");
+  return JSON.parse(raw);
+}
+
+const FIRESIGHT_FIXTURE = "room-scan-193c4d-20260613-121455.json";
 
 describe("parse", () => {
   it("normalizes CapturedRoom", () => {
@@ -237,6 +246,158 @@ describe("convertRoomPlan warnings", () => {
     };
     const { warnings } = convertRoomPlan(input);
     expect(warnings).toEqual([]);
+  });
+});
+
+describe("firesight room scan", () => {
+  it("detects FireSight schema from real fixture", () => {
+    const doc = loadRawFixture(FIRESIGHT_FIXTURE);
+    expect(isFireSightRoomScan(doc)).toBe(true);
+  });
+
+  it("normalizes FireSight scan with 4 walls", () => {
+    const doc = loadRawFixture(FIRESIGHT_FIXTURE);
+    const scan = normalizeFireSightScan(doc as Parameters<typeof normalizeFireSightScan>[0]);
+    expect(scan.walls).toHaveLength(4);
+  });
+
+  it("produces valid SVG for real FireSight fixture", () => {
+    const svg = convertRoomPlanToSvg(loadRawFixture(FIRESIGHT_FIXTURE));
+    expect(svg).toContain('<?xml version="1.0"');
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('data-layer="walls"');
+    expect(svg).toContain('data-layer="openings"');
+    expect(svg).toMatch(/data-layer="openings"[^>]*stroke="#000000"/);
+    expect(svg).toContain("<path");
+    const wallLines =
+      svg.match(/data-layer="walls"[\s\S]*?<\/g>/)?.[0].match(/<line/g) ?? [];
+    expect(wallLines.length).toBe(8);
+    const openingsLayer =
+      svg.match(/data-layer="openings"[\s\S]*?<\/g>/)?.[0] ?? "";
+    const openingLines = openingsLayer.match(/<line/g) ?? [];
+    expect(openingLines.length).toBe(13);
+    expect(openingsLayer.match(/<polygon/g) ?? []).toHaveLength(3);
+    expect(svg).toContain('data-layer="labels"');
+    expect(svg).toContain(">Room</text>");
+
+    const wallsLayer = svg.match(/data-layer="walls"[\s\S]*?<\/g>/)?.[0] ?? "";
+    const leftWallLines = [
+      ...wallsLayer.matchAll(
+        /<line x1="([^"]+)" y1="([^"]+)" x2="([^"]+)" y2="([^"]+)" \/>/g,
+      ),
+    ].filter((m) => {
+      const x1 = Number(m[1]);
+      const x2 = Number(m[3]);
+      return Math.abs(x1 - x2) < 1e-6 && Math.abs(x1 - (-3.91)) < 0.02;
+    });
+    expect(leftWallLines).toHaveLength(4);
+
+    const windowJambYs = [
+      ...openingsLayer.matchAll(
+        /<line x1="-3\.8[^"]*" y1="([^"]+)" x2="-3\.9[^"]*" y2="\1" \/>/g,
+      ),
+    ].map((m) => Number(m[1]));
+    expect(windowJambYs).toHaveLength(6);
+    const windowGapEnds = leftWallLines.flatMap((m) => [
+      Number(m[2]),
+      Number(m[4]),
+    ]);
+    for (const jambY of windowJambYs) {
+      expect(
+        windowGapEnds.some((y) => Math.abs(y - jambY) < 0.02),
+      ).toBe(true);
+    }
+  });
+
+  it("forms a perfect axis-aligned rectangle after straightening", () => {
+    const doc = loadRawFixture(FIRESIGHT_FIXTURE);
+    const { scan } = straightenFireSightScan(
+      normalizeFireSightScan(doc as Parameters<typeof normalizeFireSightScan>[0]),
+      0.05,
+    );
+    const segments = projectFireSightWalls(scan.walls);
+    const xs = new Set<number>();
+    const zs = new Set<number>();
+    for (const seg of segments) {
+      xs.add(seg.start.x);
+      xs.add(seg.end.x);
+      zs.add(seg.start.z);
+      zs.add(seg.end.z);
+    }
+    expect(xs.size).toBe(2);
+    expect(zs.size).toBe(2);
+    for (const seg of segments) {
+      const horizontal = Math.abs(seg.end.x - seg.start.x) >= Math.abs(seg.end.z - seg.start.z);
+      if (horizontal) {
+        expect(seg.start.z).toBe(seg.end.z);
+      } else {
+        expect(seg.start.x).toBe(seg.end.x);
+      }
+    }
+  });
+
+  it("straightens near-rectangular FireSight rooms to cardinal angles", () => {
+    const doc = loadRawFixture(FIRESIGHT_FIXTURE);
+    const { scan } = straightenFireSightScan(
+      normalizeFireSightScan(doc as Parameters<typeof normalizeFireSightScan>[0]),
+      0.05,
+    );
+    const segments = projectFireSightWalls(scan.walls);
+    for (const seg of segments) {
+      const angle =
+        (Math.atan2(seg.end.z - seg.start.z, seg.end.x - seg.start.x) * 180) /
+        Math.PI;
+      const nearest = Math.round(angle / 90) * 90;
+      expect(Math.abs(angle - nearest)).toBeLessThan(0.1);
+    }
+  });
+
+  it("renders door swing arc inside the room", () => {
+    const svg = convertRoomPlanToSvg(loadRawFixture(FIRESIGHT_FIXTURE));
+    const openingsLayer =
+      svg.match(/data-layer="openings"[\s\S]*?<\/g>/)?.[0] ?? "";
+    const doorPath = openingsLayer.match(/<path[^>]*\/>/)?.[0];
+    expect(doorPath).toBeTruthy();
+    expect(doorPath).toMatch(/A [\d.]+ [\d.]+ 0 0/);
+    expect(openingsLayer).toContain("<line");
+  });
+
+  it("matches snapshot for real FireSight fixture", () => {
+    const svg = normalizeSvgForSnapshot(
+      convertRoomPlanToSvg(loadRawFixture(FIRESIGHT_FIXTURE)),
+    );
+    expect(svg).toMatchSnapshot();
+  });
+
+  it("cuts opening gaps when includeOpeningGaps is true", () => {
+    const svg = convertRoomPlanToSvg(loadRawFixture(FIRESIGHT_FIXTURE), {
+      includeOpeningGaps: true,
+      straighten: true,
+    });
+    const wallLines =
+      svg.match(/data-layer="walls"[\s\S]*?<\/g>/)?.[0].match(/<line/g) ?? [];
+    expect(wallLines.length).toBe(8);
+  });
+
+  it("can disable straightening and opening gaps for FireSight", () => {
+    const svg = convertRoomPlanToSvg(loadRawFixture(FIRESIGHT_FIXTURE), {
+      straighten: false,
+      includeOpeningGaps: false,
+    });
+    const wallLines =
+      svg.match(/data-layer="walls"[\s\S]*?<\/g>/)?.[0].match(/<line/g) ?? [];
+    expect(wallLines.length).toBe(4);
+    expect(svg).toContain('data-layer="openings"');
+    expect(svg).toContain("<path");
+  });
+
+  it("throws on empty FireSight walls", () => {
+    expect(() =>
+      normalizeFireSightScan({
+        schemaVersion: "firesight-room-scan/v1",
+        walls: [],
+      }),
+    ).toThrow(RoomPlanParseError);
   });
 });
 

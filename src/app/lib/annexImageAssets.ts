@@ -31,7 +31,7 @@ export interface AnnexImageData {
   height: number;
 }
 
-function detectExtension(buffer: ArrayBuffer): AnnexImageExtension {
+export function detectExtension(buffer: ArrayBuffer): AnnexImageExtension {
   const bytes = new Uint8Array(buffer);
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return "jpeg";
   return "png";

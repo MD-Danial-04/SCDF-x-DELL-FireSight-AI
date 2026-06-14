@@ -595,6 +595,14 @@ function createGeneratedNode(doc: XMLDocument, element: FloorplanGeneratedElemen
   }
 }
 
+/** Empty canvas for the Annex A floorplan editor (sketch-box aspect ratio). */
+export const BLANK_FLOORPLAN_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600"></svg>';
+
+export function createBlankFloorplan(): ParsedFloorplan {
+  return parseFloorplan(BLANK_FLOORPLAN_SVG);
+}
+
 export function parseFloorplan(svgText: string): ParsedFloorplan {
   const { doc, svg } = parseSvgDocument(svgText);
   const baseViewBox = inferViewBox(svg);
@@ -705,6 +713,109 @@ export function renderFloorplanSvg(options: {
   svg.insertBefore(style, svg.firstChild);
 
   return new XMLSerializer().serializeToString(doc);
+}
+
+const MEASURE_GRAPHICS_SELECTOR = [
+  "[data-fs-node-id]",
+  "path",
+  "line",
+  "polyline",
+  "polygon",
+  "rect",
+  "circle",
+  "ellipse",
+  "text",
+].join(",");
+
+function isFullViewBoxBackground(element: Element, viewBox: FloorplanViewBox): boolean {
+  if (element.tagName !== "rect") return false;
+
+  const fill = (element.getAttribute("fill") ?? "").trim().toLowerCase();
+  if (fill !== "#ffffff" && fill !== "white" && fill !== "#fff") return false;
+
+  const x = parseNumericLength(element.getAttribute("x")) ?? 0;
+  const y = parseNumericLength(element.getAttribute("y")) ?? 0;
+  const width = parseNumericLength(element.getAttribute("width")) ?? 0;
+  const height = parseNumericLength(element.getAttribute("height")) ?? 0;
+  if (width <= 0 || height <= 0) return false;
+
+  const epsilon = Math.max(viewBox.width, viewBox.height) * 0.02;
+  return (
+    Math.abs(x - viewBox.x) <= epsilon &&
+    Math.abs(y - viewBox.y) <= epsilon &&
+    Math.abs(width - viewBox.width) <= epsilon &&
+    Math.abs(height - viewBox.height) <= epsilon
+  );
+}
+
+function measureGraphicsBounds(svgRoot: SVGSVGElement, viewBox: FloorplanViewBox): FloorplanViewBox | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const node of svgRoot.querySelectorAll(MEASURE_GRAPHICS_SELECTOR)) {
+    if (!(node instanceof SVGGraphicsElement)) continue;
+    if (node.closest("defs,clipPath,mask,pattern,marker,symbol,style")) continue;
+    if (isFullViewBoxBackground(node, viewBox)) continue;
+
+    const box = node.getBBox();
+    if (!Number.isFinite(box.width) || !Number.isFinite(box.height)) continue;
+    if (box.width === 0 && box.height === 0) continue;
+
+    minX = Math.min(minX, box.x);
+    minY = Math.min(minY, box.y);
+    maxX = Math.max(maxX, box.x + box.width);
+    maxY = Math.max(maxY, box.y + box.height);
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+/** Tighten viewBox to actual floorplan geometry so annex compositing centers content. */
+export function normalizeSvgViewBoxToContent(
+  svgText: string,
+  paddingFraction = 0.04,
+): string {
+  if (typeof document === "undefined") return svgText;
+
+  const { doc, svg } = parseSvgDocument(svgText);
+  const currentViewBox = inferViewBox(svg);
+  const probe = svg.cloneNode(true) as SVGSVGElement;
+  probe.setAttribute("width", "1000");
+  probe.setAttribute("height", "1000");
+
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none;";
+  document.body.appendChild(host);
+  host.appendChild(probe);
+
+  try {
+    const bounds = measureGraphicsBounds(probe, currentViewBox);
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return svgText;
+
+    const pad = Math.max(bounds.width, bounds.height) * paddingFraction;
+    const x = bounds.x - pad;
+    const y = bounds.y - pad;
+    const width = bounds.width + pad * 2;
+    const height = bounds.height + pad * 2;
+
+    svg.setAttribute("viewBox", `${x} ${y} ${width} ${height}`);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+    return new XMLSerializer().serializeToString(doc);
+  } finally {
+    host.remove();
+  }
 }
 
 export function getFloorplanElementMetrics(

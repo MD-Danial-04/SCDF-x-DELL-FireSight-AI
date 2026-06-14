@@ -31,7 +31,7 @@ export const ANNEX_DEFINITIONS: AnnexDefinition[] = [
   },
   {
     id: "E",
-    title: "Annex E – Sketch",
+    title: "Annex E – Photo-log Direction Plan",
     pageIndices: [4],
   },
   {

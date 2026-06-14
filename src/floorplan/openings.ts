@@ -2,11 +2,11 @@ import { distance2D } from "./matrix";
 import {
   arcLength,
   openingWidthM,
+  pointOnSegment,
   projectPointOntoArc,
   projectPointOntoSegment,
   segmentLength,
-  splitArc,
-  splitSegment,
+  sliceArc,
   surfaceCenterXZ,
 } from "./project";
 import type {
@@ -98,6 +98,67 @@ function computeOpeningSpan(
   };
 }
 
+function mergeCutSpans(spans: OpeningSpan[]): { t0: number; t1: number }[] {
+  if (spans.length === 0) return [];
+  const sorted = [...spans].sort((a, b) => a.t0 - b.t0);
+  const merged: { t0: number; t1: number }[] = [];
+  let current = { t0: sorted[0].t0, t1: sorted[0].t1 };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const span = sorted[i];
+    if (span.t0 <= current.t1 + 1e-9) {
+      current.t1 = Math.max(current.t1, span.t1);
+    } else {
+      merged.push(current);
+      current = { t0: span.t0, t1: span.t1 };
+    }
+  }
+  merged.push(current);
+  return merged;
+}
+
+function keepIntervals(cutSpans: { t0: number; t1: number }[]): { t0: number; t1: number }[] {
+  const keep: { t0: number; t1: number }[] = [];
+  let cursor = 0;
+
+  for (const cut of cutSpans) {
+    if (cut.t0 > cursor + 1e-9) {
+      keep.push({ t0: cursor, t1: cut.t0 });
+    }
+    cursor = Math.max(cursor, cut.t1);
+  }
+
+  if (cursor < 1 - 1e-9) {
+    keep.push({ t0: cursor, t1: 1 });
+  }
+
+  return keep;
+}
+
+function wallPiecesForKeepIntervals(
+  wall: WallPrimitive2D,
+  intervals: { t0: number; t1: number }[],
+): WallPrimitive2D[] {
+  const pieces: WallPrimitive2D[] = [];
+
+  for (const interval of intervals) {
+    if (interval.t1 - interval.t0 <= 1e-9) continue;
+
+    if (wall.kind === "segment") {
+      pieces.push({
+        kind: "segment",
+        start: pointOnSegment(wall, interval.t0),
+        end: pointOnSegment(wall, interval.t1),
+        wallId: wall.wallId,
+      });
+    } else {
+      pieces.push(sliceArc(wall, interval.t0, interval.t1));
+    }
+  }
+
+  return pieces;
+}
+
 export function applyOpeningGaps(
   walls: WallPrimitive2D[],
   openings: RoomPlanSurface[],
@@ -134,19 +195,9 @@ export function applyOpeningGaps(
 
     spans.sort((a, b) => a.t0 - b.t0);
 
-    let pieces: WallPrimitive2D[] = [wall];
-    for (const span of spans) {
-      const next: WallPrimitive2D[] = [];
-      for (const piece of pieces) {
-        if (piece.kind === "segment") {
-          next.push(...splitSegment(piece, span.t0, span.t1));
-        } else {
-          next.push(...splitArc(piece, span.t0, span.t1));
-        }
-      }
-      pieces = next;
-    }
-    result.push(...pieces);
+    const cutSpans = mergeCutSpans(spans);
+    const keep = keepIntervals(cutSpans);
+    result.push(...wallPiecesForKeepIntervals(wall, keep));
   }
 
   return { primitives: result, warnings };

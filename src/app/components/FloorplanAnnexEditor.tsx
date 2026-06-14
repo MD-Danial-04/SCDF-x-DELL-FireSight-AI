@@ -1,14 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import {
-  Download,
-  Eye,
-  EyeOff,
   Grid3X3,
   Group,
   History,
+  Loader2,
   Map,
-  Minus,
-  Move,
   RotateCw,
   Search,
   Type,
@@ -18,13 +14,23 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { cn } from "./ui/utils";
 import {
+  createBlankFloorplan,
   getFloorplanElementMetrics,
   parseFloorplan,
   renderFloorplanSvg,
@@ -36,6 +42,11 @@ import {
   type FloorplanShapeType,
   type FloorplanViewBox,
 } from "../lib/floorplanEditor";
+import { convertRoomPlanFile } from "../lib/importRoomPlanFloorplan";
+import { svgStringToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
+import { FloorplanInspectorPanel } from "./FloorplanInspectorPanel";
+
+const BLANK_FLOORPLAN = createBlankFloorplan();
 
 type DragState =
   | {
@@ -72,7 +83,10 @@ type DragState =
 
 interface FloorplanAnnexEditorProps {
   enabled: boolean;
+  incidentNo?: string;
+  locationOfFire?: string;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
+  onFloorplanSvgChange?: (svg: string | null) => void;
 }
 
 interface FloorplanGroup {
@@ -110,30 +124,9 @@ interface TextEditState {
 
 const ZOOM_IN_FACTOR = 0.88;
 const ZOOM_OUT_FACTOR = 1.14;
-const TEXT_FONT_OPTIONS = [
-  "Arial, sans-serif",
-  "Georgia, serif",
-  "\"Times New Roman\", serif",
-  "\"Trebuchet MS\", sans-serif",
-  "Verdana, sans-serif",
-  "\"Courier New\", monospace",
-];
-const TEXT_STYLE_OPTIONS = {
-  normal: "400",
-  bold: "700",
-} as const;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
-}
-
-function normalizeColorInput(value: string | undefined, fallback: string) {
-  if (!value || value === "none" || value === "transparent") return fallback;
-  return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
-}
-
-function isTransparentColor(value: string | undefined) {
-  return value === "none" || value === "transparent";
 }
 
 function placeCaretAtEnd(element: HTMLElement) {
@@ -358,43 +351,17 @@ function getBoundsForGenerated(element: FloorplanGeneratedElement) {
   }
 }
 
-async function renderSvgToJpegBlob(svgMarkup: string): Promise<Blob> {
-  const svgBlob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
-  const svgUrl = URL.createObjectURL(svgBlob);
-
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Unable to render the floorplan preview."));
-      img.src = svgUrl;
-    });
-
-    const width = Math.max(1, Math.round(image.naturalWidth || 1600));
-    const height = Math.max(1, Math.round(image.naturalHeight || 1200));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas rendering is not available in this browser.");
-
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
-    if (!blob) throw new Error("Unable to export the floorplan as JPG.");
-    return blob;
-  } finally {
-    URL.revokeObjectURL(svgUrl);
-  }
-}
-
-export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnnexEditorProps) {
-  const [svgText, setSvgText] = useState<string | null>(null);
-  const [layers, setLayers] = useState<FloorplanLayer[]>([]);
-  const [baseViewBox, setBaseViewBox] = useState<FloorplanViewBox | null>(null);
-  const [camera, setCamera] = useState<FloorplanViewBox | null>(null);
+export function FloorplanAnnexEditor({
+  enabled,
+  incidentNo,
+  locationOfFire,
+  onOverrideChange,
+  onFloorplanSvgChange,
+}: FloorplanAnnexEditorProps) {
+  const [svgText, setSvgText] = useState(BLANK_FLOORPLAN.svgText);
+  const [layers, setLayers] = useState<FloorplanLayer[]>(BLANK_FLOORPLAN.layers);
+  const [baseViewBox, setBaseViewBox] = useState<FloorplanViewBox>(BLANK_FLOORPLAN.baseViewBox);
+  const [camera, setCamera] = useState<FloorplanViewBox>(BLANK_FLOORPLAN.baseViewBox);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -403,6 +370,8 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
   const [generatedElements, setGeneratedElements] = useState<FloorplanGeneratedElement[]>([]);
   const [showGrid, setShowGrid] = useState(true);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [replaceDialogOpen, setReplaceDialogOpen] = useState(false);
   const [fileName, setFileName] = useState("");
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -410,6 +379,8 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
   const [textEditState, setTextEditState] = useState<TextEditState | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const textEditRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingFileRef = useRef<File | null>(null);
 
   const layerOptions = useMemo(
     () => [
@@ -549,8 +520,6 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
   }
 
   useEffect(() => {
-    if (!enabled) return;
-
     function handleUndoShortcut(event: KeyboardEvent) {
       const isUndo = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey;
       if (!isUndo) return;
@@ -664,15 +633,26 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
       window.removeEventListener("keydown", handleGroupShortcut);
       window.removeEventListener("keydown", handleDeleteShortcut);
     };
-  }, [enabled, history.length, selectedId, amendments, generatedElements, groups, selectedGroupId, selectedIds, showGrid]);
+  }, [history.length, selectedId, amendments, generatedElements, groups, selectedGroupId, selectedIds, showGrid]);
 
   useEffect(() => {
-    if (!exportSvg || !enabled) return;
+    onFloorplanSvgChange?.(exportSvg);
+  }, [exportSvg, onFloorplanSvgChange]);
+
+  useEffect(() => {
+    if (!exportSvg || !enabled) {
+      onOverrideChange(0, null);
+      return;
+    }
+
     let cancelled = false;
 
     (async () => {
       try {
-        const blob = await renderSvgToJpegBlob(exportSvg);
+        const blob = await svgStringToAnnexTemplatePngBlob(exportSvg, {
+          incidentNo,
+          locationOfFire,
+        });
         if (!cancelled) onOverrideChange(0, blob);
       } catch (error) {
         if (!cancelled) {
@@ -684,11 +664,7 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
     return () => {
       cancelled = true;
     };
-  }, [enabled, exportSvg, onOverrideChange]);
-
-  useEffect(() => {
-    if (!enabled && svgText) onOverrideChange(0, null);
-  }, [enabled, onOverrideChange, svgText]);
+  }, [exportSvg, enabled, incidentNo, locationOfFire, onOverrideChange]);
 
   function setSingleSelection(layerId: string | null) {
     if (textEditState && layerId !== textEditState.id) {
@@ -791,19 +767,64 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
     setHistory([]);
   }
 
-  function handleUpload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        loadFloorplan(String(reader.result ?? ""), file.name);
-      } catch (error) {
-        setUploadError(error instanceof Error ? error.message : "Unable to load SVG file.");
+  function isJsonFile(file: File) {
+    return file.name.toLowerCase().endsWith(".json") || file.type === "application/json";
+  }
+
+  async function processImportFile(file: File) {
+    setImporting(true);
+    setUploadError(null);
+    try {
+      const jsonImport = isJsonFile(file);
+      let rawSvg: string;
+      let warnings: string[] = [];
+      if (jsonImport) {
+        ({ svg: rawSvg, warnings } = await convertRoomPlanFile(file));
+      } else {
+        rawSvg = await file.text();
       }
-    };
-    reader.readAsText(file);
+      const name = jsonImport ? file.name.replace(/\.json$/i, ".svg") : file.name;
+      loadFloorplan(rawSvg, name);
+      toast.success(
+        jsonImport ? "Layout plan generated from RoomPlan scan" : "SVG layout plan loaded",
+      );
+      for (const warning of warnings) {
+        toast.warning(warning);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to import layout plan.";
+      setUploadError(message);
+      toast.error(message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleImportChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
     event.target.value = "";
+    if (!file) return;
+
+    if (fileName || layers.length > 0 || generatedElements.length > 0) {
+      pendingFileRef.current = file;
+      setReplaceDialogOpen(true);
+      return;
+    }
+
+    void processImportFile(file);
+  }
+
+  function handleConfirmReplace() {
+    const file = pendingFileRef.current;
+    pendingFileRef.current = null;
+    setReplaceDialogOpen(false);
+    if (file) void processImportFile(file);
+  }
+
+  function handleCancelReplace() {
+    pendingFileRef.current = null;
+    setReplaceDialogOpen(false);
   }
 
   function getSvgPoint(clientX: number, clientY: number) {
@@ -1093,28 +1114,6 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
     setInspectorOpen(true);
   }
 
-  async function downloadJpg() {
-    if (!exportSvg) return;
-    const jpgBlob = await renderSvgToJpegBlob(exportSvg);
-    const url = URL.createObjectURL(jpgBlob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = (fileName || "floorplan").replace(/\.svg$/i, "") + ".jpg";
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
-  async function downloadSvg() {
-    if (!exportSvg) return;
-    const blob = new Blob([exportSvg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = (fileName || "floorplan").replace(/\.svg$/i, "") + "-edited.svg";
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
   function removeGeneratedElement() {
     if (!generatedElement) return;
     captureHistory();
@@ -1281,7 +1280,7 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
         <div>
           <div className="flex items-center gap-2">
             <Map className="h-4 w-4 text-primary" />
-            <p className="font-semibold text-foreground">Annex A floorplan editor</p>
+            <p className="font-semibold text-foreground">Floorplan editor (Annex A &amp; E)</p>
             <Badge
               variant={enabled ? "secondary" : "outline"}
               className={enabled ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""}
@@ -1290,33 +1289,59 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
             </Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Import an SVG layout plan, amend it directly here, and the updated image is used for Annex A automatically.
+            Draw on the canvas or import Apple RoomPlan JSON (.json) or SVG (.svg).
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Label
-            htmlFor="floorplan-svg-upload"
-            className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
-          >
-            <Upload className="h-4 w-4" />
-            Import SVG
-          </Label>
           <input
-            id="floorplan-svg-upload"
+            ref={fileInputRef}
+            id="floorplan-layout-upload"
             type="file"
-            accept=".svg,image/svg+xml"
+            accept=".json,.svg,application/json,image/svg+xml"
             className="hidden"
-            onChange={handleUpload}
+            onChange={handleImportChange}
           />
-          <Button type="button" variant="outline" onClick={downloadJpg} disabled={!exportSvg}>
-            <Download className="mr-2 h-4 w-4" />
-            Download JPG
-          </Button>
-          <Button type="button" variant="outline" onClick={downloadSvg} disabled={!exportSvg}>
-            Download SVG
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={importing}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {importing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Importing…
+              </>
+            ) : (
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Import layout plan
+              </>
+            )}
           </Button>
         </div>
       </div>
+
+      <AlertDialog
+        open={replaceDialogOpen}
+        onOpenChange={(open) => {
+          setReplaceDialogOpen(open);
+          if (!open) pendingFileRef.current = null;
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace current floorplan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Unsaved edits will be lost. Import the new layout plan anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelReplace}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmReplace}>Replace</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {uploadError && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -1324,12 +1349,7 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
         </p>
       )}
 
-      {!svgText || !camera ? (
-        <div className="rounded-xl border border-dashed border-border bg-background/70 p-6 text-sm text-muted-foreground">
-          Upload an SVG floorplan to start editing Annex A. Once loaded, the resulting JPG will be used in the report automatically whenever Annex A is selected.
-        </div>
-      ) : (
-        <div className="space-y-4">
+      <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={selectedId ?? undefined}
@@ -1434,20 +1454,21 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
             </div>
           </div>
 
-          <div
-            ref={canvasRef}
-            onPointerDown={handlePointerDown}
-            onDoubleClick={handleCanvasDoubleClick}
-            onPointerMove={handlePointerMove}
-            onPointerUp={clearDragState}
-            onPointerLeave={clearDragState}
-            onWheel={handleWheel}
-            onWheelCapture={handleWheel}
-            className={cn(
-              "relative h-[760px] overflow-hidden rounded-2xl border border-border bg-white overscroll-contain touch-none",
-              dragState?.mode === "pan" ? "cursor-grabbing" : "cursor-grab"
-            )}
-          >
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+            <div
+              ref={canvasRef}
+              onPointerDown={handlePointerDown}
+              onDoubleClick={handleCanvasDoubleClick}
+              onPointerMove={handlePointerMove}
+              onPointerUp={clearDragState}
+              onPointerLeave={clearDragState}
+              onWheel={handleWheel}
+              onWheelCapture={handleWheel}
+              className={cn(
+                "relative flex-1 min-w-0 min-h-[280px] h-[min(480px,50vh)] max-h-[50vh] overflow-hidden rounded-2xl border border-border bg-white overscroll-contain touch-none",
+                dragState?.mode === "pan" ? "cursor-grabbing" : "cursor-grab",
+              )}
+            >
             {showGrid && (
               <div className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(rgba(148,163,184,0.16)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.16)_1px,transparent_1px)] bg-[size:32px_32px]" />
             )}
@@ -1557,364 +1578,59 @@ export function FloorplanAnnexEditor({ enabled, onOverrideChange }: FloorplanAnn
 
             <div
               className={cn(
-                "absolute inset-x-4 bottom-4 z-20 rounded-2xl border border-border bg-white/96 shadow-xl backdrop-blur transition-transform duration-200",
+                "absolute inset-x-4 bottom-4 z-20 rounded-2xl border border-border bg-white/96 shadow-xl backdrop-blur transition-transform duration-200 lg:hidden",
                 inspectorOpen && selectedLayer ? "translate-y-0" : "translate-y-[120%]"
               )}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
             >
               {selectedLayer && (
-                <div className="max-h-[280px] overflow-y-auto p-4">
-                  <div className="mb-4 flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-semibold text-foreground">
-                        {selectedLayer.isText
-                          ? selectedTextValue
-                          : selectedAmendment.label || selectedLayer.label}
-                      </p>
-                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                        {selectedLayer.isGenerated ? `Generated ${selectedLayer.tagName}` : selectedLayer.tagName}
-                      </p>
-                    </div>
-                    <Button type="button" variant="ghost" size="icon" onClick={() => setInspectorOpen(false)}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-4">
-                    {!selectedLayer.isText && (
-                      <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="layer-label">Layer label</Label>
-                        <Input
-                          id="layer-label"
-                          value={selectedAmendment.label ?? selectedLayer.label}
-                          onChange={(event) => {
-                            updateSelectedAmendment({ label: event.target.value });
-                            if (generatedElement) {
-                              setGeneratedElements((current) =>
-                                current.map((element) =>
-                                  element.id === generatedElement.id ? { ...element, label: event.target.value } : element
-                                )
-                              );
-                            }
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    {selectedLayer.isText && (
-                      <>
-                        <div className="space-y-2 md:col-span-2">
-                          <Label>Text content</Label>
-                          <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-muted-foreground">
-                            Double-click the text on the canvas to edit the words directly.
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="font-size">Font size</Label>
-                          <Input
-                            id="font-size"
-                            value={selectedAmendment.fontSize ?? ""}
-                            placeholder="28"
-                            onChange={(event) => updateSelectedAmendment({ fontSize: event.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="font-family">Font</Label>
-                          <Select
-                            value={selectedAmendment.fontFamily ?? generatedElement?.fontFamily ?? "Arial, sans-serif"}
-                            onValueChange={(value) => {
-                              updateSelectedAmendment({ fontFamily: value });
-                              if (generatedElement) {
-                                updateGeneratedElementWithoutHistory(generatedElement.id, (element) => ({
-                                  ...element,
-                                  fontFamily: value,
-                                }));
-                              }
-                            }}
-                          >
-                            <SelectTrigger id="font-family">
-                              <SelectValue placeholder="Select font" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {TEXT_FONT_OPTIONS.map((font) => (
-                                <SelectItem key={font} value={font}>
-                                  {font.split(",")[0]?.replace(/"/g, "")}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="text-color">Text color</Label>
-                          <div className="flex items-center gap-3">
-                            <Input
-                              id="text-color"
-                              type="color"
-                              className="w-16 p-1"
-                              value={normalizeColorInput(selectedAmendment.fill ?? generatedElement?.fill, "#0f172a")}
-                              onChange={(event) => updateSelectedAmendment({ fill: event.target.value })}
-                            />
-                            <Label className="flex items-center gap-2 text-sm font-normal">
-                              <input
-                                type="checkbox"
-                                checked={isTransparentColor(selectedAmendment.fill ?? generatedElement?.fill)}
-                                onChange={(event) =>
-                                  updateSelectedAmendment({
-                                    fill: event.target.checked ? "transparent" : "#0f172a",
-                                  })
-                                }
-                              />
-                              Transparent
-                            </Label>
-                          </div>
-                        </div>
-                        <div className="space-y-2 md:col-span-2">
-                          <Label>Text style</Label>
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              type="button"
-                              variant={selectedAmendment.fontWeight === TEXT_STYLE_OPTIONS.bold ? "default" : "outline"}
-                              size="sm"
-                              onClick={() =>
-                                updateSelectedAmendment({
-                                  fontWeight:
-                                    selectedAmendment.fontWeight === TEXT_STYLE_OPTIONS.bold
-                                      ? TEXT_STYLE_OPTIONS.normal
-                                      : TEXT_STYLE_OPTIONS.bold,
-                                })
-                              }
-                            >
-                              Bold
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={selectedAmendment.fontStyle === "italic" ? "default" : "outline"}
-                              size="sm"
-                              onClick={() =>
-                                updateSelectedAmendment({
-                                  fontStyle: selectedAmendment.fontStyle === "italic" ? "normal" : "italic",
-                                })
-                              }
-                            >
-                              Italic
-                            </Button>
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label htmlFor="offset-x">Offset X</Label>
-                      <Input
-                        id="offset-x"
-                        value={String(selectedAmendment.translateX ?? 0)}
-                        onChange={(event) =>
-                          updateSelectedAmendment({ translateX: Number.parseFloat(event.target.value) || 0 })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="offset-y">Offset Y</Label>
-                      <Input
-                        id="offset-y"
-                        value={String(selectedAmendment.translateY ?? 0)}
-                        onChange={(event) =>
-                          updateSelectedAmendment({ translateY: Number.parseFloat(event.target.value) || 0 })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="rotation">Rotation</Label>
-                      <Input
-                        id="rotation"
-                        value={String(selectedAmendment.rotation ?? generatedElement?.rotation ?? 0)}
-                        onChange={(event) => {
-                          const rotation = Number.parseFloat(event.target.value) || 0;
-                          updateSelectedAmendment({ rotation });
-                        }}
-                      />
-                    </div>
-
-                    {isShapeSelection && (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="shape-fill">Shape color</Label>
-                          <div className="flex items-center gap-3">
-                            <Input
-                              id="shape-fill"
-                              type="color"
-                              className="w-16 p-1"
-                              value={normalizeColorInput(selectedAmendment.fill ?? generatedElement?.fill, "#ffffff")}
-                              onChange={(event) => {
-                                updateSelectedAmendment({ fill: event.target.value });
-                                if (generatedElement) {
-                                  setGeneratedElements((current) =>
-                                    current.map((element) =>
-                                      element.id === generatedElement.id ? { ...element, fill: event.target.value } : element
-                                    )
-                                  );
-                                }
-                              }}
-                            />
-                            <Label className="flex items-center gap-2 text-sm font-normal">
-                              <input
-                                type="checkbox"
-                                checked={isTransparentColor(selectedAmendment.fill ?? generatedElement?.fill)}
-                                onChange={(event) => {
-                                  const fill = event.target.checked
-                                    ? "transparent"
-                                    : normalizeColorInput(generatedElement?.fill, "#ffffff");
-                                  updateSelectedAmendment({ fill });
-                                  if (generatedElement) {
-                                    setGeneratedElements((current) =>
-                                      current.map((element) =>
-                                        element.id === generatedElement.id ? { ...element, fill } : element
-                                      )
-                                    );
-                                  }
-                                }}
-                              />
-                              Transparent
-                            </Label>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="shape-stroke">Border color</Label>
-                          <div className="flex items-center gap-3">
-                            <Input
-                              id="shape-stroke"
-                              type="color"
-                              className="w-16 p-1"
-                              value={normalizeColorInput(selectedAmendment.stroke ?? generatedElement?.stroke, "#0f172a")}
-                              onChange={(event) => {
-                                updateSelectedAmendment({ stroke: event.target.value });
-                                if (generatedElement) {
-                                  setGeneratedElements((current) =>
-                                    current.map((element) =>
-                                      element.id === generatedElement.id ? { ...element, stroke: event.target.value } : element
-                                    )
-                                  );
-                                }
-                              }}
-                            />
-                            <Label className="flex items-center gap-2 text-sm font-normal">
-                              <input
-                                type="checkbox"
-                                checked={isTransparentColor(selectedAmendment.stroke ?? generatedElement?.stroke)}
-                                onChange={(event) => {
-                                  const stroke = event.target.checked
-                                    ? "transparent"
-                                    : normalizeColorInput(generatedElement?.stroke, "#0f172a");
-                                  updateSelectedAmendment({ stroke });
-                                  if (generatedElement) {
-                                    setGeneratedElements((current) =>
-                                      current.map((element) =>
-                                        element.id === generatedElement.id ? { ...element, stroke } : element
-                                      )
-                                    );
-                                  }
-                                }}
-                              />
-                              Transparent
-                            </Label>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="shape-stroke-width">Border thickness</Label>
-                          <Input
-                            id="shape-stroke-width"
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={String(selectedAmendment.strokeWidth ?? generatedElement?.strokeWidth ?? 4)}
-                            onChange={(event) => {
-                              const strokeWidth = Math.max(0, Number.parseFloat(event.target.value) || 0);
-                              updateSelectedAmendment({ strokeWidth });
-                              if (generatedElement) {
-                                setGeneratedElements((current) =>
-                                  current.map((element) =>
-                                    element.id === generatedElement.id ? { ...element, strokeWidth } : element
-                                  )
-                                );
-                              }
-                            }}
-                          />
-                        </div>
-                      </>
-                    )}
-
-                    {isRectSelection && (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="corner-radius-x">Corner radius X</Label>
-                          <Input
-                            id="corner-radius-x"
-                            value={String(selectedAmendment.cornerRadiusX ?? 0)}
-                            onChange={(event) =>
-                              updateSelectedAmendment({
-                                cornerRadiusX: Math.max(0, Number.parseFloat(event.target.value) || 0),
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="corner-radius-y">Corner radius Y</Label>
-                          <Input
-                            id="corner-radius-y"
-                            value={String(selectedAmendment.cornerRadiusY ?? selectedAmendment.cornerRadiusX ?? 0)}
-                            onChange={(event) =>
-                              updateSelectedAmendment({
-                                cornerRadiusY: Math.max(0, Number.parseFloat(event.target.value) || 0),
-                              })
-                            }
-                          />
-                        </div>
-                      </>
-                    )}
-
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => updateSelectedAmendment({ hidden: !(selectedAmendment.hidden ?? false) })}
-                    >
-                      {(selectedAmendment.hidden ?? false) ? (
-                        <>
-                          <Eye className="mr-2 h-4 w-4" />
-                          Show layer
-                        </>
-                      ) : (
-                        <>
-                          <EyeOff className="mr-2 h-4 w-4" />
-                          Hide layer
-                        </>
-                      )}
-                    </Button>
-                    <Button type="button" variant="outline" onClick={() => setSelectedGroupId(null)}>
-                      <Move className="mr-2 h-4 w-4" />
-                      Move single node
-                    </Button>
-                    {selectedGroup && (
-                      <Badge variant="secondary" className="bg-brand-slides-muted text-brand-slides border-blue-100">
-                        Group move active: {selectedGroup.name}
-                      </Badge>
-                    )}
-                    {generatedElement && (
-                      <Button type="button" variant="outline" onClick={removeGeneratedElement}>
-                        <Minus className="mr-2 h-4 w-4" />
-                        Remove shape
-                      </Button>
-                    )}
-                  </div>
+                <div className="max-h-[40vh] overflow-y-auto p-4">
+                  <FloorplanInspectorPanel
+                    selectedLayer={selectedLayer}
+                    selectedAmendment={selectedAmendment}
+                    selectedTextValue={selectedTextValue}
+                    generatedElement={generatedElement}
+                    isShapeSelection={isShapeSelection}
+                    isRectSelection={isRectSelection}
+                    selectedGroup={selectedGroup}
+                    showCloseButton
+                    onClose={() => setInspectorOpen(false)}
+                    updateSelectedAmendment={updateSelectedAmendment}
+                    setGeneratedElements={setGeneratedElements}
+                    updateGeneratedElementWithoutHistory={updateGeneratedElementWithoutHistory}
+                    setSelectedGroupId={setSelectedGroupId}
+                    removeGeneratedElement={removeGeneratedElement}
+                  />
                 </div>
               )}
             </div>
           </div>
+
+          <aside className="hidden lg:flex lg:w-80 lg:shrink-0 flex-col rounded-2xl border border-border bg-white overflow-hidden">
+            <div className="overflow-y-auto flex-1 max-h-[min(480px,50vh)] p-4">
+              {selectedLayer ? (
+                <FloorplanInspectorPanel
+                  selectedLayer={selectedLayer}
+                  selectedAmendment={selectedAmendment}
+                  selectedTextValue={selectedTextValue}
+                  generatedElement={generatedElement}
+                  isShapeSelection={isShapeSelection}
+                  isRectSelection={isRectSelection}
+                  selectedGroup={selectedGroup}
+                  updateSelectedAmendment={updateSelectedAmendment}
+                  setGeneratedElements={setGeneratedElements}
+                  updateGeneratedElementWithoutHistory={updateGeneratedElementWithoutHistory}
+                  setSelectedGroupId={setSelectedGroupId}
+                  removeGeneratedElement={removeGeneratedElement}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">Select a layer to edit properties.</p>
+              )}
+            </div>
+          </aside>
         </div>
-      )}
+      </div>
     </div>
   );
 }
