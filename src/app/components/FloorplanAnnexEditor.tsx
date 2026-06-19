@@ -38,6 +38,7 @@ import {
   inferObjectBoxDefaults,
   isFloorplanBackgroundElement,
   applyObjectBoxLayout,
+  inferTextFontSize,
   OBJECT_BOX_SHAPE_OPTIONS,
   parseFloorplan,
   renderFloorplanSvg,
@@ -58,7 +59,7 @@ import { clientToSvg, computeSvgViewportMapping } from "../lib/svgViewport";
 
 const BLANK_FLOORPLAN = createBlankFloorplan();
 
-type EditorMode = "select" | "placeObjectBox";
+type EditorMode = "select" | "placeObjectBox" | "placeText";
 
 type DragState =
   | {
@@ -148,7 +149,7 @@ function placeCaretAtEnd(element: HTMLElement) {
 }
 
 function getTextEditSnapshot(node: SVGTextElement, canvas: HTMLDivElement, value: string): TextEditState {
-  const textRect = node.getBoundingClientRect();
+  const bounds = getScreenBounds(node);
   const canvasRect = canvas.getBoundingClientRect();
   const computed = window.getComputedStyle(node);
 
@@ -156,10 +157,10 @@ function getTextEditSnapshot(node: SVGTextElement, canvas: HTMLDivElement, value
     id: node.dataset.fsNodeId ?? "",
     value,
     rect: {
-      left: textRect.left - canvasRect.left,
-      top: textRect.top - canvasRect.top,
-      width: textRect.width,
-      height: textRect.height,
+      left: bounds.left - canvasRect.left,
+      top: bounds.top - canvasRect.top,
+      width: bounds.width,
+      height: bounds.height,
     },
     fontFamily: computed.fontFamily || node.getAttribute("font-family") || "Arial, sans-serif",
     fontSize: resolveTextOverlayFontSize(node.getAttribute("font-size"), computed.fontSize),
@@ -236,7 +237,13 @@ function scalePoints(points: FloorplanPoint[], width?: number, height?: number) 
   }));
 }
 
-function createDefaultElement(type: FloorplanShapeType, x: number, y: number): FloorplanGeneratedElement {
+function createDefaultElement(
+  type: FloorplanShapeType,
+  x: number,
+  y: number,
+  viewBox: FloorplanViewBox,
+  svgText: string,
+): FloorplanGeneratedElement {
   const id = `generated-${type}-${Date.now()}-${Math.round(Math.random() * 1000)}`;
   switch (type) {
     case "text":
@@ -249,6 +256,7 @@ function createDefaultElement(type: FloorplanShapeType, x: number, y: number): F
         fontWeight: "400",
         fontStyle: "normal",
         fill: "#0f172a",
+        fontSize: inferTextFontSize(viewBox, svgText),
         x,
         y,
       };
@@ -398,6 +406,7 @@ export function FloorplanAnnexEditor({
   const [objectBoxShape, setObjectBoxShape] = useState<ObjectBoxShape>("rect");
   const canvasRef = useRef<HTMLDivElement>(null);
   const textEditRef = useRef<HTMLTextAreaElement>(null);
+  const textEditCommittingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingFileRef = useRef<File | null>(null);
 
@@ -431,16 +440,15 @@ export function FloorplanAnnexEditor({
 
   const canvasSvg = useMemo(() => {
     if (!svgText || !camera) return null;
-    const canvasAmendments =
-      textEditState
-        ? {
-            ...amendments,
-            [textEditState.id]: {
-              ...amendments[textEditState.id],
-              editingText: true,
-            },
-          }
-        : amendments;
+    const canvasAmendments = textEditState
+      ? {
+          ...amendments,
+          [textEditState.id]: {
+            ...amendments[textEditState.id],
+            textContent: textEditState.value,
+          },
+        }
+      : amendments;
     return renderFloorplanSvg({
       svgText,
       amendments: canvasAmendments,
@@ -448,7 +456,7 @@ export function FloorplanAnnexEditor({
       selectedId,
       generatedElements,
     });
-  }, [amendments, camera, generatedElements, selectedId, svgText, textEditState]);
+  }, [amendments, camera, generatedElements, selectedId, svgText, textEditState?.id, textEditState?.value]);
 
   const exportSvg = useMemo(() => {
     if (!svgText || !baseViewBox) return null;
@@ -502,12 +510,15 @@ export function FloorplanAnnexEditor({
 
   useEffect(() => {
     if (!textEditState || !textEditRef.current) return;
-    textEditRef.current.value = textEditState.value;
-    textEditRef.current.style.height = "auto";
-    textEditRef.current.style.height = `${textEditRef.current.scrollHeight}px`;
     textEditRef.current.focus();
     placeCaretAtEnd(textEditRef.current);
-  }, [textEditState]);
+  }, [textEditState?.id]);
+
+  useEffect(() => {
+    if (!textEditState || !textEditRef.current) return;
+    textEditRef.current.style.height = "auto";
+    textEditRef.current.style.height = `${textEditRef.current.scrollHeight}px`;
+  }, [textEditState?.value]);
 
   function captureHistory() {
     setHistory((current) => [
@@ -725,6 +736,14 @@ export function FloorplanAnnexEditor({
       updateGeneratedElementWithoutHistory(textEditState.id, (element) => ({ ...element, textContent: nextValue }));
     }
     setTextEditState(null);
+  }
+
+  function finishTextEdit(nextValue: string) {
+    textEditCommittingRef.current = true;
+    commitTextEdit(nextValue);
+    window.setTimeout(() => {
+      textEditCommittingRef.current = false;
+    }, 0);
   }
 
   function deleteSelectedNodes() {
@@ -1005,6 +1024,20 @@ export function FloorplanAnnexEditor({
       }
     }
 
+    if (editorMode === "placeText") {
+      if (!hit || (baseViewBox && isFloorplanBackgroundElement(hit, baseViewBox))) {
+        const point = getSvgPoint(event.clientX, event.clientY);
+        if (!point || !baseViewBox) return;
+        captureHistory();
+        const element = createDefaultElement("text", point.x, point.y, baseViewBox, svgText);
+        setGeneratedElements((current) => [...current, element]);
+        setSingleSelection(element.id);
+        setSelectedGroupId(null);
+        setInspectorOpen(true);
+        return;
+      }
+    }
+
     if (hit) {
       const layerId = hit.getAttribute("data-fs-node-id");
       if (!layerId) return;
@@ -1235,7 +1268,7 @@ export function FloorplanAnnexEditor({
     captureHistory();
     const centerX = camera ? camera.x + camera.width / 2 : baseViewBox.x + baseViewBox.width / 2;
     const centerY = camera ? camera.y + camera.height / 2 : baseViewBox.y + baseViewBox.height / 2;
-    const element = createDefaultElement(type, centerX, centerY);
+    const element = createDefaultElement(type, centerX, centerY, baseViewBox, svgText);
     setGeneratedElements((current) => [...current, element]);
     setSingleSelection(element.id);
     setSelectedGroupId(null);
@@ -1268,64 +1301,71 @@ export function FloorplanAnnexEditor({
   }
 
   const canvasRect = canvasRef.current?.getBoundingClientRect();
+  const defaultTextFontSize =
+    baseViewBox && svgText ? String(inferTextFontSize(baseViewBox, svgText)) : "15";
   const selectedTextNode =
     selectedId && selectedLayer?.isText && canvasRef.current
       ? canvasRef.current.querySelector<SVGTextElement>(`[data-fs-node-id="${selectedId}"]`)
       : null;
   const selectedTextRect = selectedTextNode?.getBoundingClientRect() ?? null;
   const selectedTextStyle = selectedTextNode ? window.getComputedStyle(selectedTextNode) : null;
-  const selectedTextFontSize = selectedTextStyle
-    ? resolveTextOverlayFontSize(
-        selectedTextNode?.getAttribute("font-size") ?? selectedAmendment.fontSize,
-        selectedTextStyle.fontSize,
-      )
-    : textEditState?.id === selectedId
+  const selectedTextFontSize =
+    textEditState?.id === selectedId
       ? textEditState.fontSize
-      : selectedAmendment.fontSize ?? "28";
+      : selectedTextStyle
+        ? resolveTextOverlayFontSize(
+            selectedTextNode?.getAttribute("font-size") ?? selectedAmendment.fontSize,
+            selectedTextStyle.fontSize,
+          )
+        : selectedAmendment.fontSize ?? generatedElement?.fontSize?.toString() ?? defaultTextFontSize;
   const selectedTextFontFamily =
-    selectedTextStyle?.fontFamily ??
-    textEditState?.fontFamily ??
-    selectedAmendment.fontFamily ??
-    generatedElement?.fontFamily ??
-    "Arial, sans-serif";
+    textEditState?.id === selectedId
+      ? textEditState.fontFamily
+      : selectedTextStyle?.fontFamily ??
+        selectedAmendment.fontFamily ??
+        generatedElement?.fontFamily ??
+        "Arial, sans-serif";
   const selectedTextFontWeight =
-    selectedTextStyle?.fontWeight ??
-    textEditState?.fontWeight ??
-    selectedAmendment.fontWeight ??
-    generatedElement?.fontWeight ??
-    "400";
+    textEditState?.id === selectedId
+      ? textEditState.fontWeight
+      : selectedTextStyle?.fontWeight ??
+        selectedAmendment.fontWeight ??
+        generatedElement?.fontWeight ??
+        "400";
   const selectedTextFontStyle =
-    selectedTextStyle?.fontStyle ??
-    textEditState?.fontStyle ??
-    selectedAmendment.fontStyle ??
-    generatedElement?.fontStyle ??
-    "normal";
+    textEditState?.id === selectedId
+      ? textEditState.fontStyle
+      : selectedTextStyle?.fontStyle ??
+        selectedAmendment.fontStyle ??
+        generatedElement?.fontStyle ??
+        "normal";
   const selectedTextFill =
-    selectedTextStyle?.fill ??
-    textEditState?.color ??
-    selectedAmendment.fill ??
-    generatedElement?.fill ??
-    "#0f172a";
+    textEditState?.id === selectedId
+      ? textEditState.color
+      : selectedTextStyle?.fill ??
+        selectedAmendment.fill ??
+        generatedElement?.fill ??
+        "#0f172a";
   const selectedTranslationX = selectedId ? amendments[selectedId]?.translateX ?? 0 : 0;
   const selectedTranslationY = selectedId ? amendments[selectedId]?.translateY ?? 0 : 0;
   const textOverlayRect =
-    selectedTextRect && canvasRect
-      ? {
-          left: selectedTextRect.left - canvasRect.left,
-          top: selectedTextRect.top - canvasRect.top,
-          width: selectedTextRect.width,
-          height: selectedTextRect.height,
-        }
-      : textEditState?.id === selectedId
-        ? textEditState.rect
+    textEditState?.id === selectedId && textEditState.rect
+      ? textEditState.rect
+      : selectedTextRect && canvasRect
+        ? {
+            left: selectedTextRect.left - canvasRect.left,
+            top: selectedTextRect.top - canvasRect.top,
+            width: selectedTextRect.width,
+            height: selectedTextRect.height,
+          }
         : null;
   const textEditorRect =
     textOverlayRect
       ? {
-          left: textOverlayRect.left - 2,
-          top: textOverlayRect.top - 2,
-          width: Math.max(140, textOverlayRect.width + 12),
-          height: Math.max(36, textOverlayRect.height + 8),
+          left: textOverlayRect.left,
+          top: textOverlayRect.top,
+          width: Math.max(textOverlayRect.width + 4, 24),
+          height: Math.max(textOverlayRect.height + 4, 20),
         }
       : null;
   const selectedNodeBounds =
@@ -1574,7 +1614,12 @@ export function FloorplanAnnexEditor({
                 <Box className="h-4 w-4" />
                 Object box
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => addElement("text")}>
+              <Button
+                type="button"
+                variant={editorMode === "placeText" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setEditorMode((current) => (current === "placeText" ? "select" : "placeText"))}
+              >
                 <Type className="h-4 w-4" />
                 Text
               </Button>
@@ -1601,12 +1646,12 @@ export function FloorplanAnnexEditor({
               onWheel={handleWheel}
               className={cn(
                 "relative flex-1 min-w-0 min-h-[280px] h-[min(480px,50vh)] max-h-[50vh] overflow-hidden rounded-2xl border border-border bg-white overscroll-contain touch-none",
-                editorMode === "placeObjectBox"
+                editorMode === "placeObjectBox" || editorMode === "placeText"
                   ? "cursor-crosshair"
                   : dragState?.mode === "pan"
                     ? "cursor-grabbing"
                     : "cursor-grab",
-                editorMode === "placeObjectBox" && "ring-2 ring-sky-200",
+                (editorMode === "placeObjectBox" || editorMode === "placeText") && "ring-2 ring-sky-200",
               )}
             >
             {showGrid && (
@@ -1655,7 +1700,7 @@ export function FloorplanAnnexEditor({
             )}
             {textEditState && selectedLayer?.isText && textEditorRect && (
               <div
-                className="absolute z-40 pointer-events-auto rounded border border-sky-200 bg-white/95 p-1 shadow-sm"
+                className="absolute z-40 pointer-events-auto bg-transparent"
                 style={{
                   left: textEditorRect.left,
                   top: textEditorRect.top,
@@ -1682,15 +1727,16 @@ export function FloorplanAnnexEditor({
                     border: "none",
                     background: "transparent",
                     fontFamily: selectedTextFontFamily,
-                    fontSize: selectedTextFontSize ? `${selectedTextFontSize}px` : "28px",
+                    fontSize: selectedTextFontSize ? `${selectedTextFontSize}px` : `${defaultTextFontSize}px`,
                     fontWeight: selectedTextFontWeight,
                     fontStyle: selectedTextFontStyle,
-                    lineHeight: selectedTextFontSize ? `${selectedTextFontSize}px` : "28px",
+                    lineHeight: selectedTextFontSize ? `${selectedTextFontSize}px` : `${defaultTextFontSize}px`,
                     letterSpacing:
                       textEditState?.id === selectedId
                         ? textEditState.letterSpacing
                         : selectedTextStyle?.letterSpacing ?? "normal",
-                    color: selectedTextFill,
+                    color: "transparent",
+                    caretColor: selectedTextFill,
                     transform: "none",
                     whiteSpace: "pre",
                   }}
@@ -1698,15 +1744,18 @@ export function FloorplanAnnexEditor({
                   onMouseDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => updateTextEditValue(event.target.value)}
-                  onBlur={(event) => commitTextEdit(event.target.value)}
+                  onBlur={(event) => {
+                    if (textEditCommittingRef.current) return;
+                    commitTextEdit(event.target.value);
+                  }}
                   onKeyDown={(event) => {
                     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                       event.preventDefault();
-                      commitTextEdit(textEditState.value);
+                      finishTextEdit(textEditState.value);
                     }
                     if (event.key === "Escape") {
                       event.preventDefault();
-                      setTextEditState(null);
+                      finishTextEdit(textEditState.value);
                     }
                   }}
                 />
@@ -1725,6 +1774,7 @@ export function FloorplanAnnexEditor({
                   selectedAmendment={selectedAmendment}
                   selectedTextValue={selectedTextValue}
                   generatedElement={generatedElement}
+                  defaultTextFontSize={defaultTextFontSize}
                   isShapeSelection={isShapeSelection}
                   isRectSelection={isRectSelection}
                   isObjectBoxSelection={isObjectBoxSelection}

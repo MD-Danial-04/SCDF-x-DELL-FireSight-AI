@@ -46,6 +46,7 @@ export interface FloorplanInspectorPanelProps {
   selectedAmendment: FloorplanAmendment;
   selectedTextValue: string | null;
   generatedElement: FloorplanGeneratedElement | null;
+  defaultTextFontSize?: string;
   isShapeSelection: boolean;
   isRectSelection: boolean;
   isObjectBoxSelection: boolean;
@@ -67,6 +68,7 @@ export function FloorplanInspectorPanel({
   selectedAmendment,
   selectedTextValue,
   generatedElement,
+  defaultTextFontSize = "15",
   isShapeSelection,
   isRectSelection,
   isObjectBoxSelection,
@@ -133,7 +135,7 @@ export function FloorplanInspectorPanel({
               <Input
                 id="font-size"
                 value={selectedAmendment.fontSize ?? ""}
-                placeholder="28"
+                placeholder={defaultTextFontSize}
                 onChange={(event) => updateSelectedAmendment({ fontSize: event.target.value })}
               />
             </div>

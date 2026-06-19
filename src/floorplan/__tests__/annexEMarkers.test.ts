@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAnnotatedFloorplanSvg,
+  buildArrowGeometry,
   buildMarkersSvgFragment,
+  clampMarkerTip,
+  computeMarkerScale,
   createDefaultMarker,
   distanceToArrowSegment,
   findMarkerHitAtPoint,
   getMarkerAngleDeg,
   getMarkerLength,
   getMarkerLengthBounds,
+  getArrowShaftLength,
   injectMarkersIntoSvg,
   parseViewBoxFromSvg,
   setMarkerTipFromAngleLength,
-  computeMarkerScale,
 } from "../../app/lib/annexEMarkers";
 
 const FLOORPLAN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600"><rect x="0" y="0" width="600" height="600" fill="#fff"/></svg>`;
@@ -85,6 +88,63 @@ describe("annexEMarkers", () => {
   });
 
   it("returns length bounds scaled to viewBox", () => {
-    expect(getMarkerLengthBounds(VIEW_BOX)).toEqual({ min: 18, max: 240 });
+    const scale = computeMarkerScale(VIEW_BOX);
+    expect(getMarkerLengthBounds(VIEW_BOX)).toEqual({
+      min: scale.radius + scale.arrowHeadLength * 1.2,
+      max: 240,
+    });
+  });
+
+  it("ends the shaft at the arrow head base for short arrows", () => {
+    const scale = computeMarkerScale(VIEW_BOX);
+    const marker = {
+      cx: 100,
+      cy: 200,
+      tipX: 100 + scale.radius + 4,
+      tipY: 200,
+    };
+    const arrow = buildArrowGeometry(
+      marker.cx,
+      marker.cy,
+      marker.tipX,
+      marker.tipY,
+      scale.radius,
+      scale.arrowHeadLength,
+      scale.arrowHeadWidth,
+    );
+
+    expect(arrow.lineEndX).not.toBe(marker.tipX);
+    expect(arrow.lineEndX).toBeLessThan(marker.tipX);
+    expect(arrow.lineStartX).toBeCloseTo(marker.cx + scale.radius, 5);
+    expect(arrow.headPoints).not.toBe("");
+    expect(getArrowShaftLength(arrow)).toBeGreaterThan(0);
+    expect(arrow.lineStartX).not.toBeCloseTo(arrow.lineEndX, 5);
+  });
+
+  it("keeps a visible shaft at the minimum clamped arrow length", () => {
+    const scale = computeMarkerScale(VIEW_BOX);
+    const marker = { cx: 100, cy: 200, tipX: 100, tipY: 200 };
+    const clamped = clampMarkerTip(marker, marker.cx, marker.cy, VIEW_BOX);
+    const arrow = buildArrowGeometry(
+      marker.cx,
+      marker.cy,
+      clamped.tipX,
+      clamped.tipY,
+      scale.radius,
+      scale.arrowHeadLength,
+      scale.arrowHeadWidth,
+    );
+
+    expect(getArrowShaftLength(arrow)).toBeGreaterThan(scale.arrowHeadLength * 0.15);
+  });
+
+  it("clamps a tip dragged onto the stem center to the minimum length", () => {
+    const marker = { cx: 100, cy: 200, tipX: 100, tipY: 200 };
+    const clamped = clampMarkerTip(marker, marker.cx, marker.cy, VIEW_BOX);
+    const bounds = getMarkerLengthBounds(VIEW_BOX);
+
+    expect(getMarkerLength({ cx: marker.cx, cy: marker.cy, ...clamped })).toBeCloseTo(bounds.min, 5);
+    expect(clamped.tipY).toBeCloseTo(marker.cy, 5);
+    expect(clamped.tipX).toBeGreaterThan(marker.cx);
   });
 });

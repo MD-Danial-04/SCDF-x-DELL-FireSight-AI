@@ -65,6 +65,10 @@ export interface ArrowGeometry {
   headPoints: string;
 }
 
+export function getArrowShaftLength(arrow: ArrowGeometry): number {
+  return Math.hypot(arrow.lineEndX - arrow.lineStartX, arrow.lineEndY - arrow.lineStartY);
+}
+
 export function buildArrowGeometry(
   cx: number,
   cy: number,
@@ -78,30 +82,52 @@ export function buildArrowGeometry(
   const dy = tipY - cy;
   const len = Math.hypot(dx, dy);
   if (len < 1) {
+    const lineStartX = cx + radius;
+    const lineStartY = cy;
     return {
-      lineStartX: cx + radius,
-      lineStartY: cy,
-      lineEndX: cx + radius + headLength,
-      lineEndY: cy,
-      headPoints: `${cx + radius + headLength},${cy} ${cx + radius},${cy - headWidth} ${cx + radius},${cy + headWidth}`,
+      lineStartX,
+      lineStartY,
+      lineEndX: lineStartX,
+      lineEndY: lineStartY,
+      headPoints: "",
     };
   }
 
   const ux = dx / len;
   const uy = dy / len;
+  const outwardLen = Math.max(0, len - radius);
   const lineStartX = cx + ux * radius;
   const lineStartY = cy + uy * radius;
-  const backX = tipX - ux * headLength;
-  const backY = tipY - uy * headLength;
+
+  if (outwardLen < 1e-6) {
+    return {
+      lineStartX,
+      lineStartY,
+      lineEndX: lineStartX,
+      lineEndY: lineStartY,
+      headPoints: "",
+    };
+  }
+
+  const desiredMinShaftLen = Math.max(headLength * 0.2, headWidth * 0.5);
+  const minShaftLen = Math.min(desiredMinShaftLen, outwardLen * 0.4);
+  const effectiveHeadLength = Math.min(headLength, Math.max(0, outwardLen - minShaftLen));
+  const headScale = headLength > 0 ? effectiveHeadLength / headLength : 0;
+  const effectiveHeadWidth = headWidth * headScale;
+  const backX = tipX - ux * effectiveHeadLength;
+  const backY = tipY - uy * effectiveHeadLength;
   const px = -uy;
   const py = ux;
 
   return {
     lineStartX,
     lineStartY,
-    lineEndX: tipX,
-    lineEndY: tipY,
-    headPoints: `${tipX},${tipY} ${backX + px * headWidth},${backY + py * headWidth} ${backX - px * headWidth},${backY - py * headWidth}`,
+    lineEndX: backX,
+    lineEndY: backY,
+    headPoints:
+      effectiveHeadLength > 0
+        ? `${tipX},${tipY} ${backX + px * effectiveHeadWidth},${backY + py * effectiveHeadWidth} ${backX - px * effectiveHeadWidth},${backY - py * effectiveHeadWidth}`
+        : "",
   };
 }
 
@@ -129,8 +155,25 @@ export function setMarkerTipFromAngleLength(
 }
 
 export function getMarkerLengthBounds(viewBox: AnnexEViewBox): { min: number; max: number } {
+  const scale = computeMarkerScale(viewBox);
   const minDim = Math.min(viewBox.width, viewBox.height);
-  return { min: minDim * 0.03, max: minDim * 0.4 };
+  return {
+    min: scale.radius + scale.arrowHeadLength * 1.2,
+    max: minDim * 0.4,
+  };
+}
+
+export function clampMarkerTip(
+  marker: Pick<AnnexEMarker, "cx" | "cy">,
+  tipX: number,
+  tipY: number,
+  viewBox: AnnexEViewBox,
+): { tipX: number; tipY: number } {
+  const bounds = getMarkerLengthBounds(viewBox);
+  const length = getMarkerLength({ cx: marker.cx, cy: marker.cy, tipX, tipY });
+  const clampedLength = Math.min(bounds.max, Math.max(bounds.min, length));
+  const angleDeg = getMarkerAngleDeg({ cx: marker.cx, cy: marker.cy, tipX, tipY });
+  return setMarkerTipFromAngleLength(marker, angleDeg, clampedLength);
 }
 
 export function createDefaultMarker(
@@ -172,7 +215,9 @@ export function buildMarkersSvgFragment(
       `<g data-annex-e-marker="${escapeXml(marker.id)}">`,
       `<circle cx="${marker.cx}" cy="${marker.cy}" r="${scale.radius}" fill="none" stroke="${ANNEX_E_MARKER_COLOR}" stroke-width="${scale.strokeWidth}" />`,
       `<line x1="${arrow.lineStartX}" y1="${arrow.lineStartY}" x2="${arrow.lineEndX}" y2="${arrow.lineEndY}" stroke="${ANNEX_E_MARKER_COLOR}" stroke-width="${scale.strokeWidth}" stroke-linecap="round" />`,
-      `<polygon points="${arrow.headPoints}" fill="${ANNEX_E_MARKER_COLOR}" stroke="none" />`,
+      arrow.headPoints
+        ? `<polygon points="${arrow.headPoints}" fill="${ANNEX_E_MARKER_COLOR}" stroke="none" />`
+        : "",
       `<text x="${marker.cx}" y="${marker.cy}" fill="${ANNEX_E_MARKER_COLOR}" font-family="Arial, sans-serif" font-size="${scale.fontSize}" font-weight="700" text-anchor="middle" dominant-baseline="central">${escapeXml(label)}</text>`,
       `</g>`,
     ].join("");

@@ -19,8 +19,8 @@ describe("resolveTextOverlayFontSize", () => {
   });
 });
 
-describe("renderFloorplanSvg editingText", () => {
-  it("hides text with opacity instead of display none during edit", () => {
+describe("renderFloorplanSvg text editing", () => {
+  it("keeps text visible while live textContent amendments are applied", () => {
     const parsed = parseFloorplan(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text x="10" y="20" font-size="12">Hello</text></svg>',
     );
@@ -29,12 +29,13 @@ describe("renderFloorplanSvg editingText", () => {
 
     const rendered = renderFloorplanSvg({
       svgText: parsed.svgText,
-      amendments: { [layerId!]: { editingText: true } },
+      amendments: { [layerId!]: { textContent: "Updated label" } },
       camera: parsed.baseViewBox,
       selectedId: layerId!,
     });
 
-    expect(rendered).toContain('opacity="0"');
+    expect(rendered).toContain("Updated label");
+    expect(rendered).not.toContain('opacity="0"');
     expect(rendered).not.toContain('display="none"');
   });
 });
