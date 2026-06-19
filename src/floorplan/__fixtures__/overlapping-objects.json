@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "firesight-room-scan/v1",
+  "walls": [
+    {
+      "id": "wall-south",
+      "start": { "x": 0, "y": 0 },
+      "end": { "x": 4, "y": 0 }
+    },
+    {
+      "id": "wall-east",
+      "start": { "x": 4, "y": 0 },
+      "end": { "x": 4, "y": 3 }
+    },
+    {
+      "id": "wall-north",
+      "start": { "x": 4, "y": 3 },
+      "end": { "x": 0, "y": 3 }
+    },
+    {
+      "id": "wall-west",
+      "start": { "x": 0, "y": 3 },
+      "end": { "x": 0, "y": 0 }
+    }
+  ],
+  "objects": [
+    {
+      "id": "obj-a",
+      "label": "Object A",
+      "category": "storage",
+      "position": { "x": 2, "y": 1.5 },
+      "width": 1,
+      "depth": 0.8,
+      "rotationDegrees": 0
+    },
+    {
+      "id": "obj-b",
+      "label": "Object B",
+      "category": "storage",
+      "position": { "x": 2.2, "y": 1.5 },
+      "width": 1,
+      "depth": 0.8,
+      "rotationDegrees": 0
+    }
+  ]
+}

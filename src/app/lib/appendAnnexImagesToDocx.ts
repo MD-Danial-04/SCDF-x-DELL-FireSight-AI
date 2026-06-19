@@ -1,8 +1,8 @@
 import PizZip from "pizzip";
 import { getAnnexById, sortAnnexIds } from "../constants/annexDefinitions";
 import { loadPageImageData, type AnnexImageExtension } from "./annexImageAssets";
+import { buildImageParagraph, scaleToMaxWidthEmu } from "./injectDocxImage";
 
-const EMU_PER_PIXEL = 9525;
 const MAX_WIDTH_EMU = 5486400;
 
 function escapeXml(text: string): string {
@@ -36,38 +36,8 @@ function buildHeading(text: string): string {
   return `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t>${escapeXml(text)}</w:t></w:r></w:p>`;
 }
 
-function buildImageParagraph(
-  relId: number,
-  docPrId: number,
-  cx: number,
-  cy: number
-): string {
-  return `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing>
-    <wp:inline distT="0" distB="0" distL="0" distR="0">
-      <wp:extent cx="${cx}" cy="${cy}"/>
-      <wp:docPr id="${docPrId}" name="Annex Image ${docPrId}"/>
-      <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-        <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
-          <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
-            <pic:nvPicPr><pic:cNvPr id="0" name="Annex"/><pic:cNvPicPr/></pic:nvPicPr>
-            <pic:blipFill><a:blip r:embed="rId${relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
-            <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
-          </pic:pic>
-        </a:graphicData>
-      </a:graphic>
-    </wp:inline>
-  </w:drawing></w:r></w:p>`;
-}
-
 function scaleToMaxWidth(widthPx: number, heightPx: number): { cx: number; cy: number } {
-  let cx = widthPx * EMU_PER_PIXEL;
-  let cy = heightPx * EMU_PER_PIXEL;
-  if (cx > MAX_WIDTH_EMU) {
-    const scale = MAX_WIDTH_EMU / cx;
-    cx = MAX_WIDTH_EMU;
-    cy = Math.round(cy * scale);
-  }
-  return { cx, cy };
+  return scaleToMaxWidthEmu(widthPx, heightPx, MAX_WIDTH_EMU);
 }
 
 function ensureContentType(
@@ -109,7 +79,7 @@ function appendImageData(
     `<Relationship Id="rId${relIdRef.value}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/></Relationships>`,
   );
 
-  annexBlock.push(buildImageParagraph(relIdRef.value, docPrIdRef.value, cx, cy));
+  annexBlock.push(buildImageParagraph(relIdRef.value, docPrIdRef.value, cx, cy, "Annex"));
   relIdRef.value += 1;
   mediaIndexRef.value += 1;
   docPrIdRef.value += 1;

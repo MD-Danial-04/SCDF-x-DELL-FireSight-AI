@@ -72,6 +72,10 @@ describe("convertRoomPlanFile", () => {
       result.svg.match(/data-layer="openings"[\s\S]*?<\/g>/)?.[0].match(/<line/g) ??
       [];
     expect(openingLines.length).toBe(13);
+    expect(result.svg).toContain('data-layer="objects"');
+    const objectsLayer =
+      result.svg.match(/data-layer="objects"[\s\S]*?<\/g>/)?.[0] ?? "";
+    expect(objectsLayer.match(/<rect/g) ?? []).toHaveLength(10);
     expect(result.svg).toContain(">Room</text>");
     expect(result.warnings).toEqual([]);
   });

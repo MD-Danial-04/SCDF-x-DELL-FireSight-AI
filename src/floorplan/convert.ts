@@ -9,6 +9,15 @@ import {
   buildFireSightOpeningMarkers,
   MARKER_STROKE_WIDTH_M,
 } from "./openingMarkers";
+import {
+  DEFAULT_OBJECT_FOOTPRINT_INSET_M,
+  deflateObjectBox,
+  layoutObjectBoxes,
+  projectFireSightObject,
+  projectRoomPlanObject,
+  resolveObjectBoxOverlaps,
+  type ObjectBox2D,
+} from "./objects";
 import { applyOpeningGaps } from "./openings";
 import { normalizeFireSightScan, normalizeScan, parseRoomPlanJson } from "./parse";
 import { projectAllWalls } from "./project";
@@ -60,6 +69,7 @@ export function convertRoomPlan(
   let wallPrimitives;
   let openingSurfaces: RoomPlanSurface[];
   let fireSightOpenings: FireSightOpening[] = [];
+  let objectBoxes: ObjectBox2D[] = [];
   let roomLabel: { text: string; center: { x: number; z: number }; fontSizeM: number } | undefined;
 
   if (isFireSight) {
@@ -69,6 +79,7 @@ export function convertRoomPlan(
     }
     wallPrimitives = projectFireSightWalls(scan.walls);
     fireSightOpenings = scan.openings ?? [];
+    objectBoxes = (scan.objects ?? []).map(projectFireSightObject);
     const cutOpenings = fireSightOpenings.filter(
       (o) => o.kind === "door" || o.kind === "window",
     );
@@ -86,6 +97,7 @@ export function convertRoomPlan(
     const scan = normalizeScan(parsed as RoomPlanInput, opts.story);
     wallPrimitives = projectAllWalls(scan.walls);
     openingSurfaces = scan.openings;
+    objectBoxes = scan.objects.map(projectRoomPlanObject);
   }
 
   const wallsForMarkers = wallPrimitives;
@@ -102,12 +114,27 @@ export function convertRoomPlan(
     ? buildFireSightOpeningMarkers(fireSightOpenings, wallsForMarkers)
     : [];
 
+  if (objectBoxes.length > 0) {
+    const insetM = opts.strokeWidthM / 2 + DEFAULT_OBJECT_FOOTPRINT_INSET_M;
+    const wallSegments = cleaned.filter(
+      (wall): wall is Segment2D => wall.kind === "segment",
+    );
+    objectBoxes = layoutObjectBoxes(
+      resolveObjectBoxOverlaps(
+        objectBoxes.map((box) => deflateObjectBox(box, insetM)),
+      ),
+      wallSegments,
+      insetM,
+    );
+  }
+
   const svg = buildSvg(cleaned, {
     strokeWidthM: opts.strokeWidthM,
     paddingM: opts.paddingM,
     openingMarkers,
     openingStrokeWidthM: MARKER_STROKE_WIDTH_M,
     roomLabel,
+    objects: objectBoxes,
   });
 
   return {

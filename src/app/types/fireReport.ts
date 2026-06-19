@@ -1,4 +1,5 @@
 import { defaultCaseId } from "../lib/caseId";
+import { createEmptyInterviewee, type Interviewee } from "./interviewee";
 
 export interface FireReportData {
   // 1 GENERAL INFORMATION
@@ -48,24 +49,7 @@ export interface FireReportData {
   burnPatternsPhotoRef: string;
   evidentiaryFactors: string;
   evidentiaryPhotoRef: string;
-  interviewee1Name: string;
-  interviewee1Designation: string;
-  interviewee1Nric: string;
-  interviewee1Nationality: string;
-  interviewee1Address: string;
-  interviewee1ContactMobile: string;
-  interviewee1ContactHome: string;
-  interviewee1ContactOffice: string;
-  interviewee1Facts: string;
-  interviewee2Name: string;
-  interviewee2Designation: string;
-  interviewee2Nric: string;
-  interviewee2Nationality: string;
-  interviewee2Address: string;
-  interviewee2ContactMobile: string;
-  interviewee2ContactHome: string;
-  interviewee2ContactOffice: string;
-  interviewee2Facts: string;
+  interviewees: Interviewee[];
 
   // 6 INJURY
   injuryName: string;
@@ -135,24 +119,7 @@ export function createEmptyReportFields(): FireReportData {
     burnPatternsPhotoRef: "See Photo X",
     evidentiaryFactors: "",
     evidentiaryPhotoRef: "See Photo X",
-    interviewee1Name: "",
-    interviewee1Designation: "",
-    interviewee1Nric: "",
-    interviewee1Nationality: "",
-    interviewee1Address: "",
-    interviewee1ContactMobile: "",
-    interviewee1ContactHome: "",
-    interviewee1ContactOffice: "",
-    interviewee1Facts: "",
-    interviewee2Name: "",
-    interviewee2Designation: "",
-    interviewee2Nric: "",
-    interviewee2Nationality: "",
-    interviewee2Address: "",
-    interviewee2ContactMobile: "",
-    interviewee2ContactHome: "",
-    interviewee2ContactOffice: "",
-    interviewee2Facts: "",
+    interviewees: [createEmptyInterviewee()],
     injuryName: "Nil",
     injuryPin: "Nil",
     injuryAddress: "Nil",
@@ -186,5 +153,4 @@ export const EXTRACTABLE_KEYS: FireReportFieldKey[] = [
   "classification",
   "handoverOfficer",
   "handoverNpc",
-  "interviewee1Facts",
 ];

@@ -71,10 +71,97 @@ function injectScdfCoverIcon(zip, documentXml) {
   return xml;
 }
 
+function insertPlaceholderInCell(cellXml, placeholder) {
+  if (cellXml.includes(`{${placeholder}}`)) return cellXml;
+  const para =
+    `<w:p><w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="24"/></w:rPr></w:pPr>` +
+    `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="24"/></w:rPr>` +
+    `<w:t>{${placeholder}}</w:t></w:r></w:p>`;
+  return cellXml.replace("</w:tc>", `${para}</w:tc>`);
+}
+
+function applyIntervieweeLoop(documentXml) {
+  const tableStart = documentXml.indexOf("e Relevant facts from Interviewing of");
+  if (tableStart === -1) {
+    console.warn("Could not locate interviewee interview table; skipping loop injection.");
+    return documentXml;
+  }
+
+  const tblOpen = documentXml.lastIndexOf("<w:tbl>", tableStart);
+  const tblClose = documentXml.indexOf("</w:tbl>", tableStart) + "</w:tbl>".length;
+  const tableXml = documentXml.slice(tblOpen, tblClose);
+
+  const rows = [...tableXml.matchAll(/<w:tr[^>]*>[\s\S]*?<\/w:tr>/g)].map((m) => m[0]);
+  if (rows.length < 8) {
+    console.warn("Interviewee interview table has unexpected row count:", rows.length);
+    return documentXml;
+  }
+
+  const headerRow = rows[0];
+  let loopRows = rows.slice(1, 8);
+
+  loopRows[0] = loopRows[0].replace(
+    /<w:t xml:space="preserve">Mr <\/w:t><\/w:r>[\s\S]*?<w:t>revealed the following:<\/w:t>/,
+    '<w:t xml:space="preserve">{name}, revealed the following: {facts}</w:t>'
+  );
+
+  loopRows[6] = loopRows[6].replace(
+    /<w:t>\(Mobile\)<\/w:t>/,
+    "<w:t>(Mobile) {contactMobile}</w:t>"
+  );
+  loopRows[6] = loopRows[6].replace(
+    /<w:t xml:space="preserve"> \(Home\) \(Office\)<\/w:t>/,
+    '<w:t xml:space="preserve"> (Home) {contactHome} (Office) {contactOffice}</w:t>'
+  );
+  if (!loopRows[6].includes("{contactHome}")) {
+    loopRows[6] = loopRows[6].replace(
+      / \(Home\) \(Office\)/,
+      " (Home) {contactHome} (Office) {contactOffice}"
+    );
+  }
+
+  const valuePlaceholders = ["name", "designation", "nric", "nationality", "address"];
+  for (let i = 0; i < valuePlaceholders.length; i++) {
+    loopRows[i + 1] = setTableRowValuePlaceholder(loopRows[i + 1], 1, valuePlaceholders[i]);
+  }
+
+  const loopBody = loopRows.join("");
+  const loopOpenRow =
+    `<w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr>` +
+    `<w:p><w:r><w:t>{#interviewees}</w:t></w:r></w:p></w:tc></w:tr>`;
+  const loopCloseRow =
+    `<w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr>` +
+    `<w:p><w:r><w:t>{/interviewees}</w:t></w:r></w:p></w:tc></w:tr>`;
+
+  const firstRowIdx = tableXml.indexOf("<w:tr");
+  const newTableXml =
+    tableXml.slice(0, firstRowIdx) +
+    headerRow +
+    loopOpenRow +
+    loopBody +
+    loopCloseRow +
+    "</w:tbl>";
+  return documentXml.slice(0, tblOpen) + newTableXml + documentXml.slice(tblClose);
+}
+
+function setTableRowValuePlaceholder(rowXml, cellIndex, placeholder) {
+  let currentCell = 0;
+  return rowXml.replace(/<w:tc>[\s\S]*?<\/w:tc>/g, (cell) => {
+    if (currentCell === cellIndex) {
+      currentCell++;
+      return insertPlaceholderInCell(cell, placeholder);
+    }
+    currentCell++;
+    return cell;
+  });
+}
+
 fs.copyFileSync(sourcePath, templatePath);
 
 const zip = new PizZip(fs.readFileSync(templatePath));
 let xml = zip.file("word/document.xml").asText();
+
+xml = applyIntervieweeLoop(xml);
 
 function replaceOnce(str, search, replacement) {
   const i = str.indexOf(search);
@@ -100,26 +187,12 @@ const underscoreMap = [
   ["_______________________________", "{approvedBy}"],
   ["__________________________", "{reportDate}"],
   ["________________", "{damagesSustained}"],
-  ["________________", "{interviewee1Name}"],
   ["______________", "{investigatorNameRank}"],
 ];
 
 for (const [from, to] of underscoreMap) {
   xml = replaceOnce(xml, from, to);
 }
-
-// Second interview name (after "at the scene immediately")
-xml = replaceOnce(
-  xml,
-  "Interview conducted with Mr {investigatorNameRank} at the scene",
-  "Interview conducted with {interviewee2Name} at the scene"
-);
-// If still wrong pattern from prior runs:
-xml = replaceOnce(
-  xml,
-  "Interview conducted with Mr {leadInvestigator} at the scene",
-  "Interview conducted with {interviewee2Name} at the scene"
-);
 
 const labelInserts = [
   ["Name/Rank/Appointment       :", "Name/Rank/Appointment: {investigatorNameRank}"],
@@ -159,14 +232,16 @@ xml = xml.replace(
   "<w:t>Fire Involved: {fireInvolved}</w:t>"
 );
 
-// Tenant section – first occurrences after section 3
-const tenantLabels = [
-  ["Designation:", "Designation: {tenantDesignation}"],
-  ["Nationality:", "Nationality: {tenantNationality}"],
-  ["Address:", "Address: {tenantAddress}"],
-];
-for (const [from, to] of tenantLabels) {
-  xml = replaceOnce(xml, from, to);
+// Tenant section – scoped replacements after section 3 header
+const tenantSectionStart = xml.indexOf("3 PARTICULARS");
+const tenantSectionEnd = xml.indexOf("4 INSURANCE");
+if (tenantSectionStart !== -1 && tenantSectionEnd !== -1) {
+  const tenantChunk = xml.slice(tenantSectionStart, tenantSectionEnd);
+  let updatedTenant = tenantChunk;
+  updatedTenant = replaceOnce(updatedTenant, "Designation", "Designation: {tenantDesignation}");
+  updatedTenant = replaceOnce(updatedTenant, "Nationality", "Nationality: {tenantNationality}");
+  updatedTenant = replaceOnce(updatedTenant, "Address", "Address: {tenantAddress}");
+  xml = xml.slice(0, tenantSectionStart) + updatedTenant + xml.slice(tenantSectionEnd);
 }
 
 // Tenant name – first "   Name" in tenant block (replace once)
@@ -174,25 +249,6 @@ xml = replaceOnce(xml, "<w:t>   Name</w:t>", "<w:t>   Name: {tenantName}</w:t>")
 
 // Insurance
 xml = replaceOnce(xml, "state the sum insured S$", "state the sum insured S$ {insuranceSum}");
-
-// Interview 1 – after first interviewee1Name placeholder
-xml = replaceOnce(
-  xml,
-  "{interviewee1Name},",
-  "{interviewee1Name},"
-);
-xml = replaceOnce(xml, "Name of Interviewee:", "Name of Interviewee: {interviewee1Name}");
-xml = replaceOnce(xml, "NRIC / FIN No.:", "NRIC / FIN No.: {interviewee1Nric}");
-xml = replaceOnce(xml, "revealed the following:", "revealed the following: {interviewee1Facts}");
-
-// Interview 2 block
-xml = replaceOnce(xml, "Name of Interviewee:", "Name of Interviewee: {interviewee2Name}");
-xml = replaceOnce(xml, "NRIC / FIN No.:", "NRIC / FIN No.: {interviewee2Nric}");
-xml = replaceOnce(
-  xml,
-  "revealed the following: {interviewee1Facts}",
-  "revealed the following: {interviewee2Facts}"
-);
 
 // Photo refs – replace generic "See Photo X" occurrences once each
 xml = replaceOnce(xml, "See Photo X</w:t>", "See Photo {damagesPhotoRef}</w:t>");
@@ -207,8 +263,14 @@ xml = replaceOnce(xml, "<w:t>PIN/FIN</w:t>", "<w:t>PIN/FIN: {injuryPin}</w:t>");
 // Section 7
 xml = replaceOnce(xml, "7 OTHER INFORMATION", "7 OTHER INFORMATION: {otherInformation}");
 
-// Tenant NRIC (first in section 3)
-xml = replaceOnce(xml, "NRIC / FIN No.:", "NRIC / FIN No.: {tenantNric}");
+// Tenant NRIC – first in section 3
+const tenantNricStart = xml.indexOf("3 PARTICULARS");
+const tenantNricEnd = xml.indexOf("4 INSURANCE");
+if (tenantNricStart !== -1 && tenantNricEnd !== -1) {
+  const chunk = xml.slice(tenantNricStart, tenantNricEnd);
+  const updated = replaceOnce(chunk, "NRIC / FIN No.:", "NRIC / FIN No.: {tenantNric}");
+  xml = xml.slice(0, tenantNricStart) + updated + xml.slice(tenantNricEnd);
+}
 
 if (fs.existsSync(scdfIconPath)) {
   xml = injectScdfCoverIcon(zip, xml);

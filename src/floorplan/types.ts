@@ -57,6 +57,7 @@ export type RoomPlanInput = CapturedRoom | CapturedStructure;
 export interface NormalizedScan {
   walls: RoomPlanSurface[];
   openings: RoomPlanSurface[];
+  objects: RoomPlanSurface[];
 }
 
 export interface ConvertOptions {

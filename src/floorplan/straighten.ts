@@ -1,6 +1,6 @@
 import { snapEndpoints } from "./cleanup";
 import { normalizeAngle } from "./matrix";
-import type { FireSightOpening, FireSightRoomScan } from "./firesight";
+import type { FireSightObject, FireSightOpening, FireSightRoomScan } from "./firesight";
 import type { Point2D, Segment2D } from "./types";
 
 const STRAIGHTEN_THRESHOLD_RAD = (5 * Math.PI) / 180;
@@ -163,8 +163,21 @@ export function straightenFireSightScan(
     };
   });
 
+  const objects: FireSightObject[] = (scan.objects ?? []).map((object) => {
+    const rotated = rotatePoint(
+      { x: object.position.x, z: object.position.y },
+      centroid,
+      correctionRad,
+    );
+    return {
+      ...object,
+      position: { x: rotated.x, y: rotated.z },
+      rotationDegrees: object.rotationDegrees + correctionDeg,
+    };
+  });
+
   return {
-    scan: { ...scan, walls, openings },
+    scan: { ...scan, walls, openings, objects },
     correctionRad,
   };
 }
