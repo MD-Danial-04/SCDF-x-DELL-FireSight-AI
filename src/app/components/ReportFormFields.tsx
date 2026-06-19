@@ -17,7 +17,8 @@ import {
   type ReportFormFieldConfig,
 } from "../constants/reportFormSections";
 import { AnnexSelector, parseSelectedAnnexes } from "./AnnexSelector";
-import { InterviewRecordingCard } from "./InterviewRecordingCard";
+import { IntervieweeListEditor } from "./IntervieweeListEditor";
+import type { Interviewee } from "../types/interviewee";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
 import {
   buildAnnexAttachmentList,
@@ -42,6 +43,11 @@ interface ReportFormFieldsProps {
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
   onFloorplanSvgChange?: (svg: string | null) => void;
+  onIntervieweesChange?: (interviewees: Interviewee[]) => void;
+  onGenerateStatement?: (intervieweeId: string) => void;
+  onGenerateAllStatements?: () => void;
+  generatingStatementId?: string | null;
+  isGeneratingAllStatements?: boolean;
 }
 
 function Field({
@@ -135,6 +141,11 @@ export function ReportFormFields({
   photoLogPreviewLoading = false,
   floorplanSvg = null,
   onFloorplanSvgChange,
+  onIntervieweesChange,
+  onGenerateStatement,
+  onGenerateAllStatements,
+  generatingStatementId,
+  isGeneratingAllStatements = false,
 }: ReportFormFieldsProps) {
   const countAutoFilled = (sectionId: string) => {
     const section = REPORT_FORM_SECTIONS.find((s) => s.id === sectionId);
@@ -210,32 +221,30 @@ export function ReportFormFields({
                   onChange={onChange}
                 />
               )}
-              {section.subsections?.map((sub) => {
-                const factsKey =
-                  sub.fields.find((f) => f.key === "interviewee1Facts")?.key ??
-                  sub.fields.find((f) => f.key === "interviewee2Facts")?.key;
-
-                return (
-                  <div key={sub.title} className="mb-5 last:mb-0">
-                    <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3 border-l-2 border-red-400 pl-2">
-                      {sub.title}
-                    </h5>
-                    {factsKey && (
-                      <InterviewRecordingCard
-                        initialTranscript={fields[factsKey]}
-                        onStop={(text) => onChange(factsKey, text)}
-                        className="mb-4"
-                      />
-                    )}
-                    <FieldsGrid
-                      fieldConfigs={sub.fields}
-                      fields={fields}
-                      extractedKeys={extractedKeys}
-                      onChange={onChange}
-                    />
-                  </div>
-                );
-              })}
+              {section.subsections?.map((sub) => (
+                <div key={sub.title} className="mb-5 last:mb-0">
+                  <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3 border-l-2 border-red-400 pl-2">
+                    {sub.title}
+                  </h5>
+                  <FieldsGrid
+                    fieldConfigs={sub.fields}
+                    fields={fields}
+                    extractedKeys={extractedKeys}
+                    onChange={onChange}
+                  />
+                </div>
+              ))}
+              {section.id === "5" && onIntervieweesChange && (
+                <IntervieweeListEditor
+                  interviewees={fields.interviewees}
+                  onChange={onIntervieweesChange}
+                  investigatorNameRank={fields.investigatorNameRank}
+                  onGenerateStatement={onGenerateStatement}
+                  onGenerateAllStatements={onGenerateAllStatements}
+                  generatingStatementId={generatingStatementId}
+                  isGeneratingAll={isGeneratingAllStatements}
+                />
+              )}
             </AccordionContent>
           </AccordionItem>
         );

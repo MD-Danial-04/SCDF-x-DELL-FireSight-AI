@@ -1,4 +1,5 @@
 import {
+  type FireSightObject,
   type FireSightRoomScan,
   type FireSightWall,
   isFireSightRoomScan,
@@ -54,6 +55,57 @@ function validateSurface(surface: RoomPlanSurface, label: string): void {
   }
 }
 
+function validateObjectSurface(surface: RoomPlanSurface, label: string): void {
+  if (!surface.identifier) {
+    throw new RoomPlanParseError(`${label} missing identifier`);
+  }
+  if (!surface.transform || surface.transform.length !== 16) {
+    throw new RoomPlanParseError(
+      `${label} ${surface.identifier} missing valid 4x4 transform`,
+    );
+  }
+  if (
+    !Array.isArray(surface.dimensions) ||
+    surface.dimensions.length !== 3 ||
+    surface.dimensions[0] <= 0 ||
+    surface.dimensions[2] <= 0
+  ) {
+    throw new RoomPlanParseError(
+      `${label} ${surface.identifier} needs positive width and depth dimensions`,
+    );
+  }
+}
+
+function validateFireSightObject(
+  object: unknown,
+  index: number,
+): FireSightObject | null {
+  if (!object || typeof object !== "object") return null;
+  const record = object as Record<string, unknown>;
+  const id = record.id;
+  if (typeof id !== "string" || !id) return null;
+  if (!isFireSightPoint(record.position)) return null;
+  if (typeof record.width !== "number" || record.width <= 0) return null;
+  if (typeof record.depth !== "number" || record.depth <= 0) return null;
+  const rotationDegrees =
+    typeof record.rotationDegrees === "number" ? record.rotationDegrees : 0;
+  return {
+    id,
+    position: record.position,
+    width: record.width,
+    depth: record.depth,
+    rotationDegrees,
+  };
+}
+
+function normalizeFireSightObjects(
+  objects: unknown[] | undefined,
+): FireSightObject[] {
+  if (!Array.isArray(objects)) return [];
+  return objects
+    .map((object, index) => validateFireSightObject(object, index))
+    .filter((object): object is FireSightObject => object !== null);
+}
 function isFireSightPoint(value: unknown): value is { x: number; y: number } {
   return (
     !!value &&
@@ -90,7 +142,8 @@ export function normalizeFireSightScan(doc: FireSightRoomScan): FireSightRoomSca
     throw new RoomPlanParseError("No walls found in room scan");
   }
   const walls = doc.walls.map(validateFireSightWall);
-  return { ...doc, walls };
+  const objects = normalizeFireSightObjects(doc.objects as unknown[] | undefined);
+  return { ...doc, walls, objects };
 }
 
 export function parseRoomPlanJson(json: string): RoomPlanInput {
@@ -112,14 +165,17 @@ export function normalizeScan(
 ): NormalizedScan {
   let walls: RoomPlanSurface[];
   let openings: RoomPlanSurface[];
+  let objects: RoomPlanSurface[];
 
   if (isCapturedStructure(input) && input.walls) {
     walls = filterByStory(input.walls, story);
     openings = filterByStory(input.openings, story);
+    objects = filterByStory(input.objects as RoomPlanSurface[] | undefined, story);
   } else {
     const room = input as CapturedRoom;
     walls = filterByStory(room.walls, story);
     openings = filterByStory(room.openings, story);
+    objects = filterByStory(room.objects as RoomPlanSurface[] | undefined, story);
   }
 
   if (walls.length === 0) {
@@ -132,6 +188,9 @@ export function normalizeScan(
   for (const opening of openings) {
     validateSurface(opening, "Opening");
   }
+  for (const object of objects) {
+    validateObjectSurface(object, "Object");
+  }
 
-  return { walls, openings };
+  return { walls, openings, objects };
 }

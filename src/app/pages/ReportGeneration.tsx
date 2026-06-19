@@ -12,9 +12,15 @@ import { getIncidentCategoryLabel } from "../constants/incidentTemplates";
 import { useReportSession } from "../context/ReportSessionContext";
 import { createEmptyReportFields, type FireReportData } from "../types/fireReport";
 import { extractReportFields, mergeReportFields } from "../lib/extractReportFields";
+import type { Interviewee } from "../types/interviewee";
 import { parseSelectedAnnexes } from "../components/AnnexSelector";
 import { validateAnnexPages, getRequiredPageIndices } from "../constants/annexDefinitions";
 import { downloadDocx, generateFireReportDocx } from "../lib/generateFireReportDocx";
+import { generatePrrDocx, getPrrFilename } from "../lib/generatePrrDocx";
+import {
+  generateStatementDocx,
+  getStatementFilename,
+} from "../lib/generateStatementDocx";
 import {
   compositeHeaderValuesOntoTemplate,
   ANNEX_E_PAGE_INDEX,
@@ -50,6 +56,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const [reportFields, setReportFields] = useState<FireReportData>(() => createEmptyReportFields());
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingPrr, setIsGeneratingPrr] = useState(false);
+  const [generatingStatementId, setGeneratingStatementId] = useState<string | null>(null);
+  const [isGeneratingAllStatements, setIsGeneratingAllStatements] = useState(false);
   const [docBlob, setDocBlob] = useState<Blob | null>(null);
   const [annexImageOverrides, setAnnexImageOverrides] = useState<Map<number, Blob>>(
     () => new Map()
@@ -312,6 +321,10 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     setReportFields((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  const updateInterviewees = useCallback((interviewees: Interviewee[]) => {
+    setReportFields((prev) => ({ ...prev, interviewees }));
+  }, []);
+
   const previewRef = useRef<HTMLDivElement>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const previewScalerRef = useRef<HTMLDivElement>(null);
@@ -438,6 +451,65 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     toast.success("Report downloaded");
   };
 
+  const handleGeneratePrr = async () => {
+    setIsGeneratingPrr(true);
+    try {
+      const blob = await generatePrrDocx(reportFields);
+      downloadDocx(blob, getPrrFilename(reportFields.incidentNo));
+      toast.success("PRR downloaded");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to generate PRR. Check template placeholders.");
+    } finally {
+      setIsGeneratingPrr(false);
+    }
+  };
+
+  const handleGenerateStatement = async (intervieweeId: string) => {
+    const interviewee = reportFields.interviewees.find((i) => i.id === intervieweeId);
+    if (!interviewee) return;
+
+    setGeneratingStatementId(intervieweeId);
+    try {
+      const blob = await generateStatementDocx(interviewee, reportFields);
+      downloadDocx(
+        blob,
+        getStatementFilename(reportFields.incidentNo, interviewee.name || "Interviewee")
+      );
+      toast.success("Statement form downloaded");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to generate statement form. Check template placeholders.");
+    } finally {
+      setGeneratingStatementId(null);
+    }
+  };
+
+  const handleGenerateAllStatements = async () => {
+    if (reportFields.interviewees.length === 0) return;
+
+    setIsGeneratingAllStatements(true);
+    try {
+      for (const interviewee of reportFields.interviewees) {
+        const blob = await generateStatementDocx(interviewee, reportFields);
+        downloadDocx(
+          blob,
+          getStatementFilename(reportFields.incidentNo, interviewee.name || "Interviewee")
+        );
+      }
+      toast.success(
+        reportFields.interviewees.length === 1
+          ? "Statement form downloaded"
+          : `${reportFields.interviewees.length} statement forms downloaded`
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to generate statement forms.");
+    } finally {
+      setIsGeneratingAllStatements(false);
+    }
+  };
+
   const stopPreview = useMemo(
     () => (stopMessage.length > 120 ? `${stopMessage.slice(0, 120)}…` : stopMessage),
     [stopMessage]
@@ -459,16 +531,31 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         title="Fire investigation report"
         description="Review extracted fields, generate the Word document, then edit and download."
         actions={
-          incidentType ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Badge variant="outline" className="font-medium">
-                {getIncidentCategoryLabel(incidentType.category)}
-              </Badge>
-              <Badge variant="secondary" className="bg-brand-fire-muted text-primary border-red-100">
-                {incidentType.name}
-              </Badge>
-            </div>
-          ) : undefined
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleGeneratePrr}
+              disabled={isGeneratingPrr}
+            >
+              {isGeneratingPrr ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="mr-2 h-4 w-4" />
+              )}
+              Generate PRR
+            </Button>
+            {incidentType ? (
+              <>
+                <Badge variant="outline" className="font-medium">
+                  {getIncidentCategoryLabel(incidentType.category)}
+                </Badge>
+                <Badge variant="secondary" className="bg-brand-fire-muted text-primary border-red-100">
+                  {incidentType.name}
+                </Badge>
+              </>
+            ) : null}
+          </div>
         }
       />
 
@@ -538,6 +625,11 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               photoLogPreviewLoading={photoLogPreviewLoading}
               floorplanSvg={floorplanSvg}
               onFloorplanSvgChange={setFloorplanSvg}
+              onIntervieweesChange={updateInterviewees}
+              onGenerateStatement={handleGenerateStatement}
+              onGenerateAllStatements={handleGenerateAllStatements}
+              generatingStatementId={generatingStatementId}
+              isGeneratingAllStatements={isGeneratingAllStatements}
             />
             <Button onClick={handleGenerate} disabled={isGenerating} size="lg">
               {isGenerating ? (
@@ -581,6 +673,11 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 photoLogPreviewLoading={photoLogPreviewLoading}
                 floorplanSvg={floorplanSvg}
                 onFloorplanSvgChange={setFloorplanSvg}
+                onIntervieweesChange={updateInterviewees}
+                onGenerateStatement={handleGenerateStatement}
+                onGenerateAllStatements={handleGenerateAllStatements}
+                generatingStatementId={generatingStatementId}
+                isGeneratingAllStatements={isGeneratingAllStatements}
               />
               <div className="flex flex-wrap gap-3 pt-4 border-t">
                 <Button

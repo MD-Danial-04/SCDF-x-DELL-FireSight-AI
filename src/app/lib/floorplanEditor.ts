@@ -1,3 +1,12 @@
+import {
+  DEFAULT_OBJECT_FOOTPRINT_INSET_M,
+  layoutObjectBoxes,
+  objectBoxIntersectsWallSegment,
+  orientedBoxesOverlap,
+  type ObjectBox2D,
+} from "../../floorplan/objects";
+import type { Segment2D } from "../../floorplan/types";
+
 export interface FloorplanViewBox {
   x: number;
   y: number;
@@ -25,6 +34,7 @@ export interface FloorplanAmendment {
   stroke?: string;
   strokeWidth?: number;
   hidden?: boolean;
+  editingText?: boolean;
   translateX?: number;
   translateY?: number;
   rotation?: number;
@@ -47,9 +57,30 @@ export interface ParsedFloorplan {
   baseViewBox: FloorplanViewBox;
 }
 
+export function resolveTextOverlayFontSize(
+  attributeFontSize: string | null | undefined,
+  computedFontSize: string | null | undefined,
+  fallback = "28",
+): string {
+  if (computedFontSize) {
+    const parsed = Number.parseFloat(computedFontSize);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return String(parsed);
+    }
+  }
+  if (attributeFontSize) {
+    const parsed = Number.parseFloat(attributeFontSize);
+    if (Number.isFinite(parsed) && parsed >= 4) {
+      return String(parsed);
+    }
+  }
+  return fallback;
+}
+
 export type FloorplanShapeType =
   | "text"
   | "rect"
+  | "objectBox"
   | "circle"
   | "ellipse"
   | "line"
@@ -60,6 +91,23 @@ export interface FloorplanPoint {
   x: number;
   y: number;
 }
+
+export type ObjectBoxShape =
+  | "rect"
+  | "circle"
+  | "ellipse"
+  | "line"
+  | "polyline"
+  | "polygon";
+
+export const OBJECT_BOX_SHAPE_OPTIONS: { value: ObjectBoxShape; label: string }[] = [
+  { value: "rect", label: "Rectangle" },
+  { value: "circle", label: "Circle" },
+  { value: "ellipse", label: "Ellipse" },
+  { value: "line", label: "Line" },
+  { value: "polyline", label: "Polyline" },
+  { value: "polygon", label: "Polygon" },
+];
 
 export interface FloorplanGeneratedElement {
   id: string;
@@ -83,6 +131,145 @@ export interface FloorplanGeneratedElement {
   y2?: number;
   points?: FloorplanPoint[];
   rotation?: number;
+  objectLabel?: string;
+  objectBoxShape?: ObjectBoxShape;
+}
+
+export interface ObjectBoxDefaults {
+  width: number;
+  height: number;
+  strokeWidth: number;
+  labelFontSize: number;
+}
+
+export function inferObjectBoxDefaults(
+  viewBox: FloorplanViewBox,
+  svgText: string,
+): ObjectBoxDefaults {
+  const wallMatch = svgText.match(/data-layer="walls"[^>]*stroke-width="([^"]+)"/);
+  const strokeWidth = wallMatch
+    ? Number.parseFloat(wallMatch[1])
+    : Math.max(viewBox.width, viewBox.height) * 0.01;
+  const width = viewBox.width * 0.12;
+  const height = viewBox.height * 0.1;
+  const labelFontSize = Math.min(width, height) * 0.25;
+  return { width, height, strokeWidth, labelFontSize };
+}
+
+export function getObjectBoxBounds(element: FloorplanGeneratedElement) {
+  const width = element.width ?? 180;
+  const height = element.height ?? 120;
+  return {
+    x: element.x,
+    y: element.y,
+    width,
+    height,
+    centerX: element.x + width / 2,
+    centerY: element.y + height / 2,
+  };
+}
+
+function defaultObjectBoxPolylinePoints(x: number, y: number, width: number, height: number): FloorplanPoint[] {
+  return [
+    { x, y: y + height * 0.7 },
+    { x: x + width * 0.35, y: y + height * 0.3 },
+    { x: x + width * 0.65, y: y + height * 0.5 },
+    { x: x + width, y: y + height * 0.2 },
+  ];
+}
+
+function defaultObjectBoxPolygonPoints(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): FloorplanPoint[] {
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  return [
+    { x: centerX, y },
+    { x: x + width, y: centerY },
+    { x: centerX, y: y + height },
+    { x, y: centerY },
+  ];
+}
+
+function populateObjectBoxShapeFields(
+  element: FloorplanGeneratedElement,
+  shape: ObjectBoxShape,
+): FloorplanGeneratedElement {
+  const { x, y, width, height, centerX, centerY } = getObjectBoxBounds(element);
+
+  switch (shape) {
+    case "circle":
+      return { ...element, objectBoxShape: shape, radius: Math.min(width, height) / 2 };
+    case "ellipse":
+      return { ...element, objectBoxShape: shape, radiusX: width / 2, radiusY: height / 2 };
+    case "line":
+      return {
+        ...element,
+        objectBoxShape: shape,
+      };
+    case "polyline":
+      return {
+        ...element,
+        objectBoxShape: shape,
+        points: defaultObjectBoxPolylinePoints(x, y, width, height),
+      };
+    case "polygon":
+      return {
+        ...element,
+        objectBoxShape: shape,
+        points: defaultObjectBoxPolygonPoints(x, y, width, height),
+      };
+    default:
+      return { ...element, objectBoxShape: "rect" };
+  }
+}
+
+export function convertObjectBoxShape(
+  element: FloorplanGeneratedElement,
+  newShape: ObjectBoxShape,
+): FloorplanGeneratedElement {
+  if (element.type !== "objectBox") return element;
+  const bounds = getObjectBoxBounds(element);
+  const base: FloorplanGeneratedElement = {
+    ...element,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    radius: undefined,
+    radiusX: undefined,
+    radiusY: undefined,
+    x2: undefined,
+    y2: undefined,
+    points: undefined,
+  };
+  return populateObjectBoxShapeFields(base, newShape);
+}
+
+export function createDefaultObjectBox(
+  centerX: number,
+  centerY: number,
+  viewBox: FloorplanViewBox,
+  svgText: string,
+  shape: ObjectBoxShape = "rect",
+): FloorplanGeneratedElement {
+  const { width, height, strokeWidth } = inferObjectBoxDefaults(viewBox, svgText);
+  const base: FloorplanGeneratedElement = {
+    id: `generated-objectBox-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+    type: "objectBox",
+    label: "Object box",
+    fill: "#ffffff",
+    stroke: "#000000",
+    strokeWidth,
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    width,
+    height,
+  };
+  return populateObjectBoxShapeFields(base, shape);
 }
 
 export interface FloorplanElementMetrics {
@@ -428,8 +615,30 @@ function getNodeBounds(node: Element) {
         centerY: bounds.minY + bounds.height / 2,
       };
     }
+    case "g": {
+      if (node.getAttribute("data-fs-object-box") !== "true") return null;
+      const rect = node.querySelector("rect");
+      return rect ? getNodeBounds(rect) : null;
+    }
     default:
       return null;
+  }
+}
+
+function applyObjectBoxAmendment(node: Element, amendment?: FloorplanAmendment) {
+  const rect = node.querySelector("rect");
+  const text = node.querySelector("text");
+  if (rect) {
+    if (amendment?.width !== undefined) rect.setAttribute("width", String(amendment.width));
+    if (amendment?.height !== undefined) rect.setAttribute("height", String(amendment.height));
+  }
+  const bounds = rect ? getNodeBounds(rect) : null;
+  if (text && bounds) {
+    text.setAttribute("x", String(bounds.centerX));
+    text.setAttribute("y", String(bounds.centerY));
+    const width = parseNumericLength(rect?.getAttribute("width")) ?? bounds.width;
+    const height = parseNumericLength(rect?.getAttribute("height")) ?? bounds.height;
+    text.setAttribute("font-size", String(Math.min(width, height) * 0.25));
   }
 }
 
@@ -438,6 +647,20 @@ function applyAmendmentToNode(node: Element, amendment?: FloorplanAmendment) {
 
   if (amendment.hidden) node.setAttribute("display", "none");
   else node.removeAttribute("display");
+
+  if (node.tagName === "text") {
+    if (amendment.editingText) {
+      node.setAttribute("opacity", "0");
+      node.setAttribute("pointer-events", "none");
+    } else {
+      node.removeAttribute("opacity");
+      node.removeAttribute("pointer-events");
+    }
+  }
+
+  if (node.tagName === "g" && node.getAttribute("data-fs-object-box") === "true") {
+    applyObjectBoxAmendment(node, amendment);
+  }
 
   if (amendment.fontSize && node.tagName === "text") {
     node.setAttribute("font-size", amendment.fontSize);
@@ -511,6 +734,117 @@ function applyAmendmentToNode(node: Element, amendment?: FloorplanAmendment) {
     node.setAttribute("transform", parts.join(" "));
   } else {
     node.removeAttribute("transform");
+  }
+}
+
+function withAmendment(
+  element: FloorplanGeneratedElement,
+  amendment: FloorplanAmendment | undefined,
+): FloorplanGeneratedElement {
+  if (!amendment) return element;
+  return {
+    ...element,
+    fill: amendment.fill ?? element.fill,
+    stroke: amendment.stroke ?? element.stroke,
+    strokeWidth: amendment.strokeWidth ?? element.strokeWidth,
+    width: amendment.width ?? element.width,
+    height: amendment.height ?? element.height,
+    rotation: amendment.rotation ?? element.rotation,
+    radius: amendment.radius ?? element.radius,
+    radiusX: amendment.radiusX ?? element.radiusX,
+    radiusY: amendment.radiusY ?? element.radiusY,
+    x2: amendment.x2 ?? element.x2,
+    y2: amendment.y2 ?? element.y2,
+  };
+}
+
+function appendObjectBoxShapeNode(
+  doc: XMLDocument,
+  group: Element,
+  element: FloorplanGeneratedElement,
+) {
+  const ns = "http://www.w3.org/2000/svg";
+  const { x, y, width, height, centerX, centerY } = getObjectBoxBounds(element);
+  const shape = element.objectBoxShape ?? "rect";
+  const fill = element.fill ?? "#ffffff";
+  const stroke = element.stroke ?? "#000000";
+  const strokeWidth = String(element.strokeWidth ?? 0.05);
+  const strokeAttrs = {
+    stroke,
+    "stroke-width": strokeWidth,
+    "stroke-linecap": "square",
+  };
+
+  switch (shape) {
+    case "circle": {
+      const node = doc.createElementNS(ns, "circle");
+      node.setAttribute("cx", String(centerX));
+      node.setAttribute("cy", String(centerY));
+      node.setAttribute("r", String(Math.min(width, height) / 2));
+      node.setAttribute("fill", fill);
+      node.setAttribute("stroke", stroke);
+      node.setAttribute("stroke-width", strokeWidth);
+      group.appendChild(node);
+      break;
+    }
+    case "ellipse": {
+      const node = doc.createElementNS(ns, "ellipse");
+      node.setAttribute("cx", String(centerX));
+      node.setAttribute("cy", String(centerY));
+      node.setAttribute("rx", String(width / 2));
+      node.setAttribute("ry", String(height / 2));
+      node.setAttribute("fill", fill);
+      node.setAttribute("stroke", stroke);
+      node.setAttribute("stroke-width", strokeWidth);
+      group.appendChild(node);
+      break;
+    }
+    case "line": {
+      const node = doc.createElementNS(ns, "line");
+      node.setAttribute("x1", String(x));
+      node.setAttribute("y1", String(centerY));
+      node.setAttribute("x2", String(x + width));
+      node.setAttribute("y2", String(centerY));
+      node.setAttribute("stroke", stroke);
+      node.setAttribute("stroke-width", strokeWidth);
+      group.appendChild(node);
+      break;
+    }
+    case "polyline": {
+      const node = doc.createElementNS(ns, "polyline");
+      node.setAttribute(
+        "points",
+        formatPoints(element.points ?? defaultObjectBoxPolylinePoints(x, y, width, height)),
+      );
+      node.setAttribute("fill", "none");
+      node.setAttribute("stroke", stroke);
+      node.setAttribute("stroke-width", strokeWidth);
+      group.appendChild(node);
+      break;
+    }
+    case "polygon": {
+      const node = doc.createElementNS(ns, "polygon");
+      node.setAttribute(
+        "points",
+        formatPoints(element.points ?? defaultObjectBoxPolygonPoints(x, y, width, height)),
+      );
+      node.setAttribute("fill", fill);
+      node.setAttribute("stroke", stroke);
+      node.setAttribute("stroke-width", strokeWidth);
+      group.appendChild(node);
+      break;
+    }
+    default: {
+      const node = doc.createElementNS(ns, "rect");
+      node.setAttribute("x", String(x));
+      node.setAttribute("y", String(y));
+      node.setAttribute("width", String(width));
+      node.setAttribute("height", String(height));
+      node.setAttribute("fill", fill);
+      Object.entries(strokeAttrs).forEach(([key, value]) => node.setAttribute(key, value));
+      group.appendChild(node);
+      break;
+    }
   }
 }
 
@@ -592,6 +926,91 @@ function createGeneratedNode(doc: XMLDocument, element: FloorplanGeneratedElemen
       node.setAttribute("stroke-width", String(element.strokeWidth ?? 4));
       return node;
     }
+    case "objectBox": {
+      const { width, height, centerX, centerY } = getObjectBoxBounds(element);
+      const labelFontSize = Math.min(width, height) * 0.25;
+
+      const group = doc.createElementNS(ns, "g");
+      group.setAttribute("data-fs-object-box", "true");
+      appendObjectBoxShapeNode(doc, group, element);
+
+      if (element.objectLabel?.trim()) {
+        const text = doc.createElementNS(ns, "text");
+        text.setAttribute("x", String(centerX));
+        text.setAttribute("y", String(centerY));
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("dominant-baseline", "middle");
+        text.setAttribute("font-family", "Arial, Helvetica, sans-serif");
+        text.setAttribute("font-size", String(labelFontSize));
+        text.setAttribute("fill", "#000000");
+        text.setAttribute("stroke", "none");
+        text.textContent = element.objectLabel.trim();
+        group.appendChild(text);
+      }
+
+      return group;
+    }
+  }
+}
+
+function findOrCreateObjectsLayer(
+  doc: XMLDocument,
+  svg: SVGSVGElement,
+  strokeWidth: number,
+): Element {
+  const existing = svg.querySelector('[data-layer="objects"]');
+  if (existing) return existing;
+
+  const layer = doc.createElementNS("http://www.w3.org/2000/svg", "g");
+  layer.setAttribute("data-layer", "objects");
+  layer.setAttribute("fill", "none");
+  layer.setAttribute("stroke", "#000000");
+  layer.setAttribute("stroke-width", String(strokeWidth));
+  layer.setAttribute("stroke-linecap", "square");
+  svg.appendChild(layer);
+  return layer;
+}
+
+function appendGeneratedNode(
+  doc: XMLDocument,
+  svg: SVGSVGElement,
+  element: FloorplanGeneratedElement,
+  amendment: FloorplanAmendment | undefined,
+  selectedId: string | null,
+) {
+  const effective = withAmendment(element, amendment);
+  const node = createGeneratedNode(doc, effective);
+  node.setAttribute("data-fs-node-id", element.id);
+  node.setAttribute("data-fs-selectable", "true");
+  if (selectedId === element.id) node.setAttribute("data-fs-selected", "true");
+  applyAmendmentToNode(node, {
+    textContent: element.textContent,
+    fontFamily: element.fontFamily,
+    fontWeight: element.fontWeight,
+    fontStyle: element.fontStyle,
+    fill: element.fill,
+    stroke: element.stroke,
+    strokeWidth: element.strokeWidth,
+    rotation: element.rotation,
+    width: element.width,
+    height: element.height,
+    radius: element.radius,
+    radiusX: element.radiusX,
+    radiusY: element.radiusY,
+    x2: element.x2,
+    y2: element.y2,
+    ...amendment,
+  });
+
+  if (element.type === "objectBox") {
+    const objectsLayer = findOrCreateObjectsLayer(
+      doc,
+      svg,
+      element.strokeWidth ?? 0.05,
+    );
+    objectsLayer.appendChild(node);
+  } else {
+    svg.appendChild(node);
   }
 }
 
@@ -606,12 +1025,16 @@ export function createBlankFloorplan(): ParsedFloorplan {
 export function parseFloorplan(svgText: string): ParsedFloorplan {
   const { doc, svg } = parseSvgDocument(svgText);
   const baseViewBox = inferViewBox(svg);
+  tagFloorplanBackgroundElements(doc, baseViewBox);
   const layers: FloorplanLayer[] = [];
 
   Array.from(doc.querySelectorAll(SELECTABLE_TAGS.join(",")))
     .filter(isSelectableElement)
-    .forEach((element, index) => {
-      const layerId = `node-${index + 1}`;
+    .forEach((element) => {
+      if (element.getAttribute("data-fs-background") === "true") return;
+
+      const layerIndex = layers.length + 1;
+      const layerId = `node-${layerIndex}`;
       element.setAttribute("data-fs-node-id", layerId);
       element.setAttribute("data-fs-selectable", "true");
       element.setAttribute("data-fs-base-transform", element.getAttribute("transform") ?? "");
@@ -621,7 +1044,7 @@ export function parseFloorplan(svgText: string): ParsedFloorplan {
 
       layers.push({
         id: layerId,
-        label: inferLayerLabel(element, index + 1),
+        label: inferLayerLabel(element, layerIndex),
         tagName: element.tagName,
         isText: element.tagName === "text",
         textContent:
@@ -653,6 +1076,8 @@ export function renderFloorplanSvg(options: {
 }) {
   const { doc, svg } = parseSvgDocument(options.svgText);
   const { camera, amendments, selectedId, generatedElements = [] } = options;
+  const baseViewBox = inferViewBox(svg);
+  tagFloorplanBackgroundElements(doc, baseViewBox);
 
   svg.setAttribute("viewBox", `${camera.x} ${camera.y} ${camera.width} ${camera.height}`);
   svg.setAttribute("width", "100%");
@@ -668,29 +1093,7 @@ export function renderFloorplanSvg(options: {
   });
 
   for (const element of generatedElements) {
-    const node = createGeneratedNode(doc, element);
-    node.setAttribute("data-fs-node-id", element.id);
-    node.setAttribute("data-fs-selectable", "true");
-    if (selectedId === element.id) node.setAttribute("data-fs-selected", "true");
-    applyAmendmentToNode(node, {
-      textContent: element.textContent,
-      fontFamily: element.fontFamily,
-      fontWeight: element.fontWeight,
-      fontStyle: element.fontStyle,
-      fill: element.fill,
-      stroke: element.stroke,
-      strokeWidth: element.strokeWidth,
-      rotation: element.rotation,
-      width: element.width,
-      height: element.height,
-      radius: element.radius,
-      radiusX: element.radiusX,
-      radiusY: element.radiusY,
-      x2: element.x2,
-      y2: element.y2,
-      ...amendments[element.id],
-    });
-    svg.appendChild(node);
+    appendGeneratedNode(doc, svg, element, amendments[element.id], selectedId);
   }
 
   const style = doc.createElementNS("http://www.w3.org/2000/svg", "style");
@@ -708,6 +1111,9 @@ export function renderFloorplanSvg(options: {
       paint-order: stroke;
       stroke: rgba(219, 234, 254, 0.95);
       stroke-width: 4px;
+    }
+    [data-fs-background="true"] {
+      pointer-events: none;
     }
   `;
   svg.insertBefore(style, svg.firstChild);
@@ -727,25 +1133,102 @@ const MEASURE_GRAPHICS_SELECTOR = [
   "text",
 ].join(",");
 
+function parseElementFill(element: Element): string | null {
+  const fill = element.getAttribute("fill")?.trim();
+  if (fill) return fill;
+  const style = element.getAttribute("style") ?? "";
+  const match = style.match(/(?:^|;)\s*fill\s*:\s*([^;]+)/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function isWhiteFill(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  if (normalized === "white" || normalized === "#fff" || normalized === "#ffffff") return true;
+
+  const rgbMatch = normalized.match(/^rgba?\((\d+),(\d+),(\d+)(?:,[\d.]+)?\)$/);
+  if (rgbMatch) {
+    return rgbMatch.slice(1, 4).every((channel) => Number(channel) >= 250);
+  }
+
+  return false;
+}
+
+function resolveRectBounds(element: Element, viewBox: FloorplanViewBox) {
+  const parseAxis = (value: string | null | undefined, origin: number, span: number, defaultValue: number) => {
+    if (!value?.trim()) return defaultValue;
+    const trimmed = value.trim();
+    if (trimmed.endsWith("%")) {
+      const ratio = Number.parseFloat(trimmed) / 100;
+      return Number.isFinite(ratio) ? origin + span * ratio : defaultValue;
+    }
+    return parseNumericLength(value) ?? defaultValue;
+  };
+
+  const parseSpan = (value: string | null | undefined, span: number, defaultValue: number) => {
+    if (!value?.trim()) return defaultValue;
+    const trimmed = value.trim();
+    if (trimmed.endsWith("%")) {
+      const ratio = Number.parseFloat(trimmed) / 100;
+      return Number.isFinite(ratio) ? span * ratio : defaultValue;
+    }
+    return parseNumericLength(value) ?? defaultValue;
+  };
+
+  const x = parseAxis(element.getAttribute("x"), viewBox.x, viewBox.width, viewBox.x);
+  const y = parseAxis(element.getAttribute("y"), viewBox.y, viewBox.height, viewBox.y);
+  const width = parseSpan(element.getAttribute("width"), viewBox.width, viewBox.width);
+  const height = parseSpan(element.getAttribute("height"), viewBox.height, viewBox.height);
+
+  return { x, y, width, height };
+}
+
 function isFullViewBoxBackground(element: Element, viewBox: FloorplanViewBox): boolean {
   if (element.tagName !== "rect") return false;
 
-  const fill = (element.getAttribute("fill") ?? "").trim().toLowerCase();
-  if (fill !== "#ffffff" && fill !== "white" && fill !== "#fff") return false;
-
-  const x = parseNumericLength(element.getAttribute("x")) ?? 0;
-  const y = parseNumericLength(element.getAttribute("y")) ?? 0;
-  const width = parseNumericLength(element.getAttribute("width")) ?? 0;
-  const height = parseNumericLength(element.getAttribute("height")) ?? 0;
+  const { x, y, width, height } = resolveRectBounds(element, viewBox);
   if (width <= 0 || height <= 0) return false;
 
   const epsilon = Math.max(viewBox.width, viewBox.height) * 0.02;
-  return (
+  const geometryMatch =
     Math.abs(x - viewBox.x) <= epsilon &&
     Math.abs(y - viewBox.y) <= epsilon &&
     Math.abs(width - viewBox.width) <= epsilon &&
-    Math.abs(height - viewBox.height) <= epsilon
-  );
+    Math.abs(height - viewBox.height) <= epsilon;
+  const coverage = (width * height) / (viewBox.width * viewBox.height);
+  const coversViewBox = geometryMatch || coverage >= 0.98;
+  if (!coversViewBox) return false;
+
+  const fill = parseElementFill(element);
+  if (fill && fill !== "none" && !isWhiteFill(fill)) return false;
+
+  return true;
+}
+
+function tagFloorplanBackgroundElements(doc: Document, viewBox: FloorplanViewBox) {
+  for (const element of doc.querySelectorAll("rect")) {
+    if (!isSelectableElement(element)) continue;
+    if (!isFullViewBoxBackground(element, viewBox)) continue;
+
+    element.setAttribute("data-fs-background", "true");
+    element.setAttribute("pointer-events", "none");
+    element.removeAttribute("data-fs-node-id");
+    element.removeAttribute("data-fs-selectable");
+    element.removeAttribute("data-fs-selected");
+    element.removeAttribute("data-fs-base-transform");
+
+    const id = element.getAttribute("id");
+    if (id?.startsWith("node-")) {
+      element.removeAttribute("id");
+    }
+  }
+}
+
+export function isFloorplanBackgroundElement(element: Element, viewBox: FloorplanViewBox): boolean {
+  const rect = element.closest("rect");
+  if (!rect) return element.closest('[data-fs-background="true"]') !== null;
+  if (rect.getAttribute("data-fs-background") === "true") return true;
+  return isFullViewBoxBackground(rect, viewBox);
 }
 
 function measureGraphicsBounds(svgRoot: SVGSVGElement, viewBox: FloorplanViewBox): FloorplanViewBox | null {
@@ -899,4 +1382,184 @@ export function getFloorplanElementMetrics(
     default:
       return null;
   }
+}
+
+function parseRotationFromTransform(transform: string | null | undefined): number {
+  if (!transform) return 0;
+  const match = transform.match(/rotate\(([-\d.]+)/);
+  return match ? Number.parseFloat(match[1]) : 0;
+}
+
+export function parseWallSegmentsFromSvg(svgText: string): Segment2D[] {
+  const { doc } = parseSvgDocument(svgText);
+  const wallsLayer = doc.querySelector('[data-layer="walls"]');
+  if (!wallsLayer) return [];
+
+  return Array.from(wallsLayer.querySelectorAll("line")).map((line, index) => ({
+    kind: "segment" as const,
+    wallId: line.getAttribute("id") ?? `wall-${index + 1}`,
+    start: {
+      x: parseNumericLength(line.getAttribute("x1")) ?? 0,
+      z: parseNumericLength(line.getAttribute("y1")) ?? 0,
+    },
+    end: {
+      x: parseNumericLength(line.getAttribute("x2")) ?? 0,
+      z: parseNumericLength(line.getAttribute("y2")) ?? 0,
+    },
+  }));
+}
+
+function importedObjectRectToObjectBox(
+  node: Element,
+  layerId: string,
+  amendment?: FloorplanAmendment,
+): ObjectBox2D {
+  const x = parseNumericLength(node.getAttribute("x")) ?? 0;
+  const y = parseNumericLength(node.getAttribute("y")) ?? 0;
+  const width =
+    amendment?.width ?? parseNumericLength(node.getAttribute("width")) ?? 0;
+  const height =
+    amendment?.height ?? parseNumericLength(node.getAttribute("height")) ?? 0;
+  const translateX = amendment?.translateX ?? 0;
+  const translateY = amendment?.translateY ?? 0;
+  const baseRotation = parseRotationFromTransform(
+    node.getAttribute("data-fs-base-transform"),
+  );
+  const rotationDeg = baseRotation + (amendment?.rotation ?? 0);
+
+  return {
+    id: layerId,
+    center: {
+      x: x + width / 2 + translateX,
+      z: y + height / 2 + translateY,
+    },
+    widthM: width,
+    depthM: height,
+    rotationDeg,
+  };
+}
+
+function generatedObjectBoxToObjectBox(
+  element: FloorplanGeneratedElement,
+  amendment?: FloorplanAmendment,
+): ObjectBox2D {
+  const width = amendment?.width ?? element.width ?? 0;
+  const height = amendment?.height ?? element.height ?? 0;
+  const translateX = amendment?.translateX ?? 0;
+  const translateY = amendment?.translateY ?? 0;
+  const rotationDeg = amendment?.rotation ?? element.rotation ?? 0;
+
+  return {
+    id: element.id,
+    center: {
+      x: element.x + width / 2 + translateX,
+      z: element.y + height / 2 + translateY,
+    },
+    widthM: width,
+    depthM: height,
+    rotationDeg,
+  };
+}
+
+export function collectGeneratedObjectBoxes(
+  generatedElements: FloorplanGeneratedElement[],
+  amendments: Record<string, FloorplanAmendment>,
+): ObjectBox2D[] {
+  return generatedElements
+    .filter((element) => element.type === "objectBox")
+    .map((element) => generatedObjectBoxToObjectBox(element, amendments[element.id]));
+}
+
+export function collectObjectBoxesFromFloorplan(
+  svgText: string,
+  generatedElements: FloorplanGeneratedElement[],
+  amendments: Record<string, FloorplanAmendment>,
+): ObjectBox2D[] {
+  const { doc } = parseSvgDocument(svgText);
+  const boxes: ObjectBox2D[] = [];
+
+  doc
+    .querySelectorAll('[data-layer="objects"] rect[data-fs-node-id]')
+    .forEach((node) => {
+      const layerId = node.getAttribute("data-fs-node-id");
+      if (!layerId) return;
+      boxes.push(importedObjectRectToObjectBox(node, layerId, amendments[layerId]));
+    });
+
+  for (const element of generatedElements) {
+    if (element.type !== "objectBox") continue;
+    boxes.push(generatedObjectBoxToObjectBox(element, amendments[element.id]));
+  }
+
+  return boxes;
+}
+
+export interface ObjectBoxLayoutResult {
+  amendments: Record<string, FloorplanAmendment>;
+  generatedElements: FloorplanGeneratedElement[];
+  unresolved: boolean;
+}
+
+export function applyObjectBoxLayout(options: {
+  svgText: string;
+  generatedElements: FloorplanGeneratedElement[];
+  amendments: Record<string, FloorplanAmendment>;
+  viewBox: FloorplanViewBox;
+}): ObjectBoxLayoutResult {
+  const { svgText, generatedElements, amendments, viewBox } = options;
+  const boxes = collectGeneratedObjectBoxes(generatedElements, amendments);
+  if (boxes.length === 0) {
+    return { amendments, generatedElements, unresolved: false };
+  }
+
+  const defaults = inferObjectBoxDefaults(viewBox, svgText);
+  const clearanceM = defaults.strokeWidth / 2 + DEFAULT_OBJECT_FOOTPRINT_INSET_M;
+  const wallSegments = parseWallSegmentsFromSvg(svgText);
+  const layout = layoutObjectBoxes(boxes, wallSegments, clearanceM);
+
+  const nextAmendments = { ...amendments };
+  const nextGenerated = generatedElements.map((element) => ({ ...element }));
+
+  for (const box of layout) {
+    const generated = nextGenerated.find(
+      (element) => element.id === box.id && element.type === "objectBox",
+    );
+    if (!generated) continue;
+
+    const amendment = nextAmendments[box.id] ?? {};
+    const width = amendment.width ?? generated.width ?? box.widthM;
+    const height = amendment.height ?? generated.height ?? box.depthM;
+    generated.x = box.center.x - width / 2;
+    generated.y = box.center.z - height / 2;
+    nextAmendments[box.id] = {
+      ...amendment,
+      translateX: 0,
+      translateY: 0,
+      rotation: box.rotationDeg,
+    };
+  }
+
+  let unresolved = false;
+  for (let i = 0; i < layout.length; i++) {
+    for (let j = i + 1; j < layout.length; j++) {
+      if (orientedBoxesOverlap(layout[i], layout[j])) {
+        unresolved = true;
+        break;
+      }
+    }
+    if (unresolved) break;
+    for (const wall of wallSegments) {
+      if (objectBoxIntersectsWallSegment(layout[i], wall, clearanceM)) {
+        unresolved = true;
+        break;
+      }
+    }
+    if (unresolved) break;
+  }
+
+  return {
+    amendments: nextAmendments,
+    generatedElements: nextGenerated,
+    unresolved,
+  };
 }

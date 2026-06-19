@@ -4,6 +4,15 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { convertRoomPlan, convertRoomPlanToSvg } from "../convert";
 import { isFireSightRoomScan, projectFireSightWalls } from "../firesight";
+import {
+  DEFAULT_OBJECT_FOOTPRINT_INSET_M,
+  deflateObjectBox,
+  objectBoxCorners,
+  orientedBoxesOverlap,
+  projectFireSightObject,
+  projectRoomPlanObject,
+  resolveObjectBoxOverlaps,
+} from "../objects";
 import { RoomPlanParseError, normalizeFireSightScan, normalizeScan } from "../parse";
 import { straightenFireSightScan } from "../straighten";
 import { transformLocalToXZ } from "../matrix";
@@ -32,6 +41,7 @@ describe("parse", () => {
     const scan = normalizeScan(loadFixture("rectangle-room.json"));
     expect(scan.walls).toHaveLength(4);
     expect(scan.openings).toHaveLength(0);
+    expect(scan.objects).toEqual([]);
   });
 
   it("prefers merged top-level walls in CapturedStructure", () => {
@@ -202,6 +212,100 @@ describe("convertRoomPlanToSvg", () => {
     });
     expect(svg).toMatch(/viewBox="-0\.5 -0\.5 5 4"/);
   });
+
+  it("renders object boxes for RoomPlan scan with objects", () => {
+    const svg = convertRoomPlanToSvg(loadFixture("roomplan-with-objects.json"));
+    expect(svg).toContain('data-layer="objects"');
+    const objectsLayer =
+      svg.match(/data-layer="objects"[\s\S]*?<\/g>/)?.[0] ?? "";
+    expect(objectsLayer.match(/<rect/g) ?? []).toHaveLength(1);
+  });
+});
+
+describe("object overlap", () => {
+  it("deflateObjectBox shrinks dimensions and keeps center", () => {
+    const box = {
+      id: "a",
+      center: { x: 1, z: 2 },
+      widthM: 1,
+      depthM: 0.8,
+      rotationDeg: 0,
+    };
+    const deflated = deflateObjectBox(box, 0.025);
+    expect(deflated.widthM).toBeCloseTo(0.95, 4);
+    expect(deflated.depthM).toBeCloseTo(0.75, 4);
+    expect(deflated.center).toEqual(box.center);
+    expect(deflated.rotationDeg).toBe(0);
+  });
+
+  it("orientedBoxesOverlap detects overlapping and separated rects", () => {
+    const a = {
+      id: "a",
+      center: { x: 0, z: 0 },
+      widthM: 1,
+      depthM: 1,
+      rotationDeg: 0,
+    };
+    const b = {
+      id: "b",
+      center: { x: 0.5, z: 0 },
+      widthM: 1,
+      depthM: 1,
+      rotationDeg: 0,
+    };
+    const c = {
+      id: "c",
+      center: { x: 3, z: 0 },
+      widthM: 1,
+      depthM: 1,
+      rotationDeg: 45,
+    };
+
+    expect(orientedBoxesOverlap(a, b)).toBe(true);
+    expect(orientedBoxesOverlap(a, c)).toBe(false);
+  });
+
+  it("resolveObjectBoxOverlaps separates overlapping boxes", () => {
+    const boxes = [
+      {
+        id: "a",
+        center: { x: 0, z: 0 },
+        widthM: 1,
+        depthM: 1,
+        rotationDeg: 0,
+      },
+      {
+        id: "b",
+        center: { x: 0.5, z: 0 },
+        widthM: 1,
+        depthM: 1,
+        rotationDeg: 0,
+      },
+    ];
+
+    const resolved = resolveObjectBoxOverlaps(boxes);
+    expect(orientedBoxesOverlap(resolved[0], resolved[1])).toBe(false);
+  });
+
+  it("separates overlapping objects in FireSight fixture conversion", () => {
+    const doc = loadRawFixture("overlapping-objects.json");
+    const scan = normalizeFireSightScan(
+      doc as Parameters<typeof normalizeFireSightScan>[0],
+    );
+    const projected = scan.objects!.map(projectFireSightObject);
+    expect(orientedBoxesOverlap(projected[0], projected[1])).toBe(true);
+
+    const prepared = resolveObjectBoxOverlaps(
+      projected.map((box) => deflateObjectBox(box, 0.05 / 2 + DEFAULT_OBJECT_FOOTPRINT_INSET_M)),
+    );
+    expect(orientedBoxesOverlap(prepared[0], prepared[1])).toBe(false);
+
+    const svg = convertRoomPlanToSvg(doc);
+    expect(svg).toContain('data-layer="objects"');
+    const objectsLayer =
+      svg.match(/data-layer="objects"[\s\S]*?<\/g>/)?.[0] ?? "";
+    expect(objectsLayer.match(/<rect/g) ?? []).toHaveLength(2);
+  });
 });
 
 describe("convertRoomPlan warnings", () => {
@@ -259,6 +363,51 @@ describe("firesight room scan", () => {
     const doc = loadRawFixture(FIRESIGHT_FIXTURE);
     const scan = normalizeFireSightScan(doc as Parameters<typeof normalizeFireSightScan>[0]);
     expect(scan.walls).toHaveLength(4);
+    expect(scan.objects).toHaveLength(10);
+  });
+
+  it("projects FireSight object footprint from scan data", () => {
+    const doc = loadRawFixture(FIRESIGHT_FIXTURE) as {
+      objects: Array<{
+        id: string;
+        position: { x: number; y: number };
+        width: number;
+        depth: number;
+        rotationDegrees: number;
+      }>;
+    };
+    const object = doc.objects[0];
+    const box = projectFireSightObject(object);
+    expect(box.id).toBe(object.id);
+    expect(box.center).toEqual({ x: object.position.x, z: object.position.y });
+    expect(box.widthM).toBe(object.width);
+    expect(box.depthM).toBe(object.depth);
+    expect(box.rotationDeg).toBe(object.rotationDegrees);
+    expect(objectBoxCorners(box)).toHaveLength(4);
+  });
+
+  it("projects RoomPlan object footprint from transform and dimensions", () => {
+    const room = loadFixture("roomplan-with-objects.json") as CapturedRoom;
+    const object = room.objects![0] as RoomPlanSurface;
+    const box = projectRoomPlanObject(object);
+    expect(box.id).toBe("table-1");
+    expect(box.center).toEqual({ x: 2, z: 1.5 });
+    expect(box.widthM).toBe(1.2);
+    expect(box.depthM).toBe(0.6);
+    expect(box.rotationDeg).toBeCloseTo(0, 4);
+  });
+
+  it("straightens FireSight object positions with walls", () => {
+    const doc = loadRawFixture(FIRESIGHT_FIXTURE);
+    const normalized = normalizeFireSightScan(
+      doc as Parameters<typeof normalizeFireSightScan>[0],
+    );
+    const before = normalized.objects![0];
+    const { scan } = straightenFireSightScan(normalized, 0.05);
+    const after = scan.objects![0];
+    expect(after.position.x).not.toBe(before.position.x);
+    expect(after.position.y).not.toBe(before.position.y);
+    expect(after.rotationDegrees).not.toBe(before.rotationDegrees);
   });
 
   it("produces valid SVG for real FireSight fixture", () => {
@@ -277,6 +426,10 @@ describe("firesight room scan", () => {
     const openingLines = openingsLayer.match(/<line/g) ?? [];
     expect(openingLines.length).toBe(13);
     expect(openingsLayer.match(/<polygon/g) ?? []).toHaveLength(3);
+    expect(svg).toContain('data-layer="objects"');
+    const objectsLayer =
+      svg.match(/data-layer="objects"[\s\S]*?<\/g>/)?.[0] ?? "";
+    expect(objectsLayer.match(/<rect/g) ?? []).toHaveLength(10);
     expect(svg).toContain('data-layer="labels"');
     expect(svg).toContain(">Room</text>");
 

@@ -93,6 +93,14 @@ async function buildAnnexOverridesWithHeaders(
   return merged;
 }
 
+export function buildFireReportRenderData(data: FireReportData): Record<string, unknown> {
+  const { interviewees, ...scalarFields } = data;
+  return {
+    ...scalarFields,
+    interviewees: interviewees.map(({ id: _id, ...interviewee }) => interviewee),
+  };
+}
+
 export async function generateFireReportDocx(
   data: FireReportData,
   selectedAnnexIds?: string[],
@@ -101,18 +109,18 @@ export async function generateFireReportDocx(
 ): Promise<Blob> {
   const annexIds =
     selectedAnnexIds ?? parseSelectedAnnexes(data.selectedAnnexes);
-  const renderData: FireReportData = {
+  const renderData = buildFireReportRenderData({
     ...data,
     annexAttachmentList:
       data.annexAttachmentList || buildAnnexAttachmentList(annexIds),
-  };
+  });
 
   const response = await fetch(templateUrl);
   const arrayBuffer = await response.arrayBuffer();
 
   const zip = new PizZip(arrayBuffer);
   let xml = zip.file("word/document.xml")?.asText() ?? "";
-  xml = patchDocumentXml(xml, renderData);
+  xml = patchDocumentXml(xml, data);
   zip.file("word/document.xml", xml);
 
   const doc = new Docxtemplater(zip, {
@@ -121,7 +129,7 @@ export async function generateFireReportDocx(
     nullGetter: () => "",
   });
 
-  doc.render(renderData as unknown as Record<string, string>);
+  doc.render(renderData);
 
   const generatedPages = new Map<string, AnnexImageData[]>();
   if (photos && photos.length > 0) {

@@ -125,7 +125,6 @@ export function extractReportFields(
 
   const eventsCircumstances = t;
   const areaOfFireOrigin = fireLocation || (blockNumber ? `CRC of block ${blockNumber}` : "");
-  const narrative = extractNarrativeClauses(t);
 
   return {
     applianceCallSign,
@@ -141,7 +140,6 @@ export function extractReportFields(
     classification,
     handoverOfficer,
     handoverNpc,
-    interviewee1Facts: narrative || t,
   };
 }
 

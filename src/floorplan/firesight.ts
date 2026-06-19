@@ -20,6 +20,14 @@ export interface FireSightOpening {
   rotationDegrees: number;
 }
 
+export interface FireSightObject {
+  id: string;
+  position: FireSightPoint;
+  width: number;
+  depth: number;
+  rotationDegrees: number;
+}
+
 export interface FireSightRoomMeta {
   name?: string;
 }
@@ -29,6 +37,7 @@ export interface FireSightRoomScan {
   room?: FireSightRoomMeta;
   walls: FireSightWall[];
   openings?: FireSightOpening[];
+  objects?: FireSightObject[];
 }
 
 export function isFireSightRoomScan(input: unknown): input is FireSightRoomScan {

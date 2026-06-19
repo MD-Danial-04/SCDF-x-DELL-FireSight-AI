@@ -4,10 +4,13 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import type {
-  FloorplanAmendment,
-  FloorplanGeneratedElement,
-  FloorplanLayer,
+import {
+  convertObjectBoxShape,
+  OBJECT_BOX_SHAPE_OPTIONS,
+  type FloorplanAmendment,
+  type FloorplanGeneratedElement,
+  type FloorplanLayer,
+  type ObjectBoxShape,
 } from "../lib/floorplanEditor";
 
 const TEXT_FONT_OPTIONS = [
@@ -45,6 +48,7 @@ export interface FloorplanInspectorPanelProps {
   generatedElement: FloorplanGeneratedElement | null;
   isShapeSelection: boolean;
   isRectSelection: boolean;
+  isObjectBoxSelection: boolean;
   selectedGroup: FloorplanGroup | null;
   showCloseButton?: boolean;
   onClose?: () => void;
@@ -65,6 +69,7 @@ export function FloorplanInspectorPanel({
   generatedElement,
   isShapeSelection,
   isRectSelection,
+  isObjectBoxSelection,
   selectedGroup,
   showCloseButton,
   onClose,
@@ -75,15 +80,15 @@ export function FloorplanInspectorPanel({
   removeGeneratedElement,
 }: FloorplanInspectorPanelProps) {
   return (
-    <>
-      <div className="mb-4 flex items-start justify-between gap-4">
+    <div className="[&_label]:text-[15px] [&_[data-slot=input]]:h-10 [&_[data-slot=input]]:text-[15px] [&_[data-slot=select-trigger]]:h-10 [&_[data-slot=select-trigger]]:text-[15px] [&_button]:text-[15px]">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <p className="font-semibold text-foreground">
+          <p className="text-lg font-semibold text-foreground">
             {selectedLayer.isText
               ? selectedTextValue
               : selectedAmendment.label || selectedLayer.label}
           </p>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+          <p className="text-sm uppercase tracking-[0.16em] text-muted-foreground">
             {selectedLayer.isGenerated ? `Generated ${selectedLayer.tagName}` : selectedLayer.tagName}
           </p>
         </div>
@@ -94,7 +99,7 @@ export function FloorplanInspectorPanel({
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 gap-3">
         {!selectedLayer.isText && (
           <div className="space-y-2">
             <Label htmlFor="layer-label">Layer label</Label>
@@ -119,7 +124,7 @@ export function FloorplanInspectorPanel({
           <>
             <div className="space-y-2">
               <Label>Text content</Label>
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-muted-foreground">
+              <div className="rounded-md border bg-slate-50 px-3 py-2 text-[15px] text-muted-foreground">
                 Double-click the text on the canvas to edit the words directly.
               </div>
             </div>
@@ -168,7 +173,7 @@ export function FloorplanInspectorPanel({
                   value={normalizeColorInput(selectedAmendment.fill ?? generatedElement?.fill, "#0f172a")}
                   onChange={(event) => updateSelectedAmendment({ fill: event.target.value })}
                 />
-                <Label className="flex items-center gap-2 text-sm font-normal">
+                <Label className="flex items-center gap-2 text-[15px] font-normal">
                   <input
                     type="checkbox"
                     checked={isTransparentColor(selectedAmendment.fill ?? generatedElement?.fill)}
@@ -249,7 +254,92 @@ export function FloorplanInspectorPanel({
           />
         </div>
 
-        {isShapeSelection && (
+        {isObjectBoxSelection && generatedElement && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="object-box-shape">Shape</Label>
+              <Select
+                value={generatedElement.objectBoxShape ?? "rect"}
+                onValueChange={(value) => {
+                  const nextShape = value as ObjectBoxShape;
+                  setGeneratedElements((current) =>
+                    current.map((element) =>
+                      element.id === generatedElement.id
+                        ? convertObjectBoxShape(element, nextShape)
+                        : element,
+                    ),
+                  );
+                }}
+              >
+                <SelectTrigger id="object-box-shape" className="bg-white">
+                  <SelectValue placeholder="Shape" />
+                </SelectTrigger>
+                <SelectContent>
+                  {OBJECT_BOX_SHAPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="object-box-width">Width</Label>
+              <Input
+                id="object-box-width"
+                type="number"
+                min="0"
+                step="any"
+                value={String(selectedAmendment.width ?? generatedElement.width ?? 0)}
+                onChange={(event) => {
+                  const width = Math.max(0, Number.parseFloat(event.target.value) || 0);
+                  updateSelectedAmendment({ width });
+                  setGeneratedElements((current) =>
+                    current.map((element) =>
+                      element.id === generatedElement.id ? { ...element, width } : element,
+                    ),
+                  );
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="object-box-depth">Depth</Label>
+              <Input
+                id="object-box-depth"
+                type="number"
+                min="0"
+                step="any"
+                value={String(selectedAmendment.height ?? generatedElement.height ?? 0)}
+                onChange={(event) => {
+                  const height = Math.max(0, Number.parseFloat(event.target.value) || 0);
+                  updateSelectedAmendment({ height });
+                  setGeneratedElements((current) =>
+                    current.map((element) =>
+                      element.id === generatedElement.id ? { ...element, height } : element,
+                    ),
+                  );
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="object-box-label">Optional label</Label>
+              <Input
+                id="object-box-label"
+                value={generatedElement.objectLabel ?? ""}
+                placeholder="e.g. Sofa, Fridge"
+                onChange={(event) => {
+                  const objectLabel = event.target.value;
+                  updateGeneratedElementWithoutHistory(generatedElement.id, (element) => ({
+                    ...element,
+                    objectLabel,
+                  }));
+                }}
+              />
+            </div>
+          </>
+        )}
+
+        {isShapeSelection && !isObjectBoxSelection && (
           <>
             <div className="space-y-2">
               <Label htmlFor="shape-fill">Shape color</Label>
@@ -270,7 +360,7 @@ export function FloorplanInspectorPanel({
                     }
                   }}
                 />
-                <Label className="flex items-center gap-2 text-sm font-normal">
+                <Label className="flex items-center gap-2 text-[15px] font-normal">
                   <input
                     type="checkbox"
                     checked={isTransparentColor(selectedAmendment.fill ?? generatedElement?.fill)}
@@ -311,7 +401,7 @@ export function FloorplanInspectorPanel({
                     }
                   }}
                 />
-                <Label className="flex items-center gap-2 text-sm font-normal">
+                <Label className="flex items-center gap-2 text-[15px] font-normal">
                   <input
                     type="checkbox"
                     checked={isTransparentColor(selectedAmendment.stroke ?? generatedElement?.stroke)}
@@ -421,6 +511,6 @@ export function FloorplanInspectorPanel({
           </Button>
         )}
       </div>
-    </>
+    </div>
   );
 }

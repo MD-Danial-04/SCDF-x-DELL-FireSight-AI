@@ -1,4 +1,6 @@
 import type { OpeningMarker } from "./openingMarkers";
+import type { ObjectBox2D } from "./objects";
+import { objectBoxCorners, objectBoxToSvg } from "./objects";
 import { escapeSvgText } from "./roomLabel";
 import { distance2D } from "./matrix";
 import { pointOnArc } from "./project";
@@ -38,14 +40,20 @@ function collectMarkerPoints(markers: OpeningMarker[]): Point2D[] {
   return markers.flatMap((marker) => marker.points);
 }
 
+function collectObjectPoints(objects: ObjectBox2D[]): Point2D[] {
+  return objects.flatMap((object) => objectBoxCorners(object));
+}
+
 export function computeBounds(
   primitives: WallPrimitive2D[],
   paddingM: number,
   openingMarkers: OpeningMarker[] = [],
+  objects: ObjectBox2D[] = [],
 ): SvgBounds {
   const points = [
     ...collectPoints(primitives),
     ...collectMarkerPoints(openingMarkers),
+    ...collectObjectPoints(objects),
   ];
   if (points.length === 0) {
     return { minX: -paddingM, minZ: -paddingM, width: paddingM * 2, height: paddingM * 2 };
@@ -104,6 +112,7 @@ export interface SvgOptions {
     center: Point2D;
     fontSizeM: number;
   };
+  objects?: ObjectBox2D[];
 }
 
 export function buildSvg(
@@ -111,7 +120,13 @@ export function buildSvg(
   options: SvgOptions,
 ): string {
   const openingMarkers = options.openingMarkers ?? [];
-  const bounds = computeBounds(primitives, options.paddingM, openingMarkers);
+  const objects = options.objects ?? [];
+  const bounds = computeBounds(
+    primitives,
+    options.paddingM,
+    openingMarkers,
+    objects,
+  );
   const { minX, minZ, width, height } = bounds;
 
   const wallShapes = primitives
@@ -131,6 +146,15 @@ export function buildSvg(
     layers.push(
       `  <g data-layer="openings" fill="none" stroke="#000000" stroke-width="${openingStrokeWidth}" stroke-linecap="round">`,
       `    ${openingShapes}`,
+      `  </g>`,
+    );
+  }
+
+  if (objects.length > 0) {
+    const objectShapes = objects.map((object) => objectBoxToSvg(object)).join("\n    ");
+    layers.push(
+      `  <g data-layer="objects" fill="none" stroke="#000000" stroke-width="${fmt(options.strokeWidthM)}" stroke-linecap="square">`,
+      `    ${objectShapes}`,
       `  </g>`,
     );
   }

@@ -3,7 +3,13 @@ import path from "path";
 
 export default defineConfig({
   test: {
-    include: ["src/floorplan/__tests__/**/*.test.ts"],
+    include: [
+      "src/floorplan/__tests__/**/*.test.ts",
+      "src/app/lib/generatePrrDocx.test.ts",
+      "src/app/lib/generateStatementDocx.test.ts",
+      "src/app/lib/svgViewport.test.ts",
+      "src/app/lib/floorplanEditor.textEdit.test.ts",
+    ],
   },
   resolve: {
     alias: {

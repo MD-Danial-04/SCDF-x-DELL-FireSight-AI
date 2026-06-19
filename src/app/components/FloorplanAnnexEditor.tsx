@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import {
+  Box,
   Grid3X3,
   Group,
   History,
   Loader2,
   Map,
+  MousePointer2,
   RotateCw,
   Search,
   Type,
@@ -31,9 +33,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { cn } from "./ui/utils";
 import {
   createBlankFloorplan,
+  createDefaultObjectBox,
   getFloorplanElementMetrics,
+  inferObjectBoxDefaults,
+  isFloorplanBackgroundElement,
+  applyObjectBoxLayout,
+  OBJECT_BOX_SHAPE_OPTIONS,
   parseFloorplan,
   renderFloorplanSvg,
+  resolveTextOverlayFontSize,
   type FloorplanAmendment,
   type FloorplanElementMetrics,
   type FloorplanGeneratedElement,
@@ -41,12 +49,16 @@ import {
   type FloorplanPoint,
   type FloorplanShapeType,
   type FloorplanViewBox,
+  type ObjectBoxShape,
 } from "../lib/floorplanEditor";
 import { convertRoomPlanFile } from "../lib/importRoomPlanFloorplan";
 import { svgStringToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
 import { FloorplanInspectorPanel } from "./FloorplanInspectorPanel";
+import { clientToSvg, computeSvgViewportMapping } from "../lib/svgViewport";
 
 const BLANK_FLOORPLAN = createBlankFloorplan();
+
+type EditorMode = "select" | "placeObjectBox";
 
 type DragState =
   | {
@@ -149,18 +161,22 @@ function getTextEditSnapshot(node: SVGTextElement, canvas: HTMLDivElement, value
       width: textRect.width,
       height: textRect.height,
     },
-    fontFamily: node.getAttribute("font-family") ?? computed.fontFamily ?? "Arial, sans-serif",
-    fontSize: node.getAttribute("font-size") ?? computed.fontSize ?? "28",
-    fontWeight: node.getAttribute("font-weight") ?? computed.fontWeight ?? "400",
-    fontStyle: node.getAttribute("font-style") ?? computed.fontStyle ?? "normal",
-    letterSpacing: computed.letterSpacing ?? "normal",
-    color: node.getAttribute("fill") ?? computed.fill ?? "#0f172a",
+    fontFamily: computed.fontFamily || node.getAttribute("font-family") || "Arial, sans-serif",
+    fontSize: resolveTextOverlayFontSize(node.getAttribute("font-size"), computed.fontSize),
+    fontWeight: computed.fontWeight || node.getAttribute("font-weight") || "400",
+    fontStyle: computed.fontStyle || node.getAttribute("font-style") || "normal",
+    letterSpacing: computed.letterSpacing || "normal",
+    color: computed.fill || node.getAttribute("fill") || "#0f172a",
   };
 }
 
-function getNodeHit(target: EventTarget | null) {
+function getNodeHit(target: EventTarget | null, viewBox?: FloorplanViewBox | null) {
   if (!(target instanceof Element)) return null;
-  return target.closest("[data-fs-node-id]");
+  if (target.closest('[data-fs-background="true"]')) return null;
+  const hit = target.closest("[data-fs-node-id]");
+  if (!hit) return null;
+  if (viewBox && isFloorplanBackgroundElement(hit, viewBox)) return null;
+  return hit;
 }
 
 function getScreenBounds(node: SVGGraphicsElement) {
@@ -310,6 +326,7 @@ function getBoundsForGenerated(element: FloorplanGeneratedElement) {
       return { width, height: 28, centerX: element.x, centerY: element.y - 14 };
     }
     case "rect":
+    case "objectBox":
       return {
         width: element.width ?? 180,
         height: element.height ?? 120,
@@ -377,6 +394,8 @@ export function FloorplanAnnexEditor({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [history, setHistory] = useState<FloorplanHistoryEntry[]>([]);
   const [textEditState, setTextEditState] = useState<TextEditState | null>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>("select");
+  const [objectBoxShape, setObjectBoxShape] = useState<ObjectBoxShape>("rect");
   const canvasRef = useRef<HTMLDivElement>(null);
   const textEditRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -418,7 +437,7 @@ export function FloorplanAnnexEditor({
             ...amendments,
             [textEditState.id]: {
               ...amendments[textEditState.id],
-              hidden: true,
+              editingText: true,
             },
           }
         : amendments;
@@ -471,6 +490,7 @@ export function FloorplanAnnexEditor({
     : nativeMetrics;
   const amendmentCount = Object.keys(amendments).length + generatedElements.length + groups.length;
   const isRectSelection = selectedLayer?.tagName === "rect";
+  const isObjectBoxSelection = selectedLayer?.tagName === "objectBox";
   const isShapeSelection = Boolean(selectedLayer && !selectedLayer.isText);
   const containingGroup = selectedId ? groups.find((group) => group.memberIds.includes(selectedId)) ?? null : null;
   const selectedTextValue =
@@ -673,7 +693,7 @@ export function FloorplanAnnexEditor({
     setSelectedId(layerId);
     setSelectedIds(layerId ? [layerId] : []);
     setSelectedGroupId(layerId ? groups.find((group) => group.memberIds.includes(layerId))?.id ?? null : null);
-    if (layerId !== textEditState?.id) {
+    if (textEditState && layerId !== textEditState.id) {
       setTextEditState(null);
     }
   }
@@ -827,15 +847,38 @@ export function FloorplanAnnexEditor({
     setReplaceDialogOpen(false);
   }
 
-  function getSvgPoint(clientX: number, clientY: number) {
+  function getFloorplanSvg(): SVGSVGElement | null {
+    return canvasRef.current?.querySelector("svg") ?? null;
+  }
+
+  function getViewportScale(): number | null {
+    const ctm = getFloorplanSvg()?.getScreenCTM();
+    if (ctm) return ctm.a;
+
     const canvas = canvasRef.current;
     if (!canvas || !camera) return null;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
-    return {
-      x: camera.x + ((clientX - rect.left) / rect.width) * camera.width,
-      y: camera.y + ((clientY - rect.top) / rect.height) * camera.height,
-    };
+    return computeSvgViewportMapping(rect, camera).scale;
+  }
+
+  function getSvgPoint(clientX: number, clientY: number) {
+    const canvas = canvasRef.current;
+    if (!canvas || !camera) return null;
+
+    const svg = getFloorplanSvg();
+    const ctm = svg?.getScreenCTM();
+    if (svg && ctm) {
+      const point = svg.createSVGPoint();
+      point.x = clientX;
+      point.y = clientY;
+      const svgPoint = point.matrixTransform(ctm.inverse());
+      return { x: svgPoint.x, y: svgPoint.y };
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return clientToSvg(clientX, clientY, computeSvgViewportMapping(rect, camera), camera);
   }
 
   function applyZoom(factor: number, clientX?: number, clientY?: number) {
@@ -844,20 +887,20 @@ export function FloorplanAnnexEditor({
     const rect = canvas.getBoundingClientRect();
     const centerX = clientX ?? rect.left + rect.width / 2;
     const centerY = clientY ?? rect.top + rect.height / 2;
-    const ratioX = clamp((centerX - rect.left) / rect.width, 0, 1);
-    const ratioY = clamp((centerY - rect.top) / rect.height, 0, 1);
+    const anchor = getSvgPoint(centerX, centerY);
+    if (!anchor) return;
 
     setCamera((current) => {
       if (!current) return current;
-      const minWidth = baseViewBox.width * 0.2;
+      const minWidth = baseViewBox.width * 0.1;
       const maxWidth = baseViewBox.width * 2.5;
       const nextWidth = clamp(current.width * factor, minWidth, maxWidth);
       const nextHeight = (nextWidth / current.width) * current.height;
-      const anchorX = current.x + ratioX * current.width;
-      const anchorY = current.y + ratioY * current.height;
+      const ratioX = (anchor.x - current.x) / current.width;
+      const ratioY = (anchor.y - current.y) / current.height;
       return {
-        x: anchorX - ratioX * nextWidth,
-        y: anchorY - ratioY * nextHeight,
+        x: anchor.x - ratioX * nextWidth,
+        y: anchor.y - ratioY * nextHeight,
         width: nextWidth,
         height: nextHeight,
       };
@@ -866,6 +909,30 @@ export function FloorplanAnnexEditor({
 
   function resetCamera() {
     if (baseViewBox) setCamera(baseViewBox);
+  }
+
+  function runObjectBoxLayout(
+    nextGeneratedElements: FloorplanGeneratedElement[],
+    nextAmendments: Record<string, FloorplanAmendment>,
+  ) {
+    if (!baseViewBox) {
+      return {
+        generatedElements: nextGeneratedElements,
+        amendments: nextAmendments,
+        unresolved: false,
+      };
+    }
+
+    const layout = applyObjectBoxLayout({
+      svgText,
+      generatedElements: nextGeneratedElements,
+      amendments: nextAmendments,
+      viewBox: baseViewBox,
+    });
+    if (layout.unresolved) {
+      toast.warning("Some object boxes could not be fully separated.");
+    }
+    return layout;
   }
 
   function updateSelectedAmendment(patch: FloorplanAmendment) {
@@ -920,7 +987,24 @@ export function FloorplanAnnexEditor({
     if (!canvas) return;
     let shouldCapturePointer = true;
 
-    const hit = getNodeHit(event.target);
+    const hit = getNodeHit(event.target, baseViewBox);
+
+    if (editorMode === "placeObjectBox") {
+      if (!hit || (baseViewBox && isFloorplanBackgroundElement(hit, baseViewBox))) {
+        const point = getSvgPoint(event.clientX, event.clientY);
+        if (!point || !baseViewBox) return;
+        captureHistory();
+        const element = createDefaultObjectBox(point.x, point.y, baseViewBox, svgText, objectBoxShape);
+        const layout = runObjectBoxLayout([...generatedElements, element], amendments);
+        setGeneratedElements(layout.generatedElements);
+        setAmendments(layout.amendments);
+        setSingleSelection(element.id);
+        setSelectedGroupId(null);
+        setInspectorOpen(true);
+        return;
+      }
+    }
+
     if (hit) {
       const layerId = hit.getAttribute("data-fs-node-id");
       if (!layerId) return;
@@ -985,7 +1069,7 @@ export function FloorplanAnnexEditor({
   function handleCanvasDoubleClick(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
     event.stopPropagation();
-    const hit = getNodeHit(event.target);
+    const hit = getNodeHit(event.target, baseViewBox);
     if (!hit) return;
     const layerId = hit.getAttribute("data-fs-node-id");
     if (!layerId) return;
@@ -1002,15 +1086,13 @@ export function FloorplanAnnexEditor({
     if (!dragState || dragState.pointerId !== event.pointerId) return;
 
     if (dragState.mode === "pan") {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const deltaX = ((event.clientX - dragState.startX) / rect.width) * dragState.startCamera.width;
-      const deltaY = ((event.clientY - dragState.startY) / rect.height) * dragState.startCamera.height;
+      const startPoint = getSvgPoint(dragState.startX, dragState.startY);
+      const currentPoint = getSvgPoint(event.clientX, event.clientY);
+      if (!startPoint || !currentPoint) return;
       setCamera({
         ...dragState.startCamera,
-        x: dragState.startCamera.x - deltaX,
-        y: dragState.startCamera.y - deltaY,
+        x: dragState.startCamera.x - (currentPoint.x - startPoint.x),
+        y: dragState.startCamera.y - (currentPoint.y - startPoint.y),
       });
       return;
     }
@@ -1038,13 +1120,20 @@ export function FloorplanAnnexEditor({
     if (dragState.mode === "resize-layer") {
       const deltaX = point.x - dragState.startPoint.x;
       const deltaY = point.y - dragState.startPoint.y;
-      const nextWidth = Math.max(20, dragState.startSize.width + deltaX);
-      const nextHeight = Math.max(20, dragState.startSize.height + deltaY);
+      const objectBoxDefaults =
+        dragState.targetTag === "objectBox" && baseViewBox
+          ? inferObjectBoxDefaults(baseViewBox, svgText)
+          : null;
+      const minWidth = objectBoxDefaults ? objectBoxDefaults.width * 0.15 : 20;
+      const minHeight = objectBoxDefaults ? objectBoxDefaults.height * 0.15 : 20;
+      const nextWidth = Math.max(minWidth, dragState.startSize.width + deltaX);
+      const nextHeight = Math.max(minHeight, dragState.startSize.height + deltaY);
       setAmendments((current) => {
         const next = { ...current };
         const currentEntry = { ...next[dragState.targetId] };
         switch (dragState.targetTag) {
           case "rect":
+          case "objectBox":
             currentEntry.width = nextWidth;
             currentEntry.height = nextHeight;
             break;
@@ -1090,16 +1179,55 @@ export function FloorplanAnnexEditor({
 
   function clearDragState(event: ReactPointerEvent<HTMLDivElement>) {
     if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const finishedDrag = dragState;
     setDragState(null);
     if (canvasRef.current?.hasPointerCapture(event.pointerId)) {
       canvasRef.current.releasePointerCapture(event.pointerId);
     }
+
+    if (finishedDrag.mode !== "move-layer" || !baseViewBox) return;
+
+    const generatedObjectBoxIds = new Set(
+      generatedElements.filter((element) => element.type === "objectBox").map((element) => element.id),
+    );
+    if (!finishedDrag.targetIds.some((id) => generatedObjectBoxIds.has(id))) return;
+
+    const point = getSvgPoint(event.clientX, event.clientY);
+    if (!point) return;
+
+    const deltaX = point.x - finishedDrag.startPoint.x;
+    const deltaY = point.y - finishedDrag.startPoint.y;
+    const nextAmendments = { ...amendments };
+    for (const id of finishedDrag.targetIds) {
+      nextAmendments[id] = {
+        ...nextAmendments[id],
+        translateX: finishedDrag.startTranslations[id].x + deltaX,
+        translateY: finishedDrag.startTranslations[id].y + deltaY,
+      };
+    }
+
+    const layout = runObjectBoxLayout(generatedElements, nextAmendments);
+    setAmendments(layout.amendments);
+    setGeneratedElements(layout.generatedElements);
   }
 
   function handleWheel(event: WheelEvent<HTMLDivElement>) {
     event.preventDefault();
     event.stopPropagation();
-    applyZoom(event.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR, event.clientX, event.clientY);
+
+    if (event.ctrlKey) {
+      applyZoom(event.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR, event.clientX, event.clientY);
+      return;
+    }
+
+    const scale = getViewportScale();
+    if (!camera || !scale) return;
+
+    setCamera({
+      ...camera,
+      x: camera.x + event.deltaX / scale,
+      y: camera.y + event.deltaY / scale,
+    });
   }
 
   function addElement(type: FloorplanShapeType) {
@@ -1141,62 +1269,56 @@ export function FloorplanAnnexEditor({
 
   const canvasRect = canvasRef.current?.getBoundingClientRect();
   const selectedTextNode =
-    selectedId && selectedLayer?.isText && canvasRef.current && textEditState?.id !== selectedId
+    selectedId && selectedLayer?.isText && canvasRef.current
       ? canvasRef.current.querySelector<SVGTextElement>(`[data-fs-node-id="${selectedId}"]`)
       : null;
   const selectedTextRect = selectedTextNode?.getBoundingClientRect() ?? null;
   const selectedTextStyle = selectedTextNode ? window.getComputedStyle(selectedTextNode) : null;
-  const selectedTextFontSize =
-    textEditState?.id === selectedId
+  const selectedTextFontSize = selectedTextStyle
+    ? resolveTextOverlayFontSize(
+        selectedTextNode?.getAttribute("font-size") ?? selectedAmendment.fontSize,
+        selectedTextStyle.fontSize,
+      )
+    : textEditState?.id === selectedId
       ? textEditState.fontSize
-      : selectedTextNode?.getAttribute("font-size") ??
-    selectedAmendment.fontSize ??
-    (selectedTextStyle?.fontSize ? Number.parseFloat(selectedTextStyle.fontSize).toString() : null);
+      : selectedAmendment.fontSize ?? "28";
   const selectedTextFontFamily =
-    textEditState?.id === selectedId
-      ? textEditState.fontFamily
-      : selectedTextNode?.getAttribute("font-family") ??
+    selectedTextStyle?.fontFamily ??
+    textEditState?.fontFamily ??
     selectedAmendment.fontFamily ??
     generatedElement?.fontFamily ??
-    selectedTextStyle?.fontFamily ??
     "Arial, sans-serif";
   const selectedTextFontWeight =
-    textEditState?.id === selectedId
-      ? textEditState.fontWeight
-      : selectedTextNode?.getAttribute("font-weight") ??
+    selectedTextStyle?.fontWeight ??
+    textEditState?.fontWeight ??
     selectedAmendment.fontWeight ??
     generatedElement?.fontWeight ??
-    selectedTextStyle?.fontWeight ??
     "400";
   const selectedTextFontStyle =
-    textEditState?.id === selectedId
-      ? textEditState.fontStyle
-      : selectedTextNode?.getAttribute("font-style") ??
+    selectedTextStyle?.fontStyle ??
+    textEditState?.fontStyle ??
     selectedAmendment.fontStyle ??
     generatedElement?.fontStyle ??
-    selectedTextStyle?.fontStyle ??
     "normal";
   const selectedTextFill =
-    textEditState?.id === selectedId
-      ? textEditState.color
-      : selectedTextNode?.getAttribute("fill") ??
+    selectedTextStyle?.fill ??
+    textEditState?.color ??
     selectedAmendment.fill ??
     generatedElement?.fill ??
-    selectedTextStyle?.fill ??
     "#0f172a";
   const selectedTranslationX = selectedId ? amendments[selectedId]?.translateX ?? 0 : 0;
   const selectedTranslationY = selectedId ? amendments[selectedId]?.translateY ?? 0 : 0;
   const textOverlayRect =
-    textEditState?.id === selectedId
-      ? textEditState.rect
-      : selectedTextRect && canvasRect
+    selectedTextRect && canvasRect
       ? {
           left: selectedTextRect.left - canvasRect.left,
           top: selectedTextRect.top - canvasRect.top,
           width: selectedTextRect.width,
           height: selectedTextRect.height,
         }
-      : null;
+      : textEditState?.id === selectedId
+        ? textEditState.rect
+        : null;
   const textEditorRect =
     textOverlayRect
       ? {
@@ -1420,27 +1542,41 @@ export function FloorplanAnnexEditor({
             </Button>
 
             <div className="ml-auto flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={editorMode === "select" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setEditorMode("select")}
+              >
+                <MousePointer2 className="h-4 w-4" />
+                Select
+              </Button>
+              <Select value={objectBoxShape} onValueChange={(value) => setObjectBoxShape(value as ObjectBoxShape)}>
+                <SelectTrigger className="w-[140px] bg-white">
+                  <SelectValue placeholder="Shape" />
+                </SelectTrigger>
+                <SelectContent>
+                  {OBJECT_BOX_SHAPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant={editorMode === "placeObjectBox" ? "default" : "outline"}
+                size="sm"
+                onClick={() =>
+                  setEditorMode((current) => (current === "placeObjectBox" ? "select" : "placeObjectBox"))
+                }
+              >
+                <Box className="h-4 w-4" />
+                Object box
+              </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => addElement("text")}>
                 <Type className="h-4 w-4" />
                 Text
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => addElement("rect")}>
-                Rectangle
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => addElement("circle")}>
-                Circle
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => addElement("ellipse")}>
-                Ellipse
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => addElement("line")}>
-                Line
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => addElement("polyline")}>
-                Polyline
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => addElement("polygon")}>
-                Polygon
               </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => applyZoom(ZOOM_IN_FACTOR)}>
                 <ZoomIn className="h-4 w-4" />
@@ -1454,7 +1590,7 @@ export function FloorplanAnnexEditor({
             </div>
           </div>
 
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+          <div className="flex flex-col gap-4">
             <div
               ref={canvasRef}
               onPointerDown={handlePointerDown}
@@ -1463,10 +1599,14 @@ export function FloorplanAnnexEditor({
               onPointerUp={clearDragState}
               onPointerLeave={clearDragState}
               onWheel={handleWheel}
-              onWheelCapture={handleWheel}
               className={cn(
                 "relative flex-1 min-w-0 min-h-[280px] h-[min(480px,50vh)] max-h-[50vh] overflow-hidden rounded-2xl border border-border bg-white overscroll-contain touch-none",
-                dragState?.mode === "pan" ? "cursor-grabbing" : "cursor-grab",
+                editorMode === "placeObjectBox"
+                  ? "cursor-crosshair"
+                  : dragState?.mode === "pan"
+                    ? "cursor-grabbing"
+                    : "cursor-grab",
+                editorMode === "placeObjectBox" && "ring-2 ring-sky-200",
               )}
             >
             {showGrid && (
@@ -1515,7 +1655,7 @@ export function FloorplanAnnexEditor({
             )}
             {textEditState && selectedLayer?.isText && textEditorRect && (
               <div
-                className="absolute z-40 pointer-events-auto"
+                className="absolute z-40 pointer-events-auto rounded border border-sky-200 bg-white/95 p-1 shadow-sm"
                 style={{
                   left: textEditorRect.left,
                   top: textEditorRect.top,
@@ -1541,9 +1681,6 @@ export function FloorplanAnnexEditor({
                     padding: 0,
                     border: "none",
                     background: "transparent",
-                    resize: "none",
-                    overflow: "hidden",
-                    boxSizing: "border-box",
                     fontFamily: selectedTextFontFamily,
                     fontSize: selectedTextFontSize ? `${selectedTextFontSize}px` : "28px",
                     fontWeight: selectedTextFontWeight,
@@ -1576,40 +1713,13 @@ export function FloorplanAnnexEditor({
               </div>
             )}
 
-            <div
-              className={cn(
-                "absolute inset-x-4 bottom-4 z-20 rounded-2xl border border-border bg-white/96 shadow-xl backdrop-blur transition-transform duration-200 lg:hidden",
-                inspectorOpen && selectedLayer ? "translate-y-0" : "translate-y-[120%]"
-              )}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {selectedLayer && (
-                <div className="max-h-[40vh] overflow-y-auto p-4">
-                  <FloorplanInspectorPanel
-                    selectedLayer={selectedLayer}
-                    selectedAmendment={selectedAmendment}
-                    selectedTextValue={selectedTextValue}
-                    generatedElement={generatedElement}
-                    isShapeSelection={isShapeSelection}
-                    isRectSelection={isRectSelection}
-                    selectedGroup={selectedGroup}
-                    showCloseButton
-                    onClose={() => setInspectorOpen(false)}
-                    updateSelectedAmendment={updateSelectedAmendment}
-                    setGeneratedElements={setGeneratedElements}
-                    updateGeneratedElementWithoutHistory={updateGeneratedElementWithoutHistory}
-                    setSelectedGroupId={setSelectedGroupId}
-                    removeGeneratedElement={removeGeneratedElement}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          <aside className="hidden lg:flex lg:w-80 lg:shrink-0 flex-col rounded-2xl border border-border bg-white overflow-hidden">
-            <div className="overflow-y-auto flex-1 max-h-[min(480px,50vh)] p-4">
-              {selectedLayer ? (
+            {inspectorOpen && selectedLayer && (
+              <div
+                className="absolute bottom-3 right-3 z-30 w-[min(18rem,calc(100%-1.5rem))] max-h-[min(20rem,40vh)] overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-white/96 p-3 shadow-lg backdrop-blur"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onWheel={(event) => event.stopPropagation()}
+              >
                 <FloorplanInspectorPanel
                   selectedLayer={selectedLayer}
                   selectedAmendment={selectedAmendment}
@@ -1617,18 +1727,19 @@ export function FloorplanAnnexEditor({
                   generatedElement={generatedElement}
                   isShapeSelection={isShapeSelection}
                   isRectSelection={isRectSelection}
+                  isObjectBoxSelection={isObjectBoxSelection}
                   selectedGroup={selectedGroup}
+                  showCloseButton
+                  onClose={() => setInspectorOpen(false)}
                   updateSelectedAmendment={updateSelectedAmendment}
                   setGeneratedElements={setGeneratedElements}
                   updateGeneratedElementWithoutHistory={updateGeneratedElementWithoutHistory}
                   setSelectedGroupId={setSelectedGroupId}
                   removeGeneratedElement={removeGeneratedElement}
                 />
-              ) : (
-                <p className="text-sm text-muted-foreground">Select a layer to edit properties.</p>
-              )}
-            </div>
-          </aside>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
