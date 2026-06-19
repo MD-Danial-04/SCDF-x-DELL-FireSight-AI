@@ -24,6 +24,7 @@ import {
   ANNEX_E_MARKER_COLOR,
   buildAnnotatedFloorplanSvg,
   buildArrowGeometry,
+  clampMarkerTip,
   computeMarkerScale,
   createDefaultMarker,
   findMarkerHitAtPoint,
@@ -180,7 +181,9 @@ function SelectionOverlay({
             strokeLinecap="round"
             opacity={0.9}
           />
-          <polygon points={arrow.headPoints} fill={ANNEX_E_MARKER_COLOR} opacity={0.9} />
+          {arrow.headPoints ? (
+            <polygon points={arrow.headPoints} fill={ANNEX_E_MARKER_COLOR} opacity={0.9} />
+          ) : null}
         </>
       )}
     </svg>
@@ -521,7 +524,10 @@ export function AnnexEEditor({
     if (!dragState) return;
 
     if (dragState.mode === "place-arrow" || dragState.mode === "adjust-arrow") {
-      updateMarker(dragState.markerId, { tipX: point.x, tipY: point.y });
+      const marker = markers.find((entry) => entry.id === dragState.markerId);
+      if (!marker || !viewBox) return;
+      const tip = clampMarkerTip(marker, point.x, point.y, viewBox);
+      updateMarker(dragState.markerId, tip);
       return;
     }
 

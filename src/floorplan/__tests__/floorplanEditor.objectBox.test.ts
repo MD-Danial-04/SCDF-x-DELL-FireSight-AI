@@ -7,8 +7,10 @@ import {
   createDefaultObjectBox,
   getObjectBoxBounds,
   inferObjectBoxDefaults,
+  inferTextFontSize,
   renderFloorplanSvg,
   type FloorplanViewBox,
+  type FloorplanGeneratedElement,
 } from "../../app/lib/floorplanEditor";
 
 const METER_FLOORPLAN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 5 4" width="5" height="4">
@@ -39,6 +41,42 @@ describe("inferObjectBoxDefaults", () => {
     expect(defaults.width).toBeCloseTo(192, 5);
     expect(defaults.height).toBeCloseTo(100, 5);
     expect(defaults.labelFontSize).toBeCloseTo(25, 5);
+  });
+});
+
+describe("inferTextFontSize", () => {
+  it("returns meter-scale font size for room scans", () => {
+    expect(inferTextFontSize(METER_VIEW_BOX, METER_FLOORPLAN)).toBeCloseTo(0.1, 5);
+  });
+
+  it("returns pixel-scale font size for large viewBox SVGs", () => {
+    expect(inferTextFontSize(PIXEL_VIEW_BOX, PIXEL_FLOORPLAN)).toBeCloseTo(25, 5);
+  });
+});
+
+describe("renderFloorplanSvg generated text", () => {
+  it("renders user text with inferred font size instead of hardcoded 28", () => {
+    const element: FloorplanGeneratedElement = {
+      id: "generated-text-1",
+      type: "text",
+      label: "New text",
+      textContent: "Kitchen",
+      fontFamily: "Arial, sans-serif",
+      fontSize: inferTextFontSize(METER_VIEW_BOX, METER_FLOORPLAN),
+      x: 2,
+      y: 1.5,
+    };
+    const rendered = renderFloorplanSvg({
+      svgText: METER_FLOORPLAN,
+      amendments: {},
+      camera: METER_VIEW_BOX,
+      selectedId: null,
+      generatedElements: [element],
+    });
+
+    expect(rendered).toContain('font-size="0.1"');
+    expect(rendered).not.toContain('font-size="28"');
+    expect(rendered).toContain("Kitchen");
   });
 });
 

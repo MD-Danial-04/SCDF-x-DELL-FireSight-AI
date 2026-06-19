@@ -115,6 +115,7 @@ export interface FloorplanGeneratedElement {
   label: string;
   textContent?: string;
   fontFamily?: string;
+  fontSize?: number;
   fontWeight?: string;
   fontStyle?: string;
   fill?: string;
@@ -154,6 +155,10 @@ export function inferObjectBoxDefaults(
   const height = viewBox.height * 0.1;
   const labelFontSize = Math.min(width, height) * 0.25;
   return { width, height, strokeWidth, labelFontSize };
+}
+
+export function inferTextFontSize(viewBox: FloorplanViewBox, svgText: string): number {
+  return inferObjectBoxDefaults(viewBox, svgText).labelFontSize;
 }
 
 export function getObjectBoxBounds(element: FloorplanGeneratedElement) {
@@ -648,16 +653,6 @@ function applyAmendmentToNode(node: Element, amendment?: FloorplanAmendment) {
   if (amendment.hidden) node.setAttribute("display", "none");
   else node.removeAttribute("display");
 
-  if (node.tagName === "text") {
-    if (amendment.editingText) {
-      node.setAttribute("opacity", "0");
-      node.setAttribute("pointer-events", "none");
-    } else {
-      node.removeAttribute("opacity");
-      node.removeAttribute("pointer-events");
-    }
-  }
-
   if (node.tagName === "g" && node.getAttribute("data-fs-object-box") === "true") {
     applyObjectBoxAmendment(node, amendment);
   }
@@ -744,6 +739,7 @@ function withAmendment(
   if (!amendment) return element;
   return {
     ...element,
+    textContent: amendment.textContent ?? element.textContent,
     fill: amendment.fill ?? element.fill,
     stroke: amendment.stroke ?? element.stroke,
     strokeWidth: amendment.strokeWidth ?? element.strokeWidth,
@@ -755,6 +751,10 @@ function withAmendment(
     radiusY: amendment.radiusY ?? element.radiusY,
     x2: amendment.x2 ?? element.x2,
     y2: amendment.y2 ?? element.y2,
+    fontSize:
+      amendment.fontSize !== undefined
+        ? Number.parseFloat(amendment.fontSize) || element.fontSize
+        : element.fontSize,
   };
 }
 
@@ -856,10 +856,12 @@ function createGeneratedNode(doc: XMLDocument, element: FloorplanGeneratedElemen
       const node = doc.createElementNS(ns, "text");
       node.setAttribute("x", String(element.x));
       node.setAttribute("y", String(element.y));
+      node.setAttribute("text-anchor", "middle");
+      node.setAttribute("dominant-baseline", "middle");
       node.setAttribute("font-family", element.fontFamily ?? "Arial, sans-serif");
       node.setAttribute("font-weight", element.fontWeight ?? "400");
       node.setAttribute("font-style", element.fontStyle ?? "normal");
-      node.setAttribute("font-size", "28");
+      node.setAttribute("font-size", String(element.fontSize ?? 15));
       node.setAttribute("fill", element.fill ?? "#0f172a");
       node.textContent = element.textContent || "New label";
       return node;
@@ -977,8 +979,16 @@ function appendGeneratedNode(
   element: FloorplanGeneratedElement,
   amendment: FloorplanAmendment | undefined,
   selectedId: string | null,
+  viewBox: FloorplanViewBox,
+  svgText: string,
 ) {
-  const effective = withAmendment(element, amendment);
+  const resolvedFontSize =
+    amendment?.fontSize ??
+    (element.fontSize != null ? String(element.fontSize) : String(inferTextFontSize(viewBox, svgText)));
+  const effective = withAmendment(
+    element.type === "text" ? { ...element, fontSize: Number.parseFloat(resolvedFontSize) || element.fontSize } : element,
+    amendment,
+  );
   const node = createGeneratedNode(doc, effective);
   node.setAttribute("data-fs-node-id", element.id);
   node.setAttribute("data-fs-selectable", "true");
@@ -999,6 +1009,7 @@ function appendGeneratedNode(
     radiusY: element.radiusY,
     x2: element.x2,
     y2: element.y2,
+    fontSize: element.type === "text" ? resolvedFontSize : undefined,
     ...amendment,
   });
 
@@ -1093,7 +1104,7 @@ export function renderFloorplanSvg(options: {
   });
 
   for (const element of generatedElements) {
-    appendGeneratedNode(doc, svg, element, amendments[element.id], selectedId);
+    appendGeneratedNode(doc, svg, element, amendments[element.id], selectedId, baseViewBox, options.svgText);
   }
 
   const style = doc.createElementNS("http://www.w3.org/2000/svg", "style");
