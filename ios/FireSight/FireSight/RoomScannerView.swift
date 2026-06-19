@@ -31,6 +31,7 @@ final class RoomScannerViewController: UIViewController, RoomCaptureViewDelegate
 
     private var roomCaptureView: RoomCaptureView!
     private var isStoppingCapture = false
+    private var hasStartedCapture = false
 
     private let headerBackdrop = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
     private let footerBackdrop = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
@@ -80,7 +81,21 @@ final class RoomScannerViewController: UIViewController, RoomCaptureViewDelegate
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+
+        guard hasStartedCapture == false else {
+            return
+        }
+
+        hasStartedCapture = true
         roomCaptureView.captureSession.run(configuration: captureConfiguration)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+
+        if isStoppingCapture == false {
+            roomCaptureView.captureSession.stop()
+        }
     }
 
     private func configureHeader() {
@@ -216,13 +231,18 @@ final class RoomScannerViewController: UIViewController, RoomCaptureViewDelegate
     }
 
     @objc private func cancelTapped() {
+        isStoppingCapture = true
         roomCaptureView.captureSession.stop()
         onCancel()
     }
 
     func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: (any Error)?) -> Bool {
         if let error {
-            onError(error.localizedDescription)
+            DispatchQueue.main.async {
+                self.isStoppingCapture = false
+                self.processingBackdrop.isHidden = true
+                self.onError(error.localizedDescription)
+            }
             return false
         }
 
@@ -231,35 +251,52 @@ final class RoomScannerViewController: UIViewController, RoomCaptureViewDelegate
 
     func captureView(didPresent processedResult: CapturedRoom, error: (any Error)?) {
         if let error {
-            onError(error.localizedDescription)
+            DispatchQueue.main.async {
+                self.isStoppingCapture = false
+                self.processingBackdrop.isHidden = true
+                self.onError(error.localizedDescription)
+            }
             return
         }
 
-        onComplete(processedResult)
+        DispatchQueue.main.async {
+            self.isStoppingCapture = false
+            self.processingBackdrop.isHidden = true
+            self.onComplete(processedResult)
+        }
     }
 
     func captureSession(_ session: RoomCaptureSession, didProvide instruction: RoomCaptureSession.Instruction) {
+        let message: String
+
         switch instruction {
         case .moveCloseToWall:
-            statusLabel.text = "Move closer to the wall for a cleaner capture."
+            message = "Move closer to the wall for a cleaner capture."
         case .moveAwayFromWall:
-            statusLabel.text = "Move back slightly so the room outline stays in frame."
+            message = "Move back slightly so the room outline stays in frame."
         case .slowDown:
-            statusLabel.text = "Slow down and keep the phone steady."
+            message = "Slow down and keep the phone steady."
         case .turnOnLight:
-            statusLabel.text = "Increase lighting so RoomPlan can see the scene better."
+            message = "Increase lighting so RoomPlan can see the scene better."
         case .normal:
-            statusLabel.text = "Room capture looks stable. Keep tracing the room."
+            message = "Room capture looks stable. Keep tracing the room."
         case .lowTexture:
-            statusLabel.text = "Aim toward clearer edges or textured surfaces to improve tracking."
+            message = "Aim toward clearer edges or textured surfaces to improve tracking."
         @unknown default:
-            statusLabel.text = "Continue moving around the room carefully."
+            message = "Continue moving around the room carefully."
+        }
+
+        DispatchQueue.main.async {
+            self.statusLabel.text = message
         }
     }
 
     func captureSession(_ session: RoomCaptureSession, didEndWith data: CapturedRoomData, error: (any Error)?) {
         if let error, isStoppingCapture == false {
-            onError(error.localizedDescription)
+            DispatchQueue.main.async {
+                self.processingBackdrop.isHidden = true
+                self.onError(error.localizedDescription)
+            }
         }
     }
 }

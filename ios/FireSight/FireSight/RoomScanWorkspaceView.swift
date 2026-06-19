@@ -153,7 +153,6 @@ struct RoomScanWorkspaceView: View {
                 RoomScanDraftStore.save(newValue)
             }
         }
-        .preferredColorScheme(.light)
     }
 
     private var heroCard: some View {
