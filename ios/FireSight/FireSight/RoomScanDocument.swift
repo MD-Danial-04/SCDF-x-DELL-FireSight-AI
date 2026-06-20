@@ -67,6 +67,19 @@ nonisolated struct RoomScanPoint: Codable, Equatable {
     var y: Double
 }
 
+/// RoomPlan reports a per-element confidence. We surface it so investigators
+/// know which captured geometry to verify by hand — important for scenes that
+/// were scanned through poor lighting, soot, or residual smoke after knockdown.
+nonisolated enum ScanConfidence: String, Codable, CaseIterable {
+    case high
+    case medium
+    case low
+
+    var label: String {
+        rawValue.capitalized
+    }
+}
+
 nonisolated struct Wall: Codable, Equatable, Identifiable {
     var id: UUID = UUID()
     var label = "Wall"
@@ -74,6 +87,8 @@ nonisolated struct Wall: Codable, Equatable, Identifiable {
     var end = RoomScanPoint(x: 2.4, y: 0)
     var height: Double = 2.8
     var thickness: Double = 0.16
+    // Optional so older JSON (and the web importer) decode unchanged.
+    var confidence: ScanConfidence? = nil
     var notes = ""
 }
 
@@ -95,6 +110,7 @@ nonisolated struct Opening: Codable, Equatable, Identifiable {
     var width: Double = 0.9
     var height: Double = 2.1
     var rotationDegrees: Double = 0
+    var confidence: ScanConfidence? = nil
     var notes = ""
 }
 
@@ -107,6 +123,10 @@ nonisolated struct ObjectItem: Codable, Equatable, Identifiable {
     var depth: Double = 0.8
     var height: Double = 1.0
     var rotationDegrees: Double = 0
+    var confidence: ScanConfidence? = nil
+    /// Flagged for RoomPlan categories that are common fire ignition sources
+    /// (stove, oven, fireplace, electrical appliances). Optional for back-compat.
+    var fireRelevant: Bool? = nil
     var notes = ""
 }
 
@@ -186,17 +206,36 @@ nonisolated extension RoomScanDocument {
 
         let ceilingHeight = walls.map(\.height).max() ?? 2.8
 
+        // Pre-seed annotations for likely ignition sources so the officer starts
+        // the fire-origin review with the relevant appliances already flagged.
+        let suggestedAnnotations = objects
+            .filter { $0.fireRelevant == true }
+            .map { object in
+                Annotation(
+                    label: "Possible ignition source: \(object.label)",
+                    severity: .watch,
+                    position: object.position,
+                    notes: "Auto-flagged from RoomPlan object category. Confirm or clear during review."
+                )
+            }
+
+        let lowConfidenceCount = walls.filter { $0.confidence == .low }.count
+            + objects.filter { $0.confidence == .low }.count
+        let captureNote = lowConfidenceCount > 0
+            ? "Captured in the FireSight iOS scanner. \(lowConfidenceCount) element(s) came back low-confidence — verify highlighted geometry."
+            : "Captured in the FireSight iOS scanner."
+
         return .init(
             source: .roomPlanIOS,
             room: RoomMeta(
                 name: "Room scan \(capturedRoom.identifier.uuidString.prefix(6))",
-                notes: "Captured in the FireSight iOS scanner.",
+                notes: captureNote,
                 ceilingHeight: round(ceilingHeight)
             ),
             walls: walls,
             openings: doors + windows + passThroughs,
             objects: objects,
-            annotations: []
+            annotations: suggestedAnnotations
         )
     }
 
@@ -245,7 +284,8 @@ nonisolated extension RoomScanDocument {
                 y: round(center.y + axis.dy * halfWidth)
             ),
             height: round(Double(surface.dimensions.y)),
-            thickness: round(max(Double(surface.dimensions.z), 0.05))
+            thickness: round(max(Double(surface.dimensions.z), 0.05)),
+            confidence: scanConfidence(from: surface.confidence)
         )
     }
 
@@ -258,22 +298,97 @@ nonisolated extension RoomScanDocument {
             position: position,
             width: round(Double(surface.dimensions.x)),
             height: round(Double(surface.dimensions.y)),
-            rotationDegrees: round(horizontalAngle(from: surface.transform))
+            rotationDegrees: round(horizontalAngle(from: surface.transform)),
+            confidence: scanConfidence(from: surface.confidence)
         )
     }
 
     private static func makeObject(from object: CapturedRoom.Object, index: Int) -> ObjectItem {
         let position = topDownPoint(from: object.transform)
+        let classification = objectClassification(for: object.category)
 
         return ObjectItem(
-            label: "Object \(index + 1)",
-            category: String(describing: object.category),
+            label: "\(classification.label) \(index + 1)",
+            category: classification.category,
             position: position,
             width: round(Double(object.dimensions.x)),
             depth: round(Double(object.dimensions.z)),
             height: round(Double(object.dimensions.y)),
-            rotationDegrees: round(horizontalAngle(from: object.transform))
+            rotationDegrees: round(horizontalAngle(from: object.transform)),
+            confidence: scanConfidence(from: object.confidence),
+            fireRelevant: classification.fireRelevant
         )
+    }
+
+    private static func scanConfidence(from confidence: CapturedRoom.Confidence) -> ScanConfidence {
+        switch confidence {
+        case .high:
+            return .high
+        case .medium:
+            return .medium
+        case .low:
+            return .low
+        @unknown default:
+            return .medium
+        }
+    }
+
+    /// Maps a RoomPlan object category to a readable label, a stable category
+    /// slug, and whether it is a common fire ignition source. Driven off the
+    /// `String(describing:)` value so it stays resilient across SDK changes
+    /// (RoomPlan periodically adds new categories).
+    private static func objectClassification(
+        for category: CapturedRoom.Object.Category
+    ) -> (label: String, category: String, fireRelevant: Bool) {
+        let raw = String(describing: category)
+            .components(separatedBy: "(").first?
+            .trimmingCharacters(in: .whitespaces) ?? "object"
+
+        // Heat / electrical sources investigators care about for fire origin.
+        let ignitionSources: Set<String> = [
+            "stove", "oven", "fireplace", "television",
+            "washerDryer", "refrigerator", "dishwasher",
+        ]
+
+        let readable: String
+        switch raw {
+        case "washerDryer":
+            readable = "Washer / dryer"
+        case "television":
+            readable = "Television"
+        case "refrigerator":
+            readable = "Refrigerator"
+        case "stove":
+            readable = "Stove"
+        case "oven":
+            readable = "Oven"
+        case "fireplace":
+            readable = "Fireplace"
+        case "dishwasher":
+            readable = "Dishwasher"
+        case "storage":
+            readable = "Storage"
+        case "bed":
+            readable = "Bed"
+        case "sink":
+            readable = "Sink"
+        case "toilet":
+            readable = "Toilet"
+        case "bathtub":
+            readable = "Bathtub"
+        case "table":
+            readable = "Table"
+        case "sofa":
+            readable = "Sofa"
+        case "chair":
+            readable = "Chair"
+        case "stairs":
+            readable = "Stairs"
+        default:
+            readable = raw.prefix(1).uppercased() + raw.dropFirst()
+        }
+
+        return (readable, raw, ignitionSources.contains(raw))
     }
 
     private static func topDownPoint(from transform: simd_float4x4) -> RoomScanPoint {
