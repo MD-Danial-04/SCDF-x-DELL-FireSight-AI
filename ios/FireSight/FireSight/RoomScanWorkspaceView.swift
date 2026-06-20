@@ -330,6 +330,7 @@ struct RoomScanWorkspaceView: View {
                         PointEditor(title: "End point", point: wall.end)
                         MetricField(title: "Height (m)", value: wall.height)
                         MetricField(title: "Thickness (m)", value: wall.thickness)
+                        ConfidenceRow(confidence: wall.confidence)
                         NotesField(title: "Wall notes", text: wall.notes)
                     }
                 }
@@ -373,6 +374,7 @@ struct RoomScanWorkspaceView: View {
                         MetricField(title: "Width (m)", value: opening.width)
                         MetricField(title: "Height (m)", value: opening.height)
                         MetricField(title: "Rotation (deg)", value: opening.rotationDegrees)
+                        ConfidenceRow(confidence: opening.confidence)
                         NotesField(title: "Opening notes", text: opening.notes)
                     }
                 }
@@ -412,6 +414,11 @@ struct RoomScanWorkspaceView: View {
                         MetricField(title: "Depth (m)", value: object.depth)
                         MetricField(title: "Height (m)", value: object.height)
                         MetricField(title: "Rotation (deg)", value: object.rotationDegrees)
+                        ConfidenceRow(confidence: object.confidence)
+                        HazardToggleRow(isOn: Binding(
+                            get: { object.fireRelevant.wrappedValue ?? false },
+                            set: { object.fireRelevant.wrappedValue = $0 }
+                        ))
                         NotesField(title: "Object notes", text: object.notes)
                     }
                 }
@@ -695,6 +702,79 @@ private struct MetricField: View {
                 .keyboardType(.decimalPad)
                 .roomScanInputStyle()
         }
+    }
+}
+
+private struct ConfidenceRow: View {
+    @Binding var confidence: ScanConfidence?
+
+    var body: some View {
+        if let confidence {
+            HStack(spacing: 8) {
+                Image(systemName: iconName(for: confidence))
+                    .foregroundStyle(tint(for: confidence))
+
+                Text("Capture confidence")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(WorkspacePalette.bodyText)
+
+                Spacer()
+
+                Text(confidence.label)
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(tint(for: confidence).opacity(0.14)))
+                    .foregroundStyle(tint(for: confidence))
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func tint(for confidence: ScanConfidence) -> Color {
+        switch confidence {
+        case .high:
+            return Color(red: 0.18, green: 0.62, blue: 0.40)
+        case .medium:
+            return Color(red: 0.86, green: 0.58, blue: 0.13)
+        case .low:
+            return Color(red: 0.86, green: 0.23, blue: 0.18)
+        }
+    }
+
+    private func iconName(for confidence: ScanConfidence) -> String {
+        switch confidence {
+        case .high:
+            return "checkmark.seal.fill"
+        case .medium:
+            return "exclamationmark.triangle.fill"
+        case .low:
+            return "exclamationmark.octagon.fill"
+        }
+    }
+}
+
+private struct HazardToggleRow: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            HStack(spacing: 8) {
+                Image(systemName: "flame.fill")
+                    .foregroundStyle(Color(red: 0.86, green: 0.23, blue: 0.18))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Possible ignition source")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(WorkspacePalette.bodyText)
+
+                    Text("Flag heat or electrical sources for the fire-origin review.")
+                        .font(.caption)
+                        .foregroundStyle(WorkspacePalette.subtleText)
+                }
+            }
+        }
+        .tint(WorkspacePalette.accent)
     }
 }
 

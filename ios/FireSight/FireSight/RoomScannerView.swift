@@ -246,7 +246,34 @@ final class RoomScannerViewController: UIViewController, RoomCaptureViewDelegate
             return false
         }
 
+        // On iOS 17+ we run the offline RoomBuilder ourselves with object
+        // beautification, which produces cleaner walls and tighter object
+        // boxes than RoomCaptureView's live result. Returning false tells the
+        // capture view not to build its own (lower-fidelity) CapturedRoom.
+        if #available(iOS 17.0, *) {
+            refineWithRoomBuilder(roomDataForProcessing)
+            return false
+        }
+
+        // iOS 16 fallback: let RoomCaptureView process and deliver via didPresent.
         return true
+    }
+
+    @available(iOS 17.0, *)
+    private func refineWithRoomBuilder(_ data: CapturedRoomData) {
+        Task { @MainActor in
+            do {
+                let builder = RoomBuilder(options: [.beautifyObjects])
+                let refinedRoom = try await builder.capturedRoom(from: data)
+                self.isStoppingCapture = false
+                self.processingBackdrop.isHidden = true
+                self.onComplete(refinedRoom)
+            } catch {
+                self.isStoppingCapture = false
+                self.processingBackdrop.isHidden = true
+                self.onError(error.localizedDescription)
+            }
+        }
     }
 
     func captureView(didPresent processedResult: CapturedRoom, error: (any Error)?) {
