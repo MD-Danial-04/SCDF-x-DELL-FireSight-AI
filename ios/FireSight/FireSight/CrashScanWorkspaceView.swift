@@ -81,8 +81,9 @@ struct CrashScanWorkspaceView: View {
                 }
             }
             .fullScreenCover(isPresented: $isCapturePresented) {
-                CrashSceneCaptureView(
-                    onComplete: { vehicles, markers, measurements in
+                ARSketchCaptureView(
+                    context: .crash,
+                    onCommitCrash: { vehicles, markers, measurements in
                         isCapturePresented = false
                         mergeCaptured(vehicles: vehicles, markers: markers, measurements: measurements)
                     },
@@ -297,12 +298,13 @@ struct CrashScanWorkspaceView: View {
                     CrashEmptyMessage(message: "No vehicles yet. Add one manually or start an AR sketch.")
                 }
 
-                ForEach($draft.vehicles) { vehicle in
+                ForEach(draft.vehicles) { item in
+                    let vehicle = itemBinding($draft.vehicles, id: item.id, fallback: Vehicle())
                     CrashBlock(
                         title: vehicle.label.wrappedValue.isEmpty ? "Vehicle" : vehicle.label.wrappedValue,
                         tint: Color(red: 0.22, green: 0.47, blue: 0.87)
                     ) {
-                        draft.vehicles.removeAll { $0.id == vehicle.id.wrappedValue }
+                        draft.vehicles.removeAll { $0.id == item.id }
                     } content: {
                         TextField("Label", text: vehicle.label).crashInputStyle()
 
@@ -383,12 +385,13 @@ struct CrashScanWorkspaceView: View {
                     CrashEmptyMessage(message: "No markers added yet.")
                 }
 
-                ForEach($draft.markers) { marker in
+                ForEach(draft.markers) { item in
+                    let marker = itemBinding($draft.markers, id: item.id, fallback: SceneMarker())
                     CrashBlock(
                         title: marker.label.wrappedValue.isEmpty ? "Marker" : marker.label.wrappedValue,
                         tint: Color(red: 0.95, green: 0.42, blue: 0.16)
                     ) {
-                        draft.markers.removeAll { $0.id == marker.id.wrappedValue }
+                        draft.markers.removeAll { $0.id == item.id }
                     } content: {
                         TextField("Label", text: marker.label).crashInputStyle()
 
@@ -428,12 +431,13 @@ struct CrashScanWorkspaceView: View {
                     CrashEmptyMessage(message: "No measurements yet.")
                 }
 
-                ForEach($draft.measurements) { measurement in
+                ForEach(draft.measurements) { item in
+                    let measurement = itemBinding($draft.measurements, id: item.id, fallback: SceneMeasurement())
                     CrashBlock(
                         title: measurement.label.wrappedValue.isEmpty ? "Measurement" : measurement.label.wrappedValue,
                         tint: Color(red: 0.20, green: 0.60, blue: 0.42)
                     ) {
-                        draft.measurements.removeAll { $0.id == measurement.id.wrappedValue }
+                        draft.measurements.removeAll { $0.id == item.id }
                     } content: {
                         TextField("Label", text: measurement.label).crashInputStyle()
                         CrashPointEditor(title: "Start", point: measurement.start)
@@ -478,6 +482,23 @@ struct CrashScanWorkspaceView: View {
                 .buttonStyle(CrashSecondaryButtonStyle())
             }
         }
+    }
+
+    /// Safe element binding looked up by identity (not by position), so a
+    /// destructive change like Reset can never make a row read a stale index.
+    private func itemBinding<Element: Identifiable>(
+        _ array: Binding<[Element]>,
+        id: Element.ID,
+        fallback: @autoclosure @escaping () -> Element
+    ) -> Binding<Element> {
+        Binding(
+            get: { array.wrappedValue.first { $0.id == id } ?? fallback() },
+            set: { newValue in
+                if let index = array.wrappedValue.firstIndex(where: { $0.id == id }) {
+                    array.wrappedValue[index] = newValue
+                }
+            }
+        )
     }
 
     private func mergeCaptured(vehicles: [Vehicle], markers: [SceneMarker], measurements: [SceneMeasurement]) {

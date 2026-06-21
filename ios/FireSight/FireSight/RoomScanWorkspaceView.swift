@@ -19,6 +19,7 @@ struct RoomScanWorkspaceView: View {
 
     @State private var draft: RoomScanDocument
     @State private var isScannerPresented = false
+    @State private var isARObjectSketchPresented = false
     @State private var isExporterPresented = false
     @State private var isImporterPresented = false
     @State private var isResetConfirmationPresented = false
@@ -105,6 +106,20 @@ struct RoomScanWorkspaceView: View {
                     onError: { message in
                         isScannerPresented = false
                         alertMessage = WorkspaceAlert(title: "Scan failed", message: message)
+                    }
+                )
+            }
+            .fullScreenCover(isPresented: $isARObjectSketchPresented) {
+                ARSketchCaptureView(
+                    context: .room,
+                    onCommitRoom: { objects, annotations in
+                        isARObjectSketchPresented = false
+                        mergeARObjects(objects: objects, annotations: annotations)
+                    },
+                    onCancel: { isARObjectSketchPresented = false },
+                    onError: { message in
+                        isARObjectSketchPresented = false
+                        alertMessage = WorkspaceAlert(title: "AR sketch failed", message: message)
                     }
                 )
             }
@@ -207,6 +222,14 @@ struct RoomScanWorkspaceView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PrimaryActionButtonStyle())
+
+                Button {
+                    isARObjectSketchPresented = true
+                } label: {
+                    Label("Sketch objects in AR (outdoor / large spaces)", systemImage: "arkit")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryActionButtonStyle())
 
                 HStack(spacing: 10) {
                     Button {
@@ -316,12 +339,13 @@ struct RoomScanWorkspaceView: View {
                     EmptyCollectionMessage(message: "No walls yet. Add one manually or start a scan.")
                 }
 
-                ForEach($draft.walls) { wall in
+                ForEach(draft.walls) { item in
+                    let wall = itemBinding($draft.walls, id: item.id, fallback: Wall())
                     EditableBlock(
                         title: wall.label.wrappedValue.isEmpty ? "Wall" : wall.label.wrappedValue,
                         tint: Color(red: 0.87, green: 0.23, blue: 0.18)
                     ) {
-                        draft.walls.removeAll { $0.id == wall.id.wrappedValue }
+                        draft.walls.removeAll { $0.id == item.id }
                     } content: {
                         TextField("Label", text: wall.label)
                             .roomScanInputStyle()
@@ -352,12 +376,13 @@ struct RoomScanWorkspaceView: View {
                     EmptyCollectionMessage(message: "No openings added yet.")
                 }
 
-                ForEach($draft.openings) { opening in
+                ForEach(draft.openings) { item in
+                    let opening = itemBinding($draft.openings, id: item.id, fallback: Opening())
                     EditableBlock(
                         title: opening.label.wrappedValue.isEmpty ? "Opening" : opening.label.wrappedValue,
                         tint: Color(red: 0.22, green: 0.47, blue: 0.87)
                     ) {
-                        draft.openings.removeAll { $0.id == opening.id.wrappedValue }
+                        draft.openings.removeAll { $0.id == item.id }
                     } content: {
                         TextField("Label", text: opening.label)
                             .roomScanInputStyle()
@@ -396,12 +421,13 @@ struct RoomScanWorkspaceView: View {
                     EmptyCollectionMessage(message: "No objects detected yet.")
                 }
 
-                ForEach($draft.objects) { object in
+                ForEach(draft.objects) { item in
+                    let object = itemBinding($draft.objects, id: item.id, fallback: ObjectItem())
                     EditableBlock(
                         title: object.label.wrappedValue.isEmpty ? "Object" : object.label.wrappedValue,
                         tint: Color(red: 0.20, green: 0.60, blue: 0.42)
                     ) {
-                        draft.objects.removeAll { $0.id == object.id.wrappedValue }
+                        draft.objects.removeAll { $0.id == item.id }
                     } content: {
                         TextField("Label", text: object.label)
                             .roomScanInputStyle()
@@ -415,10 +441,7 @@ struct RoomScanWorkspaceView: View {
                         MetricField(title: "Height (m)", value: object.height)
                         MetricField(title: "Rotation (deg)", value: object.rotationDegrees)
                         ConfidenceRow(confidence: object.confidence)
-                        HazardToggleRow(isOn: Binding(
-                            get: { object.fireRelevant.wrappedValue ?? false },
-                            set: { object.fireRelevant.wrappedValue = $0 }
-                        ))
+                        HazardToggleRow(isOn: object.fireRelevant)
                         NotesField(title: "Object notes", text: object.notes)
                     }
                 }
@@ -440,12 +463,13 @@ struct RoomScanWorkspaceView: View {
                     EmptyCollectionMessage(message: "No annotations added yet.")
                 }
 
-                ForEach($draft.annotations) { annotation in
+                ForEach(draft.annotations) { item in
+                    let annotation = itemBinding($draft.annotations, id: item.id, fallback: Annotation())
                     EditableBlock(
                         title: annotation.label.wrappedValue.isEmpty ? "Annotation" : annotation.label.wrappedValue,
                         tint: Color(red: 0.70, green: 0.36, blue: 0.12)
                     ) {
-                        draft.annotations.removeAll { $0.id == annotation.id.wrappedValue }
+                        draft.annotations.removeAll { $0.id == item.id }
                     } content: {
                         TextField("Label", text: annotation.label)
                             .roomScanInputStyle()
@@ -498,6 +522,31 @@ struct RoomScanWorkspaceView: View {
                 .buttonStyle(SecondaryActionButtonStyle())
             }
         }
+    }
+
+    /// Safe element binding looked up by identity (not by position), so a
+    /// destructive change like Reset can never make a row read a stale index.
+    private func itemBinding<Element: Identifiable>(
+        _ array: Binding<[Element]>,
+        id: Element.ID,
+        fallback: @autoclosure @escaping () -> Element
+    ) -> Binding<Element> {
+        Binding(
+            get: { array.wrappedValue.first { $0.id == id } ?? fallback() },
+            set: { newValue in
+                if let index = array.wrappedValue.firstIndex(where: { $0.id == id }) {
+                    array.wrappedValue[index] = newValue
+                }
+            }
+        )
+    }
+
+    private func mergeARObjects(objects: [ObjectItem], annotations: [Annotation]) {
+        guard !objects.isEmpty || !annotations.isEmpty else { return }
+        var updated = draft
+        updated.objects.append(contentsOf: objects)
+        updated.annotations.append(contentsOf: annotations)
+        draft = updated
     }
 
     private func handleImport(_ result: Result<URL, Error>) {
