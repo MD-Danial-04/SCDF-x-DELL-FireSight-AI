@@ -125,9 +125,33 @@ nonisolated struct ObjectItem: Codable, Equatable, Identifiable {
     var rotationDegrees: Double = 0
     var confidence: ScanConfidence? = nil
     /// Flagged for RoomPlan categories that are common fire ignition sources
-    /// (stove, oven, fireplace, electrical appliances). Optional for back-compat.
-    var fireRelevant: Bool? = nil
+    /// (stove, oven, fireplace, electrical appliances).
+    var fireRelevant = false
     var notes = ""
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, category, position, width, depth, height, rotationDegrees, confidence, fireRelevant, notes
+    }
+}
+
+// Tolerant decoding so older exports that omit newer keys still import cleanly.
+nonisolated extension ObjectItem {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var item = ObjectItem()
+        item.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        item.label = try container.decodeIfPresent(String.self, forKey: .label) ?? "Object"
+        item.category = try container.decodeIfPresent(String.self, forKey: .category) ?? "other"
+        item.position = try container.decodeIfPresent(RoomScanPoint.self, forKey: .position) ?? RoomScanPoint(x: 0, y: 0)
+        item.width = try container.decodeIfPresent(Double.self, forKey: .width) ?? 1.0
+        item.depth = try container.decodeIfPresent(Double.self, forKey: .depth) ?? 0.8
+        item.height = try container.decodeIfPresent(Double.self, forKey: .height) ?? 1.0
+        item.rotationDegrees = try container.decodeIfPresent(Double.self, forKey: .rotationDegrees) ?? 0
+        item.confidence = try container.decodeIfPresent(ScanConfidence.self, forKey: .confidence)
+        item.fireRelevant = try container.decodeIfPresent(Bool.self, forKey: .fireRelevant) ?? false
+        item.notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        self = item
+    }
 }
 
 nonisolated struct Annotation: Codable, Equatable, Identifiable {
@@ -209,7 +233,7 @@ nonisolated extension RoomScanDocument {
         // Pre-seed annotations for likely ignition sources so the officer starts
         // the fire-origin review with the relevant appliances already flagged.
         let suggestedAnnotations = objects
-            .filter { $0.fireRelevant == true }
+            .filter { $0.fireRelevant }
             .map { object in
                 Annotation(
                     label: "Possible ignition source: \(object.label)",
