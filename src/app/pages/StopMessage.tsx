@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { Mic, MicOff, FileText, FileImage } from "lucide-react";
+import { Mic, MicOff, FileText, FileImage, Loader2 } from "lucide-react";
 import { useLocation } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "../components/PageHeader";
@@ -33,6 +33,9 @@ import {
   type DemoScenario,
 } from "../constants/demoScenarios";
 import { useRecordingTimer } from "../hooks/useRecordingTimer";
+import { useMediaRecorder } from "../hooks/useMediaRecorder";
+import { useTranscriptionJob } from "../hooks/useTranscriptionJob";
+import { isInferenceConfigured } from "../types/inference";
 
 const FAM_DEMO_SELECT_ID = "demo-fam";
 const FAM_TYPEWRITER_DURATION_MS = 2500;
@@ -54,6 +57,12 @@ export function StopMessage() {
   const [isDemoSelection, setIsDemoSelection] = useState(false);
   const [selectedIncidentType, setSelectedIncidentType] = useState<IncidentType | null>(null);
   const { isRecording, recordingTime, start, stop, formatTime } = useRecordingTimer();
+  const {
+    isRecording: isMediaRecording,
+    start: startMediaRecording,
+    stop: stopMediaRecording,
+  } = useMediaRecorder();
+  const { job, isProcessing, error: inferenceError, submitTranscription } = useTranscriptionJob();
   const [textInput, setTextInput] = useState("");
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [fieldNotes, setFieldNotes] = useState("");
@@ -162,7 +171,50 @@ export function StopMessage() {
     }
   }, [selectedIncidentType]);
 
-  const handleRecord = () => {
+  const useLiveInference = isInferenceConfigured() && !isDemoSelection;
+
+  useEffect(() => {
+    if (job?.status === "transcribed") {
+      if (job.transcript) {
+        setVoiceTranscript(job.transcript);
+      }
+      toast.success("Recording transcribed");
+    }
+  }, [job]);
+
+  useEffect(() => {
+    if (inferenceError) {
+      toast.error(inferenceError);
+    }
+  }, [inferenceError]);
+
+  const isActivelyRecording = useLiveInference ? isMediaRecording : isRecording;
+
+  const handleRecord = async () => {
+    if (useLiveInference) {
+      if (!isMediaRecording) {
+        clearTypewriterTimer();
+        try {
+          await startMediaRecording();
+          start();
+        } catch {
+          toast.error("Microphone access denied");
+        }
+        return;
+      }
+
+      clearTypewriterTimer();
+      stop();
+      try {
+        const blob = await stopMediaRecording();
+        toast.info("Processing recording...");
+        await submitTranscription(blob);
+      } catch {
+        toast.error("Failed to submit recording");
+      }
+      return;
+    }
+
     if (!isRecording) {
       clearTypewriterTimer();
       start();
@@ -214,6 +266,7 @@ export function StopMessage() {
             incidentType: selectedIncidentType,
             stopMessage: effectiveStopMessage,
             fieldNotes: fieldNotes.trim(),
+            transcriptionJobId: job?.id,
           }}
         >
           <ReportGeneration
@@ -236,6 +289,7 @@ export function StopMessage() {
           incidentType: selectedIncidentType,
           stopMessage: effectiveStopMessage,
           fieldNotes: fieldNotes.trim(),
+          transcriptionJobId: job?.id,
           premisesOwner: demoScenario?.premisesOwner,
           premisesUen: demoScenario?.premisesUen,
         }}
@@ -357,17 +411,24 @@ export function StopMessage() {
                   />
 
                   <div className="border-t pt-4 flex items-center justify-center gap-3">
-                    {isRecording && (
+                    {isActivelyRecording && (
                       <span className="text-sm font-mono text-primary tabular-nums">
                         {formatTime(recordingTime)}
+                      </span>
+                    )}
+                    {isProcessing && (
+                      <span className="text-sm text-muted-foreground flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Transcribing…
                       </span>
                     )}
                     <Button
                       onClick={handleRecord}
                       size="lg"
-                      variant={isRecording ? "secondary" : "default"}
+                      variant={isActivelyRecording ? "secondary" : "default"}
+                      disabled={isProcessing || !selectedIncidentType}
                     >
-                      {isRecording ? (
+                      {isActivelyRecording ? (
                         <>
                           <MicOff className="mr-2 h-5 w-5" />
                           Stop Recording
@@ -387,9 +448,11 @@ export function StopMessage() {
                 <CardHeader>
                   <CardTitle className="text-base">Transcribed Text</CardTitle>
                   <CardDescription>
-                    {voiceTranscript
-                      ? "Review and edit the transcribed stop message"
-                      : "Your recording will appear here after you stop, or paste your stop message"}
+                    {isProcessing
+                      ? "Transcription in progress…"
+                      : voiceTranscript
+                        ? "Review and edit the transcribed stop message"
+                        : "Your recording will appear here after you stop, or paste your stop message"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

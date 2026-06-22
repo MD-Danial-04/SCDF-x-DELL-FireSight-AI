@@ -29,6 +29,7 @@ import { ActivationSlidesPreview } from "../components/ActivationSlidesPreview";
 import { useOptionalReportSession } from "../context/ReportSessionContext";
 import { getIncidentCategoryLabel } from "../constants/incidentTemplates";
 import { extractSlideFields, mergeSlideFields } from "../lib/extractSlideFields";
+import { mapInferenceToSlideFields } from "../lib/mapInferenceToSlideFields";
 import { Badge } from "../components/ui/badge";
 import { toast } from "sonner";
 import { Progress } from "../components/ui/progress";
@@ -43,6 +44,8 @@ import {
   generateActivationSlidesPptx,
   getActivationSlidesFilename,
 } from "../lib/generateActivationSlides";
+import { useExtractionJob } from "../hooks/useExtractionJob";
+import { isInferenceConfigured } from "../types/inference";
 
 interface PhotoField {
   id: string;
@@ -68,8 +71,10 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
   const stopMessage = session?.stopMessage ?? "";
   const fieldNotes = session?.fieldNotes ?? "";
   const incidentType = session?.incidentType ?? null;
+  const transcriptionJobId = session?.transcriptionJobId;
   const demoPremisesOwner = session?.premisesOwner ?? "";
   const demoPremisesUen = session?.premisesUen ?? "";
+  const { runExtraction, isExtracting, error: extractionError } = useExtractionJob();
 
   const [slideData, setSlideData] = useState<ActivationSlideData>(() => createEmptySlideData());
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
@@ -89,31 +94,75 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
   const slidesFilename = getActivationSlidesFilename(slideData.incidentNo);
 
   useEffect(() => {
-    const extracted = extractSlideFields(
-      stopMessage,
-      incidentType?.name,
-      fieldNotes,
-      slideData.dutyDate
-    );
-    if (demoPremisesOwner.trim()) extracted.premisesOwner = demoPremisesOwner.trim();
-    if (demoPremisesUen.trim()) extracted.premisesUen = demoPremisesUen.trim();
+    let cancelled = false;
 
-    const keys = new Set(
-      Object.entries(extracted)
-        .filter(([, v]) => v && String(v).trim())
-        .map(([k]) => k)
-    );
-    setExtractedKeys(keys);
-    if (keys.size > 0) {
-      setSlideData((prev) => mergeSlideFields(prev, extracted));
+    const applyFallback = () => {
+      const extracted = extractSlideFields(
+        stopMessage,
+        incidentType?.name,
+        fieldNotes,
+        slideData.dutyDate
+      );
+      if (demoPremisesOwner.trim()) extracted.premisesOwner = demoPremisesOwner.trim();
+      if (demoPremisesUen.trim()) extracted.premisesUen = demoPremisesUen.trim();
+      const keys = new Set(
+        Object.entries(extracted)
+          .filter(([, v]) => v && String(v).trim())
+          .map(([k]) => k)
+      );
+      if (!cancelled) {
+        setExtractedKeys(keys);
+        if (keys.size > 0) {
+          setSlideData((prev) => mergeSlideFields(prev, extracted));
+        }
+      }
+    };
+
+    if (!transcriptionJobId || !isInferenceConfigured() || !stopMessage.trim()) {
+      applyFallback();
+      return () => {
+        cancelled = true;
+      };
     }
+
+    void runExtraction({
+      jobId: transcriptionJobId,
+      text: stopMessage,
+      messageType: "stop_message",
+      incidentTypeName: incidentType?.name,
+    })
+      .then((job) => {
+        const extracted = mapInferenceToSlideFields(job.result);
+        if (demoPremisesOwner.trim()) extracted.premisesOwner = demoPremisesOwner.trim();
+        if (demoPremisesUen.trim()) extracted.premisesUen = demoPremisesUen.trim();
+        const keys = new Set(
+          Object.entries(extracted)
+            .filter(([, v]) => v && String(v).trim())
+            .map(([k]) => k)
+        );
+        if (!cancelled) {
+          setExtractedKeys(keys);
+          if (keys.size > 0) {
+            setSlideData((prev) => mergeSlideFields(prev, extracted));
+          }
+        }
+      })
+      .catch(() => {
+        applyFallback();
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
-    stopMessage,
-    fieldNotes,
-    incidentType?.name,
-    slideData.dutyDate,
     demoPremisesOwner,
     demoPremisesUen,
+    fieldNotes,
+    incidentType?.name,
+    runExtraction,
+    slideData.dutyDate,
+    stopMessage,
+    transcriptionJobId,
   ]);
 
   const updateField = (key: ActivationSlideFieldKey, value: string) => {
@@ -456,6 +505,17 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
           <p>Enter operational details and upload photos. Fields can be auto-filled when opened from a stop message.</p>
         </StatusBanner>
       )}
+
+      {isExtracting ? (
+        <StatusBanner variant="info" title="Extracting slide fields">
+          <p>Running NLP extraction on your edited transcript...</p>
+        </StatusBanner>
+      ) : null}
+      {extractionError ? (
+        <StatusBanner variant="warning" title="Using local fallback extraction">
+          <p>{extractionError}</p>
+        </StatusBanner>
+      ) : null}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
         <div className="space-y-6">

@@ -7,6 +7,7 @@ export interface ReportSession {
   fieldNotes: string;
   premisesOwner?: string;
   premisesUen?: string;
+  transcriptionJobId?: string;
 }
 
 const ReportSessionContext = createContext<ReportSession | null>(null);
