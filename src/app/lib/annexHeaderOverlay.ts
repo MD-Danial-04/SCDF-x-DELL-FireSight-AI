@@ -2,7 +2,7 @@ import { ANNEX_A_HEIGHT, ANNEX_A_WIDTH } from "./annexTemplateLayout";
 import type { PhotoLogHeaderInfo } from "../types/photoLog";
 
 /** Value positions in the 719×1058 template coordinate space (after the baked-in labels). */
-export const HEADER_VALUE_LAYOUT = {
+export const DEFAULT_HEADER_VALUE_LAYOUT = {
   incidentValueX: 245,
   incidentValueY: 61,
   locationValueX: 245,
@@ -10,11 +10,21 @@ export const HEADER_VALUE_LAYOUT = {
   fontSize: 16,
 } as const;
 
+export const ANNEX_G_HEADER_VALUE_LAYOUT = {
+  incidentValueX: 164,
+  incidentValueY: 24,
+  locationValueX: 164,
+  locationValueY: 46,
+  fontSize: 16,
+} as const;
+
 /** Annex E static template page index — values use bold+underline to match the label style. */
 export const ANNEX_E_PAGE_INDEX = 4;
+export const ANNEX_G_PAGE_INDEX = 8;
 
 export interface HeaderValueDrawOptions {
   boldUnderline?: boolean;
+  pageIndex?: number;
 }
 
 export function hasHeaderValues(header?: PhotoLogHeaderInfo): boolean {
@@ -91,8 +101,12 @@ export function drawHeaderValuesOnCanvas(
 
   const scaleX = canvasWidth / ANNEX_A_WIDTH;
   const scaleY = canvasHeight / ANNEX_A_HEIGHT;
+  const layout =
+    options.pageIndex === ANNEX_G_PAGE_INDEX
+      ? ANNEX_G_HEADER_VALUE_LAYOUT
+      : DEFAULT_HEADER_VALUE_LAYOUT;
   const { incidentValueX, incidentValueY, locationValueX, locationValueY, fontSize } =
-    HEADER_VALUE_LAYOUT;
+    layout;
   const scaledFontSize = fontSize * scaleY;
   const boldUnderline = options.boldUnderline ?? false;
 

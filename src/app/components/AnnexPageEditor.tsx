@@ -137,7 +137,9 @@ function PageCard({
               ? "Edited in layout plan editor above"
               : annexId === "E" && pageIndex === 4
                 ? "Edited in Annex E photo-log editor above"
-                : "Read-only preview")}
+                : annexId === "G" && pageIndex === 8
+                  ? "Edited in Annex G burn-chart editor above"
+                  : "Read-only preview")}
         </p>
       ) : (
         <>
@@ -242,7 +244,10 @@ export function AnnexPageEditor({
       annexId,
       pageIndex,
       subIndex: annexId === "F" ? subIndex : undefined,
-      readOnly: (annexId === "A" && pageIndex === 0) || (annexId === "E" && pageIndex === 4),
+      readOnly:
+        (annexId === "A" && pageIndex === 0) ||
+        (annexId === "E" && pageIndex === 4) ||
+        (annexId === "G" && pageIndex === 8),
     }));
   });
 
@@ -286,7 +291,12 @@ export function AnnexPageEditor({
               previewUrl={overrides[pageIndex]}
               generatedPreviewUrl={generatedPreviewUrl}
               headerPreviewUrl={headerPreviewUrls[pageIndex]}
-              readOnly={readOnly ?? ((annexId === "A" && pageIndex === 0) || (annexId === "E" && pageIndex === 4))}
+              readOnly={
+                readOnly ??
+                ((annexId === "A" && pageIndex === 0) ||
+                  (annexId === "E" && pageIndex === 4) ||
+                  (annexId === "G" && pageIndex === 8))
+              }
               readOnlyCaption={readOnlyCaption}
               loading={showPhotoLogLoading && (annexId === "D" || annexId === "F")}
               onOverrideChange={onOverrideChange}
