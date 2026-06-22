@@ -183,6 +183,8 @@ export function ReportFormFields({
                     selectedIds={parseSelectedAnnexes(fields.selectedAnnexes)}
                     incidentNo={fields.incidentNo}
                     locationOfFire={fields.locationOfFire}
+                    nameOfVictim={fields.injuryName}
+                    nricFinNumber={fields.injuryPin}
                     overrides={annexPreviewUrls}
                     headerPreviewUrls={annexHeaderPreviewUrls}
                     onOverrideChange={onAnnexOverrideChange}

@@ -9,6 +9,7 @@ import {
 import { AnnexPageEditor } from "./AnnexPageEditor";
 import { FloorplanAnnexEditor } from "./FloorplanAnnexEditor";
 import { AnnexEEditor } from "./AnnexEEditor";
+import { AnnexGBurnChartEditor } from "./AnnexGBurnChartEditor";
 import { PhotoLogEditor } from "./PhotoLogEditor";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
 
@@ -17,6 +18,8 @@ interface AnnexSelectorProps {
   onChange: (selectedIds: string[], attachmentList: string) => void;
   incidentNo?: string;
   locationOfFire?: string;
+  nameOfVictim?: string;
+  nricFinNumber?: string;
   overrides?: Record<number, string>;
   headerPreviewUrls?: Record<number, string>;
   onOverrideChange?: (pageIndex: number, blob: Blob | null) => void;
@@ -37,6 +40,8 @@ export function AnnexSelector({
   onChange,
   incidentNo,
   locationOfFire,
+  nameOfVictim,
+  nricFinNumber,
   overrides = {},
   headerPreviewUrls = {},
   onOverrideChange,
@@ -120,6 +125,16 @@ export function AnnexSelector({
           photos={photos}
           incidentNo={incidentNo}
           locationOfFire={locationOfFire}
+          onOverrideChange={onOverrideChange}
+        />
+      )}
+      {onOverrideChange && selectedIds.includes("G") && (
+        <AnnexGBurnChartEditor
+          enabled
+          incidentNo={incidentNo}
+          locationOfFire={locationOfFire}
+          nameOfVictim={nameOfVictim}
+          nricFinNumber={nricFinNumber}
           onOverrideChange={onOverrideChange}
         />
       )}
