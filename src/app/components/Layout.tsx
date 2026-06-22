@@ -58,32 +58,34 @@ const routeMeta: Record<string, { title: string; description: string }> = {
 };
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+  const { pathname } = useLocation();
+
   return (
     <nav className="flex flex-col gap-1 p-3">
-      {navItems.map(({ to, label, icon: Icon, end, isActive: matchActive }) => (
+      {navItems.map(({ to, label, icon: Icon, end, isActive: matchActive }) => {
+        const active = matchActive ? matchActive(pathname) : undefined;
+
+        return (
         <NavLink
           key={to}
           to={to}
           end={end}
           onClick={onNavigate}
-          isActive={
-            matchActive
-              ? (_, { pathname }) => matchActive(pathname)
-              : undefined
-          }
-          className={({ isActive }) =>
-            cn(
+          className={({ isActive: linkActive }) => {
+            const isActive = active ?? linkActive;
+            return cn(
               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
               isActive
                 ? "bg-sidebar-accent text-white border-l-[3px] border-l-primary pl-[calc(0.75rem-3px)]"
                 : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-white"
-            )
-          }
+            );
+          }}
         >
           <Icon className="w-4 h-4 shrink-0 opacity-90" />
           {label}
         </NavLink>
-      ))}
+        );
+      })}
     </nav>
   );
 }

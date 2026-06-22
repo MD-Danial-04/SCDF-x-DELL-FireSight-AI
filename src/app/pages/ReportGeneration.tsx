@@ -12,6 +12,8 @@ import { getIncidentCategoryLabel } from "../constants/incidentTemplates";
 import { useReportSession } from "../context/ReportSessionContext";
 import { createEmptyReportFields, type FireReportData } from "../types/fireReport";
 import { extractReportFields, mergeReportFields } from "../lib/extractReportFields";
+import { useExtractionJob } from "../hooks/useExtractionJob";
+import { isInferenceConfigured } from "../types/inference";
 import type { Interviewee } from "../types/interviewee";
 import { parseSelectedAnnexes } from "../components/AnnexSelector";
 import { validateAnnexPages, getRequiredPageIndices } from "../constants/annexDefinitions";
@@ -51,7 +53,8 @@ interface ReportGenerationProps {
 
 export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const navigate = useNavigate();
-  const { incidentType, stopMessage, fieldNotes } = useReportSession();
+  const { incidentType, stopMessage, fieldNotes, transcriptionJobId } = useReportSession();
+  const { runExtraction, isExtracting, error: extractionError } = useExtractionJob();
   const [step, setStep] = useState<Step>("review");
   const [reportFields, setReportFields] = useState<FireReportData>(() => createEmptyReportFields());
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
@@ -307,15 +310,54 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   ]);
 
   useEffect(() => {
-    const extracted = extractReportFields(stopMessage, incidentType?.name);
-    const keys = new Set(
-      Object.entries(extracted)
-        .filter(([, v]) => v && String(v).trim())
-        .map(([k]) => k)
-    );
-    setExtractedKeys(keys);
-    setReportFields(mergeReportFields(createEmptyReportFields(), extracted));
-  }, [stopMessage, incidentType?.name]);
+    let cancelled = false;
+
+    const applyFallback = () => {
+      const extracted = extractReportFields(stopMessage, incidentType?.name);
+      const keys = new Set(
+        Object.entries(extracted)
+          .filter(([, v]) => v && String(v).trim())
+          .map(([k]) => k)
+      );
+      if (!cancelled) {
+        setExtractedKeys(keys);
+        setReportFields(mergeReportFields(createEmptyReportFields(), extracted));
+      }
+    };
+
+    if (!transcriptionJobId || !isInferenceConfigured() || !stopMessage.trim()) {
+      applyFallback();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void runExtraction({
+      jobId: transcriptionJobId,
+      text: stopMessage,
+      messageType: "stop_message",
+      incidentTypeName: incidentType?.name,
+    })
+      .then((job) => {
+        const extracted = (job.result?.fields ?? {}) as Partial<FireReportData>;
+        const keys = new Set(
+          Object.entries(extracted)
+            .filter(([, v]) => v && String(v).trim())
+            .map(([k]) => k)
+        );
+        if (!cancelled) {
+          setExtractedKeys(keys);
+          setReportFields(mergeReportFields(createEmptyReportFields(), extracted));
+        }
+      })
+      .catch(() => {
+        applyFallback();
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [incidentType?.name, runExtraction, stopMessage, transcriptionJobId]);
 
   const updateField = useCallback((key: keyof FireReportData, value: string) => {
     setReportFields((prev) => ({ ...prev, [key]: value }));
@@ -558,6 +600,18 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
           </div>
         }
       />
+
+      {isExtracting ? (
+        <StatusBanner variant="info" title="Extracting report fields">
+          <p>Running NLP extraction on your edited transcript...</p>
+        </StatusBanner>
+      ) : null}
+
+      {extractionError ? (
+        <StatusBanner variant="warning" title="Using local fallback extraction">
+          <p>{extractionError}</p>
+        </StatusBanner>
+      ) : null}
 
       <div className="flex items-center justify-between gap-3">
         <Button type="button" variant="outline" onClick={handlePrevious}>
