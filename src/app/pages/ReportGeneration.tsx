@@ -12,6 +12,8 @@ import { getIncidentCategoryLabel } from "../constants/incidentTemplates";
 import { useReportSession } from "../context/ReportSessionContext";
 import { createEmptyReportFields, type FireReportData } from "../types/fireReport";
 import { extractReportFields, mergeReportFields } from "../lib/extractReportFields";
+import { applyPhotoSectionRef } from "../lib/applyPhotoSectionRef";
+import type { PhotoAnalysisPartialEntry } from "../lib/buildPhotoAnalysisContext";
 import { useExtractionJob } from "../hooks/useExtractionJob";
 import { isInferenceConfigured } from "../types/inference";
 import type { Interviewee } from "../types/interviewee";
@@ -38,9 +40,14 @@ import { generateAnnexDBlobs, generateAnnexFBlobs } from "../lib/photoLogAnnexes
 import {
   createPhotoCopy,
   createPhotoLogEntry,
+  getPhotoLogDisplayInfo,
   type PhotoLogAnnexPreviewUrls,
   type PhotoLogEntry,
 } from "../types/photoLog";
+import {
+  PHOTO_REF_LABELS,
+  SUGGESTED_SECTION_TO_PHOTO_REF,
+} from "../types/photoAnalysis";
 
 type Step = "review" | "edit";
 
@@ -164,9 +171,60 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
 
   const handleUpdatePhotoCaption = useCallback((id: string, caption: string) => {
     setPhotos((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, caption: caption || undefined } : p)),
+      prev.map((p) =>
+        p.id === id
+          ? { ...p, caption: caption || undefined, captionSource: "manual" as const }
+          : p,
+      ),
     );
   }, []);
+
+  const photoAnalysisContext = useMemo(
+    () => ({
+      locationOfFire: reportFields.locationOfFire,
+      incidentTypeName: incidentType?.name,
+      stopMessage,
+      fieldNotes,
+    }),
+    [reportFields.locationOfFire, incidentType?.name, stopMessage, fieldNotes],
+  );
+
+  const handlePhotosAnalyzed = useCallback(
+    (updates: Record<string, PhotoAnalysisPartialEntry>) => {
+      setPhotos((prev) =>
+        prev.map((p) => (updates[p.id] ? { ...p, ...updates[p.id] } : p)),
+      );
+    },
+    [],
+  );
+
+  const handleApplyPhotoSection = useCallback(
+    (photoId: string) => {
+      const photo = photos.find((p) => p.id === photoId);
+      if (!photo?.suggestedSection) {
+        toast.error("No section suggestion available for this photo");
+        return;
+      }
+
+      const displayInfo = getPhotoLogDisplayInfo(photos).find(
+        (info) => info.entry.id === photoId,
+      );
+      const photoNumber = displayInfo?.number;
+      if (!photoNumber) {
+        toast.error("Could not resolve photo number");
+        return;
+      }
+
+      const section = photo.suggestedSection;
+      const fieldKey = SUGGESTED_SECTION_TO_PHOTO_REF[section];
+      setReportFields((prev) => ({
+        ...prev,
+        [fieldKey]: applyPhotoSectionRef(prev[fieldKey], section, photoNumber),
+      }));
+      toast.success(`Added to ${PHOTO_REF_LABELS[section]}`);
+    },
+    [photos],
+  );
 
   const selectedAnnexes = useMemo(
     () => parseSelectedAnnexes(reportFields.selectedAnnexes),
@@ -682,6 +740,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               onReorderPhoto={handleReorderPhoto}
               onCopyPhoto={handleCopyPhoto}
               onUpdatePhotoCaption={handleUpdatePhotoCaption}
+              photoAnalysisContext={photoAnalysisContext}
+              onPhotosAnalyzed={handlePhotosAnalyzed}
+              onApplyPhotoSection={handleApplyPhotoSection}
               photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
               photoLogPreviewLoading={photoLogPreviewLoading}
               floorplanSvg={floorplanSvg}
@@ -731,6 +792,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 onReorderPhoto={handleReorderPhoto}
                 onCopyPhoto={handleCopyPhoto}
                 onUpdatePhotoCaption={handleUpdatePhotoCaption}
+                photoAnalysisContext={photoAnalysisContext}
+                onPhotosAnalyzed={handlePhotosAnalyzed}
+                onApplyPhotoSection={handleApplyPhotoSection}
                 photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
                 photoLogPreviewLoading={photoLogPreviewLoading}
                 floorplanSvg={floorplanSvg}
