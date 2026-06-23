@@ -1,67 +1,96 @@
 import { describe, expect, it } from "vitest";
 import {
+  PRIOR_PHOTOS_HEADER,
   buildPhotoAnalysisContext,
   mapPhotoAnalysisToEntry,
 } from "../buildPhotoAnalysisContext";
 import type { PhotoAnalysisResult } from "../../types/photoAnalysis";
 
 describe("buildPhotoAnalysisContext", () => {
-  it("includes report context fields when provided", () => {
+  it("includes location and incident type only (no stop message)", () => {
     const context = buildPhotoAnalysisContext({
       locationOfFire: "Blk 123",
       incidentTypeName: "Residential fire",
-      stopMessage: "Stop message text",
+      stopMessage: "Stop message text should not be sent",
       fieldNotes: "Field notes text",
     });
 
     expect(context).toEqual({
       locationOfFire: "Blk 123",
       incidentTypeName: "Residential fire",
-      stopMessageExcerpt: "Stop message text",
       fieldNotesExcerpt: "Field notes text",
     });
+    expect(context.stopMessageExcerpt).toBeUndefined();
   });
 
-  it("truncates long excerpts", () => {
-    const longText = "a".repeat(600);
+  it("truncates long field notes", () => {
+    const longText = "a".repeat(300);
     const context = buildPhotoAnalysisContext({
-      stopMessage: longText,
       fieldNotes: longText,
     });
 
-    expect(context.stopMessageExcerpt).toHaveLength(501);
-    expect(context.stopMessageExcerpt?.endsWith("…")).toBe(true);
-    expect(context.fieldNotesExcerpt).toHaveLength(501);
+    expect(context.fieldNotesExcerpt).toHaveLength(201);
+    expect(context.fieldNotesExcerpt?.endsWith("…")).toBe(true);
   });
 
-  it("includes prior captions in field_notes_excerpt for narrative consistency", () => {
+  it("uses compact prior summaries with section and detected elements", () => {
     const context = buildPhotoAnalysisContext(
       { fieldNotes: "Investigator notes" },
       [
-        { number: 1, uid: "IMG_001", caption: "Burnt couch in living room." },
-        { number: 2, uid: "IMG_002", caption: "Ceiling charring above seating." },
+        {
+          number: 1,
+          uid: "IMG_001",
+          suggestedSection: "burn_patterns",
+          detectedElements: ["ceiling charring", "smoke staining"],
+          caption: "Long narrative that should not appear in full.",
+        },
+        {
+          number: 2,
+          uid: "IMG_002",
+          suggestedSection: "area_of_origin",
+          detectedElements: ["rubbish chute opening"],
+        },
       ],
     );
 
     expect(context.fieldNotesExcerpt).toContain("Investigator notes");
+    expect(context.fieldNotesExcerpt).toContain(PRIOR_PHOTOS_HEADER);
     expect(context.fieldNotesExcerpt).toContain(
-      "Prior photo log captions (keep narrative consistent with these):",
+      "Photo 1 (IMG_001) [burn_patterns] ceiling charring, smoke staining",
     );
     expect(context.fieldNotesExcerpt).toContain(
-      "Photo 1 (UID IMG_001): Burnt couch in living room.",
+      "Photo 2 (IMG_002) [area_of_origin] rubbish chute opening",
     );
-    expect(context.fieldNotesExcerpt).toContain(
-      "Photo 2 (UID IMG_002): Ceiling charring above seating.",
-    );
+    expect(context.fieldNotesExcerpt).not.toContain("Long narrative");
   });
 
-  it("returns only prior captions when no field notes", () => {
+  it("limits prior photo summaries to the 3 most recent", () => {
+    const prior = Array.from({ length: 5 }, (_, index) => ({
+      number: index + 1,
+      uid: `IMG_00${index + 1}`,
+      detectedElements: [`element-${index + 1}`],
+    }));
+
+    const context = buildPhotoAnalysisContext({}, prior);
+
+    expect(context.fieldNotesExcerpt).not.toContain("Photo 1 (IMG_001)");
+    expect(context.fieldNotesExcerpt).not.toContain("Photo 2 (IMG_002)");
+    expect(context.fieldNotesExcerpt).toContain("Photo 3 (IMG_003)");
+    expect(context.fieldNotesExcerpt).toContain("Photo 4 (IMG_004)");
+    expect(context.fieldNotesExcerpt).toContain("Photo 5 (IMG_005)");
+  });
+
+  it("returns only prior summaries when no field notes", () => {
     const context = buildPhotoAnalysisContext({}, [
-      { number: 1, uid: "abc", caption: "Scene overview." },
+      {
+        number: 1,
+        uid: "abc",
+        detectedElements: ["soot staining"],
+      },
     ]);
 
     expect(context.fieldNotesExcerpt).toBe(
-      "Prior photo log captions (keep narrative consistent with these):\nPhoto 1 (UID abc): Scene overview.",
+      `${PRIOR_PHOTOS_HEADER}\nPhoto 1 (abc) soot staining`,
     );
   });
 
