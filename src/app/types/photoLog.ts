@@ -1,4 +1,4 @@
-import type { SuggestedPhotoSection } from "./photoAnalysis";
+import type { SectionCandidates, SuggestedPhotoSection } from "./photoAnalysis";
 
 export interface PhotoLogEntry {
   id: string;
@@ -8,6 +8,7 @@ export interface PhotoLogEntry {
   caption?: string;
   suggestedSection?: SuggestedPhotoSection | null;
   suggestedSectionConfidence?: number | null;
+  sectionCandidates?: SectionCandidates;
   detectedElements?: string[];
   captionSource?: "manual" | "ai";
   isCopy?: boolean;

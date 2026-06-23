@@ -12,6 +12,7 @@ import { AnnexEEditor } from "./AnnexEEditor";
 import { PhotoLogEditor } from "./PhotoLogEditor";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
 import type { PhotoAnalysisPartialEntry, PhotoAnalysisReportContext } from "../lib/buildPhotoAnalysisContext";
+import type { SuggestedPhotoSection } from "../types/photoAnalysis";
 
 interface AnnexSelectorProps {
   selectedIds: string[];
@@ -30,7 +31,7 @@ interface AnnexSelectorProps {
   onUpdatePhotoCaption?: (id: string, caption: string) => void;
   photoAnalysisContext?: PhotoAnalysisReportContext;
   onPhotosAnalyzed?: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
-  onApplyPhotoSection?: (photoId: string) => void;
+  onApplyPhotoSection?: (photoId: string, section: SuggestedPhotoSection) => void;
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;

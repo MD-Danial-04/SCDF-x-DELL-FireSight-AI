@@ -114,7 +114,23 @@ describe("mapPhotoAnalysisToEntry", () => {
       captionSource: "ai",
       suggestedSection: "burn_patterns",
       suggestedSectionConfidence: 0.78,
+      sectionCandidates: undefined,
       detectedElements: ["ceiling charring"],
+    });
+  });
+
+  it("maps section_candidates onto the photo log entry", () => {
+    const result: PhotoAnalysisResult = {
+      ...baseResult,
+      section_candidates: {
+        burn_patterns: { score: 0.85, reason: "ceiling charring" },
+        area_of_origin: { score: 0.6, reason: "localized burn seat" },
+      },
+    };
+
+    expect(mapPhotoAnalysisToEntry(result).sectionCandidates).toEqual({
+      burn_patterns: { score: 0.85, reason: "ceiling charring" },
+      area_of_origin: { score: 0.6, reason: "localized burn seat" },
     });
   });
 
