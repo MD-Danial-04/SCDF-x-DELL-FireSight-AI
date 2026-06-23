@@ -1,4 +1,5 @@
 import type { AnalyzeInterviewResponse } from "./interviewAnalysis";
+import type { PhotoAnalysisResult } from "./photoAnalysis";
 
 export type ExtractableField =
   | "applianceCallSign"
@@ -24,7 +25,14 @@ export type JobStatus =
   | "completed"
   | "failed";
 export type MessageType = "stop_message" | "field_notes";
-export type JobKind = "audio_inference" | "interview_analysis";
+export type JobKind = "audio_inference" | "interview_analysis" | "photo_analysis";
+
+export interface AnalyzePhotoContext {
+  location_of_fire?: string | null;
+  incident_type_name?: string | null;
+  stop_message_excerpt?: string | null;
+  field_notes_excerpt?: string | null;
+}
 
 export interface InferenceResult {
   fields: Partial<Record<ExtractableField, string>>;
@@ -41,6 +49,9 @@ export interface InferenceJob {
   transcript?: string | null;
   result?: InferenceResult | null;
   analysis_result?: AnalyzeInterviewResponse | null;
+  photo_path?: string | null;
+  photo_context?: AnalyzePhotoContext | null;
+  photo_analysis_result?: PhotoAnalysisResult | null;
   error?: string | null;
   created_at: string;
   updated_at: string;

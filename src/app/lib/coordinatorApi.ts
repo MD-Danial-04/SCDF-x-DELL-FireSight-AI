@@ -114,3 +114,50 @@ export async function createAnalyzeInterviewJob(
 
   return response.json() as Promise<InferenceJob>;
 }
+
+export interface CreateAnalyzePhotoJobContext {
+  locationOfFire?: string;
+  incidentTypeName?: string;
+  stopMessageExcerpt?: string;
+  fieldNotesExcerpt?: string;
+}
+
+export async function createAnalyzePhotoJob(
+  file: Blob,
+  fileName: string,
+  context?: CreateAnalyzePhotoJobContext
+): Promise<InferenceJob> {
+  const base = coordinatorUrl();
+  const key = webApiKey();
+  if (!base || !key) {
+    throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file, fileName || "photo.jpg");
+  if (context?.locationOfFire) {
+    formData.append("location_of_fire", context.locationOfFire);
+  }
+  if (context?.incidentTypeName) {
+    formData.append("incident_type_name", context.incidentTypeName);
+  }
+  if (context?.stopMessageExcerpt) {
+    formData.append("stop_message_excerpt", context.stopMessageExcerpt);
+  }
+  if (context?.fieldNotesExcerpt) {
+    formData.append("field_notes_excerpt", context.fieldNotesExcerpt);
+  }
+
+  const response = await fetch(`${base}/v1/analyze-photo`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to create photo analysis job (${response.status}): ${detail}`);
+  }
+
+  return response.json() as Promise<InferenceJob>;
+}

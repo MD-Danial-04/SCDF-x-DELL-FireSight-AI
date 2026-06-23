@@ -12,6 +12,7 @@ import { AnnexEEditor } from "./AnnexEEditor";
 import { AnnexGBurnChartEditor } from "./AnnexGBurnChartEditor";
 import { PhotoLogEditor } from "./PhotoLogEditor";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
+import type { PhotoAnalysisPartialEntry, PhotoAnalysisReportContext } from "../lib/buildPhotoAnalysisContext";
 
 interface AnnexSelectorProps {
   selectedIds: string[];
@@ -30,6 +31,9 @@ interface AnnexSelectorProps {
   onReorderPhoto?: (id: string, direction: "up" | "down") => void;
   onCopyPhoto?: (id: string) => void;
   onUpdatePhotoCaption?: (id: string, caption: string) => void;
+  photoAnalysisContext?: PhotoAnalysisReportContext;
+  onPhotosAnalyzed?: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
+  onApplyPhotoSection?: (photoId: string) => void;
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
@@ -53,6 +57,9 @@ export function AnnexSelector({
   onReorderPhoto,
   onCopyPhoto,
   onUpdatePhotoCaption,
+  photoAnalysisContext = {},
+  onPhotosAnalyzed,
+  onApplyPhotoSection,
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
   floorplanSvg = null,
@@ -105,7 +112,13 @@ export function AnnexSelector({
           onFloorplanSvgChange={onFloorplanSvgChange}
         />
       )}
-      {onAddPhotos && onRemovePhoto && onReorderPhoto && onCopyPhoto && onUpdatePhotoCaption && (
+      {onAddPhotos &&
+        onRemovePhoto &&
+        onReorderPhoto &&
+        onCopyPhoto &&
+        onUpdatePhotoCaption &&
+        onPhotosAnalyzed &&
+        onApplyPhotoSection && (
         <PhotoLogEditor
           enabled={
             selectedIds.includes("D") ||
@@ -114,11 +127,14 @@ export function AnnexSelector({
           }
           photos={photos}
           previewUrls={photoPreviewUrls}
+          photoAnalysisContext={photoAnalysisContext}
           onAddPhotos={onAddPhotos}
           onRemovePhoto={onRemovePhoto}
           onReorderPhoto={onReorderPhoto}
           onCopyPhoto={onCopyPhoto}
           onUpdatePhotoCaption={onUpdatePhotoCaption}
+          onPhotosAnalyzed={onPhotosAnalyzed}
+          onApplyPhotoSection={onApplyPhotoSection}
         />
       )}
       {onOverrideChange && (
