@@ -94,7 +94,8 @@ export async function requestJobExtraction(
 
 export async function createAnalyzeInterviewJob(
   transcript: string,
-  questions: InterviewQuestionInput[]
+  questions: InterviewQuestionInput[],
+  interviewLanguage: InterviewLanguage = "en"
 ): Promise<InferenceJob> {
   const base = coordinatorUrl();
   const key = webApiKey();
@@ -108,12 +109,51 @@ export async function createAnalyzeInterviewJob(
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ transcript, questions }),
+    body: JSON.stringify({
+      transcript,
+      questions,
+      interview_language: interviewLanguage,
+    }),
   });
 
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Failed to create analysis job (${response.status}): ${detail}`);
+  }
+
+  return response.json() as Promise<InferenceJob>;
+}
+
+export async function createTranslateQuestionsJob(
+  questions: InterviewQuestionInput[],
+  interviewLanguage: InterviewLanguage
+): Promise<InferenceJob> {
+  const base = coordinatorUrl();
+  const key = webApiKey();
+  if (!base || !key) {
+    throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+  }
+
+  const response = await fetch(`${base}/v1/translate-interview-questions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      questions: questions.map((q) => ({
+        id: q.id,
+        prompt: q.prompt,
+        hint: q.hint ?? null,
+        section: q.section ?? null,
+      })),
+      interview_language: interviewLanguage,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to create translation job (${response.status}): ${detail}`);
   }
 
   return response.json() as Promise<InferenceJob>;

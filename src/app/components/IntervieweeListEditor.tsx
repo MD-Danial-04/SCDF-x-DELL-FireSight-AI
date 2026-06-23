@@ -1,5 +1,5 @@
 import { ClipboardCopy, FileText, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -24,7 +24,8 @@ import {
   VEHICLE_FIRE_LEADING_QUESTIONS_TITLE,
 } from "../constants/vehicleFireLeadingQuestions";
 import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
-import type { AnalyzeInterviewResponse } from "../types/interviewAnalysis";
+import { useQuestionTranslation } from "../hooks/useQuestionTranslation";
+import type { AnalyzeInterviewResponse, FollowUpSuggestion } from "../types/interviewAnalysis";
 import { isCoordinatorConfigured } from "../types/inference";
 import {
   createEmptyInterviewee,
@@ -155,26 +156,33 @@ function IntervieweeFieldGrid({
 function FollowUpSuggestionsPanel({
   intervieweeId,
   followUps,
+  interviewLanguage,
   onAddToNotes,
 }: {
   intervieweeId: string;
-  followUps: { related_question_id: string | null; prompt: string; reason: string }[];
+  followUps: FollowUpSuggestion[];
+  interviewLanguage: InterviewLanguage;
   onAddToNotes: (text: string) => void;
 }) {
   if (followUps.length === 0) return null;
+
+  const showBilingual = interviewLanguage !== "en";
 
   return (
     <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
       <div>
         <p className="text-sm font-semibold text-gray-800">Suggested follow-up questions</p>
         <p className="text-xs text-gray-500 mt-1">
-          Generated from gaps or unclear answers in the transcript.
+          Ask in the interview language; English is shown for your report notes.
         </p>
       </div>
       <ol className="space-y-3">
         {followUps.map((followUp, index) => (
           <li key={`${intervieweeId}-follow-up-${index}`} className="text-sm text-gray-800">
-            <p className="font-medium">{followUp.prompt}</p>
+            <p className="font-medium">{followUp.prompt_conduct}</p>
+            {showBilingual && followUp.prompt_conduct !== followUp.prompt ? (
+              <p className="text-xs text-gray-400 mt-0.5">{followUp.prompt}</p>
+            ) : null}
             {followUp.reason ? (
               <p className="text-xs text-gray-500 mt-0.5">{followUp.reason}</p>
             ) : null}
@@ -185,7 +193,7 @@ function FollowUpSuggestionsPanel({
                 size="sm"
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(followUp.prompt);
+                    await navigator.clipboard.writeText(followUp.prompt_conduct);
                     toast.success("Follow-up copied to clipboard");
                   } catch {
                     toast.error("Failed to copy to clipboard");
@@ -202,13 +210,127 @@ function FollowUpSuggestionsPanel({
                 onClick={() => onAddToNotes(followUp.prompt)}
               >
                 <Plus className="mr-1 h-3.5 w-3.5" />
-                Add to notes
+                Add English to notes
               </Button>
             </div>
           </li>
         ))}
       </ol>
     </div>
+  );
+}
+
+function IntervieweeLeadingQuestionsSection({
+  interviewee,
+  activeLeadingQuestions,
+  isAnalyzingThis,
+  analysisResult,
+  onAnalyzeCoverage,
+  onAddToNotes,
+}: {
+  interviewee: Interviewee;
+  activeLeadingQuestions: (typeof LEADING_QUESTION_SET_OPTIONS)[number];
+  isAnalyzingThis: boolean;
+  analysisResult?: AnalyzeInterviewResponse;
+  onAnalyzeCoverage: (
+    intervieweeId: string,
+    transcript: string,
+    questions: LeadingQuestion[],
+    interviewLanguage: InterviewLanguage
+  ) => void;
+  onAddToNotes: (text: string) => void;
+}) {
+  const { translateQuestions, isTranslating } = useQuestionTranslation();
+  const [translatedQuestions, setTranslatedQuestions] = useState<
+    Map<string, import("../types/interviewAnalysis").TranslatedInterviewQuestion> | undefined
+  >();
+
+  useEffect(() => {
+    let cancelled = false;
+    const questions = activeLeadingQuestions.questions.map((q) => ({
+      id: q.id,
+      prompt: q.prompt,
+      hint: q.hint,
+      section: q.section,
+    }));
+
+    void translateQuestions(questions, interviewee.interviewLanguage)
+      .then((map) => {
+        if (!cancelled) {
+          setTranslatedQuestions(map);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          toast.error(err instanceof Error ? err.message : "Failed to translate questions");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeLeadingQuestions.id,
+    activeLeadingQuestions.questions,
+    interviewee.interviewLanguage,
+    translateQuestions,
+  ]);
+
+  const coverageMap = analysisResult
+    ? new Map(analysisResult.coverage.map((item) => [item.id, item]))
+    : undefined;
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-gray-500">
+          Compare transcript against the checklist to find gaps.
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={
+            !interviewee.facts.trim() ||
+            isAnalyzingThis ||
+            !isCoordinatorConfigured()
+          }
+          onClick={() =>
+            void onAnalyzeCoverage(
+              interviewee.id,
+              interviewee.facts,
+              activeLeadingQuestions.questions,
+              interviewee.interviewLanguage
+            )
+          }
+        >
+          {isAnalyzingThis ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="mr-2 h-4 w-4" />
+          )}
+          Analyze coverage
+        </Button>
+      </div>
+
+      <LeadingQuestionsPanel
+        title={activeLeadingQuestions.title}
+        questions={activeLeadingQuestions.questions}
+        interviewLanguage={interviewee.interviewLanguage}
+        translatedQuestions={translatedQuestions}
+        isTranslating={isTranslating}
+        coverage={coverageMap}
+      />
+
+      {analysisResult ? (
+        <FollowUpSuggestionsPanel
+          intervieweeId={interviewee.id}
+          followUps={analysisResult.follow_ups}
+          interviewLanguage={interviewee.interviewLanguage}
+          onAddToNotes={onAddToNotes}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -249,7 +371,8 @@ export function IntervieweeListEditor({
   const handleAnalyzeCoverage = async (
     intervieweeId: string,
     transcript: string,
-    questions: LeadingQuestion[]
+    questions: LeadingQuestion[],
+    interviewLanguage: InterviewLanguage
   ) => {
     if (!isCoordinatorConfigured()) {
       toast.error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
@@ -277,7 +400,9 @@ export function IntervieweeListEditor({
           id: q.id,
           prompt: q.prompt,
           hint: q.hint,
-        }))
+          section: q.section,
+        })),
+        interviewLanguage
       );
       setAnalysisResults((prev) => ({ ...prev, [intervieweeId]: response }));
       toast.success("Coverage analysis complete");
@@ -321,6 +446,11 @@ export function IntervieweeListEditor({
     intervieweeId: string,
     language: InterviewLanguage
   ) => {
+    setAnalysisResults((prev) => {
+      const next = { ...prev };
+      delete next[intervieweeId];
+      return next;
+    });
     onChange(
       interviewees.map((i) =>
         i.id === intervieweeId
@@ -354,9 +484,6 @@ export function IntervieweeListEditor({
           );
           const isAnalyzingThis = analyzingIntervieweeId === interviewee.id;
           const analysisResult = analysisResults[interviewee.id];
-          const coverageMap = analysisResult
-            ? new Map(analysisResult.coverage.map((item) => [item.id, item]))
-            : undefined;
 
           return (
             <div
@@ -444,51 +571,14 @@ export function IntervieweeListEditor({
               </div>
 
               {activeLeadingQuestions && (
-                <>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-gray-500">
-                      Compare transcript against the checklist to find gaps.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={
-                        !interviewee.facts.trim() ||
-                        isAnalyzingThis ||
-                        !isCoordinatorConfigured()
-                      }
-                      onClick={() =>
-                        void handleAnalyzeCoverage(
-                          interviewee.id,
-                          interviewee.facts,
-                          activeLeadingQuestions.questions
-                        )
-                      }
-                    >
-                      {isAnalyzingThis ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="mr-2 h-4 w-4" />
-                      )}
-                      Analyze coverage
-                    </Button>
-                  </div>
-
-                  <LeadingQuestionsPanel
-                    title={activeLeadingQuestions.title}
-                    questions={activeLeadingQuestions.questions}
-                    coverage={coverageMap}
-                  />
-
-                  {analysisResult ? (
-                    <FollowUpSuggestionsPanel
-                      intervieweeId={interviewee.id}
-                      followUps={analysisResult.follow_ups}
-                      onAddToNotes={(text) => appendToFacts(interviewee.id, text)}
-                    />
-                  ) : null}
-                </>
+                <IntervieweeLeadingQuestionsSection
+                  interviewee={interviewee}
+                  activeLeadingQuestions={activeLeadingQuestions}
+                  isAnalyzingThis={isAnalyzingThis}
+                  analysisResult={analysisResult}
+                  onAnalyzeCoverage={handleAnalyzeCoverage}
+                  onAddToNotes={(text) => appendToFacts(interviewee.id, text)}
+                />
               )}
 
               <InterviewRecordingCard
