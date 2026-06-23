@@ -1,5 +1,24 @@
 export type LeadingQuestionSet = "none" | "amd" | "vehicle-fire" | "lpg-town-gas";
 
+export type InterviewLanguage = "en" | "ms" | "ta" | "zh";
+
+export const INTERVIEW_LANGUAGE_OPTIONS: {
+  value: InterviewLanguage;
+  label: string;
+}[] = [
+  { value: "en", label: "English" },
+  { value: "ms", label: "Malay (Bahasa Melayu)" },
+  { value: "ta", label: "Tamil" },
+  { value: "zh", label: "Mandarin (中文)" },
+];
+
+export const INTERVIEW_LANGUAGE_SPOKEN_LABELS: Record<InterviewLanguage, string> = {
+  en: "English",
+  ms: "Malay",
+  ta: "Tamil",
+  zh: "Mandarin",
+};
+
 export interface Interviewee {
   id: string;
   name: string;
@@ -11,6 +30,8 @@ export interface Interviewee {
   contactHome: string;
   contactOffice: string;
   facts: string;
+  factsOriginal: string;
+  interviewLanguage: InterviewLanguage;
   nameChinese: string;
   sex: string;
   age: string;
@@ -46,6 +67,8 @@ export function createEmptyInterviewee(recordedBy = ""): Interviewee {
     contactHome: "",
     contactOffice: "",
     facts: "",
+    factsOriginal: "",
+    interviewLanguage: "en",
     nameChinese: "",
     sex: "",
     age: "",

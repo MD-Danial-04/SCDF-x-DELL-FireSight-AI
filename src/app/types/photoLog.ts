@@ -1,8 +1,16 @@
+import type { SectionCandidates, SuggestedPhotoSection } from "./photoAnalysis";
+
 export interface PhotoLogEntry {
   id: string;
   blob: Blob;
   fileName: string;
   uid: string;
+  caption?: string;
+  suggestedSection?: SuggestedPhotoSection | null;
+  suggestedSectionConfidence?: number | null;
+  sectionCandidates?: SectionCandidates;
+  detectedElements?: string[];
+  captionSource?: "manual" | "ai";
   isCopy?: boolean;
   copyOfId?: string;
 }

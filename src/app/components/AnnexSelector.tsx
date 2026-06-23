@@ -21,6 +21,8 @@ import { AnnexEEditor } from "./AnnexEEditor";
 import { AnnexGBurnChartEditor } from "./AnnexGBurnChartEditor";
 import { PhotoLogEditor } from "./PhotoLogEditor";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
+import type { PhotoAnalysisPartialEntry, PhotoAnalysisReportContext } from "../lib/buildPhotoAnalysisContext";
+import type { SuggestedPhotoSection } from "../types/photoAnalysis";
 
 interface AnnexSelectorProps {
   selectedIds: string[];
@@ -38,6 +40,10 @@ interface AnnexSelectorProps {
   onRemovePhoto?: (id: string) => void;
   onReorderPhoto?: (id: string, direction: "up" | "down") => void;
   onCopyPhoto?: (id: string) => void;
+  onUpdatePhotoCaption?: (id: string, caption: string) => void;
+  photoAnalysisContext?: PhotoAnalysisReportContext;
+  onPhotosAnalyzed?: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
+  onApplyPhotoSection?: (photoId: string, section: SuggestedPhotoSection) => void;
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
@@ -85,6 +91,10 @@ export function AnnexSelector({
   onRemovePhoto,
   onReorderPhoto,
   onCopyPhoto,
+  onUpdatePhotoCaption,
+  photoAnalysisContext = {},
+  onPhotosAnalyzed,
+  onApplyPhotoSection,
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
   floorplanSvg = null,
@@ -132,6 +142,9 @@ export function AnnexSelector({
       onRemovePhoto &&
       onReorderPhoto &&
       onCopyPhoto &&
+      onUpdatePhotoCaption &&
+      onPhotosAnalyzed &&
+      onApplyPhotoSection &&
       photoLogSelected
     ) {
       cards.push({
@@ -145,10 +158,14 @@ export function AnnexSelector({
             enabled
             photos={photos}
             previewUrls={photoPreviewUrls}
+            photoAnalysisContext={photoAnalysisContext}
             onAddPhotos={onAddPhotos}
             onRemovePhoto={onRemovePhoto}
             onReorderPhoto={onReorderPhoto}
             onCopyPhoto={onCopyPhoto}
+            onUpdatePhotoCaption={onUpdatePhotoCaption}
+            onPhotosAnalyzed={onPhotosAnalyzed}
+            onApplyPhotoSection={onApplyPhotoSection}
           />
         ),
       });
@@ -206,11 +223,15 @@ export function AnnexSelector({
     nricFinNumber,
     onAddPhotos,
     onCopyPhoto,
+    onApplyPhotoSection,
+    onPhotosAnalyzed,
+    onUpdatePhotoCaption,
     onOverrideChange,
     onRemovePhoto,
     onReorderPhoto,
     onFloorplanSvgChange,
     overrides,
+    photoAnalysisContext,
     photoLogSelected,
     photoPreviewUrls,
     photos,
@@ -304,7 +325,6 @@ export function AnnexSelector({
           </Accordion>
         </div>
       )}
-
       {onOverrideChange && selectedIds.length > 0 && (
         <div className="rounded-xl border border-border bg-white p-4">
           <Accordion

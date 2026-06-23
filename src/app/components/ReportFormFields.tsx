@@ -22,6 +22,8 @@ import { AnnexSelector, parseSelectedAnnexes } from "./AnnexSelector";
 import { IntervieweeListEditor } from "./IntervieweeListEditor";
 import type { Interviewee } from "../types/interviewee";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
+import type { PhotoAnalysisPartialEntry, PhotoAnalysisReportContext } from "../lib/buildPhotoAnalysisContext";
+import type { SuggestedPhotoSection } from "../types/photoAnalysis";
 import {
   buildAnnexAttachmentList,
   getAnnexById,
@@ -43,6 +45,10 @@ interface ReportFormFieldsProps {
   onRemovePhoto?: (id: string) => void;
   onReorderPhoto?: (id: string, direction: "up" | "down") => void;
   onCopyPhoto?: (id: string) => void;
+  onUpdatePhotoCaption?: (id: string, caption: string) => void;
+  photoAnalysisContext?: PhotoAnalysisReportContext;
+  onPhotosAnalyzed?: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
+  onApplyPhotoSection?: (photoId: string, section: SuggestedPhotoSection) => void;
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
@@ -143,6 +149,10 @@ export function ReportFormFields({
   onRemovePhoto,
   onReorderPhoto,
   onCopyPhoto,
+  onUpdatePhotoCaption,
+  photoAnalysisContext = {},
+  onPhotosAnalyzed,
+  onApplyPhotoSection,
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
   floorplanSvg = null,
@@ -194,6 +204,10 @@ export function ReportFormFields({
               onRemovePhoto={onRemovePhoto}
               onReorderPhoto={onReorderPhoto}
               onCopyPhoto={onCopyPhoto}
+              onUpdatePhotoCaption={onUpdatePhotoCaption}
+              photoAnalysisContext={photoAnalysisContext}
+              onPhotosAnalyzed={onPhotosAnalyzed}
+              onApplyPhotoSection={onApplyPhotoSection}
               photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
               photoLogPreviewLoading={photoLogPreviewLoading}
               floorplanSvg={floorplanSvg}

@@ -1,4 +1,5 @@
-import type { ExtractJobRequest, InferenceJob, MessageType } from "../types/inference";
+import type { ExtractJobRequest, InferenceJob, InterviewLanguage, MessageType } from "../types/inference";
+import type { InterviewQuestionInput } from "../types/interviewAnalysis";
 
 const coordinatorUrl = () =>
   (import.meta.env.VITE_COORDINATOR_URL as string | undefined)?.replace(/\/$/, "") ?? "";
@@ -8,7 +9,8 @@ const webApiKey = () => import.meta.env.VITE_WEB_API_KEY as string | undefined;
 export async function createInferenceJob(
   file: Blob,
   messageType: MessageType,
-  incidentTypeName?: string
+  incidentTypeName?: string,
+  interviewLanguage?: InterviewLanguage
 ): Promise<InferenceJob> {
   const base = coordinatorUrl();
   const key = webApiKey();
@@ -22,6 +24,9 @@ export async function createInferenceJob(
   formData.append("message_type", messageType);
   if (incidentTypeName) {
     formData.append("incident_type_name", incidentTypeName);
+  }
+  if (interviewLanguage) {
+    formData.append("interview_language", interviewLanguage);
   }
 
   const response = await fetch(`${base}/v1/jobs`, {
@@ -82,6 +87,120 @@ export async function requestJobExtraction(
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Failed to request extraction (${response.status}): ${detail}`);
+  }
+
+  return response.json() as Promise<InferenceJob>;
+}
+
+export async function createAnalyzeInterviewJob(
+  transcript: string,
+  questions: InterviewQuestionInput[],
+  interviewLanguage: InterviewLanguage = "en"
+): Promise<InferenceJob> {
+  const base = coordinatorUrl();
+  const key = webApiKey();
+  if (!base || !key) {
+    throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+  }
+
+  const response = await fetch(`${base}/v1/analyze-interview`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      transcript,
+      questions,
+      interview_language: interviewLanguage,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to create analysis job (${response.status}): ${detail}`);
+  }
+
+  return response.json() as Promise<InferenceJob>;
+}
+
+export async function createTranslateQuestionsJob(
+  questions: InterviewQuestionInput[],
+  interviewLanguage: InterviewLanguage
+): Promise<InferenceJob> {
+  const base = coordinatorUrl();
+  const key = webApiKey();
+  if (!base || !key) {
+    throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+  }
+
+  const response = await fetch(`${base}/v1/translate-interview-questions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      questions: questions.map((q) => ({
+        id: q.id,
+        prompt: q.prompt,
+        hint: q.hint ?? null,
+        section: q.section ?? null,
+      })),
+      interview_language: interviewLanguage,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to create translation job (${response.status}): ${detail}`);
+  }
+
+  return response.json() as Promise<InferenceJob>;
+}
+
+export interface CreateAnalyzePhotoJobContext {
+  locationOfFire?: string;
+  incidentTypeName?: string;
+  stopMessageExcerpt?: string;
+  fieldNotesExcerpt?: string;
+}
+
+export async function createAnalyzePhotoJob(
+  file: Blob,
+  fileName: string,
+  context?: CreateAnalyzePhotoJobContext
+): Promise<InferenceJob> {
+  const base = coordinatorUrl();
+  const key = webApiKey();
+  if (!base || !key) {
+    throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file, fileName || "photo.jpg");
+  if (context?.locationOfFire) {
+    formData.append("location_of_fire", context.locationOfFire);
+  }
+  if (context?.incidentTypeName) {
+    formData.append("incident_type_name", context.incidentTypeName);
+  }
+  if (context?.stopMessageExcerpt) {
+    formData.append("stop_message_excerpt", context.stopMessageExcerpt);
+  }
+  if (context?.fieldNotesExcerpt) {
+    formData.append("field_notes_excerpt", context.fieldNotesExcerpt);
+  }
+
+  const response = await fetch(`${base}/v1/analyze-photo`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to create photo analysis job (${response.status}): ${detail}`);
   }
 
   return response.json() as Promise<InferenceJob>;

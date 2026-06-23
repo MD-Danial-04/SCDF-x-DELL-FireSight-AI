@@ -869,7 +869,9 @@ private struct CrashPlanProjection {
     private let padding: CGFloat = 30
 
     init(document: CrashScanDocument, size: CGSize) {
-        var points = document.vehicles.map(\.position)
+        // Use full vehicle footprint corners (not just centres) so large or
+        // edge-of-scene vehicles are never clipped or mis-scaled.
+        var points: [CrashScanPoint] = document.vehicles.flatMap { Self.footprintCorners(of: $0) }
         points.append(contentsOf: document.markers.map(\.position))
         points.append(contentsOf: document.measurements.flatMap { [$0.start, $0.end] })
 
@@ -877,12 +879,11 @@ private struct CrashPlanProjection {
             points = [.init(x: 0, y: 0), .init(x: 8, y: 6)]
         }
 
-        // Pad bounds so vehicle footprints near the edge stay visible.
-        let footprintPad = 2.5
-        minX = (points.map(\.x).min() ?? 0) - footprintPad
-        maxX = (points.map(\.x).max() ?? 1) + footprintPad
-        minY = (points.map(\.y).min() ?? 0) - footprintPad
-        maxY = (points.map(\.y).max() ?? 1) + footprintPad
+        let pad = 0.6
+        minX = (points.map(\.x).min() ?? 0) - pad
+        maxX = (points.map(\.x).max() ?? 1) + pad
+        minY = (points.map(\.y).min() ?? 0) - pad
+        maxY = (points.map(\.y).max() ?? 1) + pad
 
         let width = max(maxX - minX, 1)
         let height = max(maxY - minY, 1)
@@ -926,5 +927,25 @@ private struct CrashPlanProjection {
         corners.dropFirst().forEach { path.addLine(to: $0) }
         path.closeSubpath()
         return path
+    }
+
+    /// World-space (plan x, z) corners of a vehicle's footprint, using the same
+    /// rotation convention as `vehiclePath`, for inclusion in the fit bounds.
+    static func footprintCorners(of vehicle: Vehicle) -> [CrashScanPoint] {
+        let halfLength = vehicle.length / 2
+        let halfWidth = vehicle.width / 2
+        let angle = vehicle.headingDegrees * .pi / 180
+        let offsets: [(Double, Double)] = [
+            (-halfLength, -halfWidth),
+            (halfLength, -halfWidth),
+            (halfLength, halfWidth),
+            (-halfLength, halfWidth),
+        ]
+        return offsets.map { lx, ly in
+            CrashScanPoint(
+                x: vehicle.position.x + (lx * cos(angle) - ly * sin(angle)),
+                y: vehicle.position.y + (lx * sin(angle) + ly * cos(angle))
+            )
+        }
     }
 }
