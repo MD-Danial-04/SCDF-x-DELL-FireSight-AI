@@ -98,6 +98,8 @@ function drawStrokes(
   width: number,
   height: number,
 ) {
+  const strokeScale = Math.min(width, height);
+
   for (const stroke of strokes) {
     if (stroke.points.length === 0) continue;
 
@@ -107,12 +109,18 @@ function drawStrokes(
     ctx.fillStyle = stroke.mode === "erase" ? "rgba(0,0,0,1)" : DEFAULT_SHADE;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = stroke.size;
+    ctx.lineWidth = stroke.size * strokeScale;
 
     if (stroke.points.length === 1) {
       const point = stroke.points[0];
       ctx.beginPath();
-      ctx.arc(point.x * width, point.y * height, stroke.size / 2, 0, Math.PI * 2);
+      ctx.arc(
+        point.x * width,
+        point.y * height,
+        (stroke.size * strokeScale) / 2,
+        0,
+        Math.PI * 2,
+      );
       ctx.fill();
       ctx.restore();
       continue;

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { FileText, Download, Loader2, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { FileText, Download, Loader2, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "../components/PageHeader";
@@ -43,9 +43,11 @@ import {
 } from "../types/photoLog";
 
 type Step = "review" | "edit";
+type ReportView = "fir" | "prr";
 
 /** Static annex template pages (A/B/C/E/G) that receive header value overlays. */
 const STATIC_HEADER_PAGE_INDICES = [0, 1, 2, 4, 8];
+const PRR_SECTION_IDS = ["1", "2", "6"] as const;
 
 interface ReportGenerationProps {
   onBack?: () => void;
@@ -56,6 +58,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const { incidentType, stopMessage, fieldNotes, transcriptionJobId } = useReportSession();
   const { runExtraction, isExtracting, error: extractionError } = useExtractionJob();
   const [step, setStep] = useState<Step>("review");
+  const [reportView, setReportView] = useState<ReportView>("fir");
   const [reportFields, setReportFields] = useState<FireReportData>(() => createEmptyReportFields());
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
@@ -567,26 +570,19 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     else navigate("/incident");
   };
 
+  const reportTypeLabel = reportView === "fir" ? "Fire investigation report" : "Preliminary report response";
+  const reportTypeDescription =
+    reportView === "fir"
+      ? "Review extracted fields, generate the Word document, then edit and download."
+      : "Review the PRR-only sections, then generate the Preliminary Report Response document.";
+
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Fire investigation report"
-        description="Review extracted fields, generate the Word document, then edit and download."
+        title={reportTypeLabel}
+        description={reportTypeDescription}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleGeneratePrr}
-              disabled={isGeneratingPrr}
-            >
-              {isGeneratingPrr ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <FileText className="mr-2 h-4 w-4" />
-              )}
-              Generate PRR
-            </Button>
             {incidentType ? (
               <>
                 <Badge variant="outline" className="font-medium">
@@ -614,27 +610,20 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       ) : null}
 
       <div className="flex items-center justify-between gap-3">
-        <Button type="button" variant="outline" onClick={handlePrevious}>
-          <ChevronLeft className="mr-2 h-4 w-4" />
-          Previous
+        <Button
+          type="button"
+          variant={reportView === "fir" ? "default" : "outline"}
+          onClick={() => setReportView("fir")}
+        >
+          FIR
         </Button>
-        {step === "review" &&
-          (docBlob ? (
-            <Button type="button" variant="outline" onClick={() => setStep("edit")}>
-              Next
-              <ChevronRight className="ml-2 h-4 w-4" />
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="outline"
-              disabled
-              title="Generate report to continue"
-            >
-              Next
-              <ChevronRight className="ml-2 h-4 w-4" />
-            </Button>
-          ))}
+        <Button
+          type="button"
+          variant={reportView === "prr" ? "default" : "outline"}
+          onClick={() => setReportView("prr")}
+        >
+          PRR
+        </Button>
       </div>
 
       <StatusBanner variant="success" title="Stop message captured">
@@ -653,7 +642,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         )}
       </StatusBanner>
 
-      {step === "review" && (
+      {reportView === "fir" && step === "review" && (
         <Card className="rounded-xl shadow-sm">
           <CardHeader>
             <CardTitle>Review extracted information</CardTitle>
@@ -666,6 +655,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               fields={reportFields}
               extractedKeys={extractedKeys}
               onChange={updateField}
+              displayMode="tabs"
               annexPreviewUrls={annexPreviewUrls}
               annexHeaderPreviewUrls={annexHeaderPreviewUrls}
               onAnnexOverrideChange={handleAnnexOverrideChange}
@@ -702,7 +692,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         </Card>
       )}
 
-      {step === "edit" && (
+      {reportView === "fir" && step === "edit" && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <Card className="rounded-xl shadow-sm">
             <CardHeader>
@@ -714,6 +704,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 fields={reportFields}
                 extractedKeys={extractedKeys}
                 onChange={updateField}
+                displayMode="tabs"
                 annexPreviewUrls={annexPreviewUrls}
                 annexHeaderPreviewUrls={annexHeaderPreviewUrls}
                 onAnnexOverrideChange={handleAnnexOverrideChange}
@@ -779,6 +770,46 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {reportView === "prr" && (
+        <Card className="rounded-xl shadow-sm">
+          <CardHeader>
+            <CardTitle>PRR information</CardTitle>
+            <CardDescription>
+              Complete the sections required for the Preliminary Report Response, then generate the document.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <ReportFormFields
+              fields={reportFields}
+              extractedKeys={extractedKeys}
+              onChange={updateField}
+              visibleSectionIds={[...PRR_SECTION_IDS]}
+            />
+            <div className="flex flex-wrap gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handlePrevious}
+              >
+                Back to Incident
+              </Button>
+              <Button
+                type="button"
+                onClick={handleGeneratePrr}
+                disabled={isGeneratingPrr}
+              >
+                {isGeneratingPrr ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                Generate PRR
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
