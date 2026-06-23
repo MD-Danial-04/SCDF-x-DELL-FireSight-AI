@@ -4,6 +4,7 @@ export interface InterviewQuestionInput {
   id: string;
   prompt: string;
   hint?: string;
+  section?: string;
 }
 
 export interface QuestionCoverage {
@@ -16,7 +17,20 @@ export interface QuestionCoverage {
 export interface FollowUpSuggestion {
   related_question_id: string | null;
   prompt: string;
+  prompt_conduct: string;
   reason: string;
+}
+
+export interface TranslatedInterviewQuestion {
+  id: string;
+  prompt_conduct: string;
+  hint_conduct?: string | null;
+  section_conduct?: string | null;
+}
+
+export interface QuestionTranslationResult {
+  questions: TranslatedInterviewQuestion[];
+  source: "fake" | "ollama" | "nim";
 }
 
 export interface AnalyzeInterviewResponse {
