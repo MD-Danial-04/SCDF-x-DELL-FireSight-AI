@@ -1,4 +1,4 @@
-import type { ExtractJobRequest, InferenceJob, MessageType } from "../types/inference";
+import type { ExtractJobRequest, InferenceJob, InterviewLanguage, MessageType } from "../types/inference";
 import type { InterviewQuestionInput } from "../types/interviewAnalysis";
 
 const coordinatorUrl = () =>
@@ -9,7 +9,8 @@ const webApiKey = () => import.meta.env.VITE_WEB_API_KEY as string | undefined;
 export async function createInferenceJob(
   file: Blob,
   messageType: MessageType,
-  incidentTypeName?: string
+  incidentTypeName?: string,
+  interviewLanguage?: InterviewLanguage
 ): Promise<InferenceJob> {
   const base = coordinatorUrl();
   const key = webApiKey();
@@ -23,6 +24,9 @@ export async function createInferenceJob(
   formData.append("message_type", messageType);
   if (incidentTypeName) {
     formData.append("incident_type_name", incidentTypeName);
+  }
+  if (interviewLanguage) {
+    formData.append("interview_language", interviewLanguage);
   }
 
   const response = await fetch(`${base}/v1/jobs`, {
