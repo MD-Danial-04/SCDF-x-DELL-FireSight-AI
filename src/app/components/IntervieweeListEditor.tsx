@@ -6,6 +6,7 @@ import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { InterviewRecordingCard } from "./InterviewRecordingCard";
 import { SignaturePad } from "./SignaturePad";
 import { LeadingQuestionsPanel } from "./LeadingQuestionsPanel";
@@ -27,8 +28,10 @@ import type { AnalyzeInterviewResponse } from "../types/interviewAnalysis";
 import { isCoordinatorConfigured } from "../types/inference";
 import {
   createEmptyInterviewee,
+  INTERVIEW_LANGUAGE_SPOKEN_LABELS,
   type Interviewee,
   type IntervieweeFieldKey,
+  type InterviewLanguage,
   type LeadingQuestionSet,
 } from "../types/interviewee";
 
@@ -117,7 +120,7 @@ function IntervieweeFieldGrid({
 }: {
   fields: IntervieweeFieldConfig[];
   interviewee: Interviewee;
-  onFieldChange: (intervieweeId: string, key: IntervieweeFieldKey, value: string | LeadingQuestionSet) => void;
+  onFieldChange: (intervieweeId: string, key: IntervieweeFieldKey, value: string | LeadingQuestionSet | InterviewLanguage) => void;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -227,7 +230,7 @@ export function IntervieweeListEditor({
   const updateInterviewee = (
     intervieweeId: string,
     key: IntervieweeFieldKey,
-    value: string | LeadingQuestionSet
+    value: string | LeadingQuestionSet | InterviewLanguage
   ) => {
     onChange(
       interviewees.map((i) => (i.id === intervieweeId ? { ...i, [key]: value } : i))
@@ -291,6 +294,44 @@ export function IntervieweeListEditor({
     const prefix = interviewee.facts.trim() ? "\n\n" : "";
     updateInterviewee(intervieweeId, "facts", `${interviewee.facts.trim()}${prefix}${text}`);
     toast.success("Added to Facts revealed");
+  };
+
+  const applyTranscripts = (
+    intervieweeId: string,
+    original: string,
+    english: string
+  ) => {
+    const interviewee = interviewees.find((i) => i.id === intervieweeId);
+    if (!interviewee) return;
+    onChange(
+      interviewees.map((i) =>
+        i.id === intervieweeId
+          ? {
+              ...i,
+              factsOriginal: original,
+              facts: english,
+              languageSpoken: INTERVIEW_LANGUAGE_SPOKEN_LABELS[i.interviewLanguage],
+            }
+          : i
+      )
+    );
+  };
+
+  const handleInterviewLanguageChange = (
+    intervieweeId: string,
+    language: InterviewLanguage
+  ) => {
+    onChange(
+      interviewees.map((i) =>
+        i.id === intervieweeId
+          ? {
+              ...i,
+              interviewLanguage: language,
+              languageSpoken: INTERVIEW_LANGUAGE_SPOKEN_LABELS[language],
+            }
+          : i
+      )
+    );
   };
 
   return (
@@ -452,9 +493,14 @@ export function IntervieweeListEditor({
 
               <InterviewRecordingCard
                 title="Record interview"
-                description="Record the interview or type/paste a transcript, then stop to apply it to Facts revealed"
-                initialTranscript={interviewee.facts}
-                onStop={(text) => updateInterviewee(interviewee.id, "facts", text)}
+                description="Select the interview language, record, then review the original and English transcripts below"
+                interviewLanguage={interviewee.interviewLanguage}
+                onInterviewLanguageChange={(language) =>
+                  handleInterviewLanguageChange(interviewee.id, language)
+                }
+                onTranscriptsComplete={(original, english) =>
+                  applyTranscripts(interviewee.id, original, english)
+                }
                 onRecordingStart={(startTime) =>
                   updateInterviewee(interviewee.id, "recordedStartTime", startTime)
                 }
@@ -464,21 +510,42 @@ export function IntervieweeListEditor({
               />
 
               <div>
-                <Label htmlFor={`${interviewee.id}-facts`}>Facts revealed</Label>
-                <Textarea
-                  id={`${interviewee.id}-facts`}
-                  value={interviewee.facts}
-                  onChange={(e) => {
-                    setAnalysisResults((prev) => {
-                      const next = { ...prev };
-                      delete next[interviewee.id];
-                      return next;
-                    });
-                    updateInterviewee(interviewee.id, "facts", e.target.value);
-                  }}
-                  rows={4}
-                  className="mt-1 font-mono text-sm"
-                />
+                <Label>Facts revealed</Label>
+                <Tabs defaultValue="english" className="mt-2">
+                  <TabsList>
+                    <TabsTrigger value="original">Original</TabsTrigger>
+                    <TabsTrigger value="english">English</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="original">
+                    <Textarea
+                      id={`${interviewee.id}-facts-original`}
+                      value={interviewee.factsOriginal}
+                      onChange={(e) => {
+                        updateInterviewee(interviewee.id, "factsOriginal", e.target.value);
+                      }}
+                      rows={6}
+                      placeholder="Transcript in the language the interview was conducted..."
+                      className="font-mono text-sm"
+                    />
+                  </TabsContent>
+                  <TabsContent value="english">
+                    <Textarea
+                      id={`${interviewee.id}-facts`}
+                      value={interviewee.facts}
+                      onChange={(e) => {
+                        setAnalysisResults((prev) => {
+                          const next = { ...prev };
+                          delete next[interviewee.id];
+                          return next;
+                        });
+                        updateInterviewee(interviewee.id, "facts", e.target.value);
+                      }}
+                      rows={6}
+                      placeholder="English translation used for coverage analysis and statement export..."
+                      className="font-mono text-sm"
+                    />
+                  </TabsContent>
+                </Tabs>
               </div>
 
               <div>

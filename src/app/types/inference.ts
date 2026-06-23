@@ -26,6 +26,7 @@ export type JobStatus =
   | "failed";
 export type MessageType = "stop_message" | "field_notes";
 export type JobKind = "audio_inference" | "interview_analysis" | "photo_analysis";
+export type InterviewLanguage = "en" | "ms" | "ta" | "zh";
 
 export interface AnalyzePhotoContext {
   location_of_fire?: string | null;
@@ -47,6 +48,9 @@ export interface InferenceJob {
   message_type: MessageType;
   incident_type_name?: string | null;
   transcript?: string | null;
+  interview_language?: InterviewLanguage | null;
+  transcript_original?: string | null;
+  transcript_english?: string | null;
   result?: InferenceResult | null;
   analysis_result?: AnalyzeInterviewResponse | null;
   photo_path?: string | null;

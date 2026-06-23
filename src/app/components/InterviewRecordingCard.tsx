@@ -1,13 +1,24 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Mic, MicOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Textarea } from "./ui/textarea";
+import { Label } from "./ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import { useRecordingTimer } from "../hooks/useRecordingTimer";
 import { useMediaRecorder } from "../hooks/useMediaRecorder";
 import { useTranscriptionJob } from "../hooks/useTranscriptionJob";
 import { isInferenceConfigured } from "../types/inference";
+import {
+  INTERVIEW_LANGUAGE_OPTIONS,
+  type InterviewLanguage,
+} from "../types/interviewee";
 import { cn } from "./ui/utils";
 
 function formatClockTime(date: Date): string {
@@ -17,8 +28,9 @@ function formatClockTime(date: Date): string {
 interface InterviewRecordingCardProps {
   title?: string;
   description?: string;
-  initialTranscript?: string;
-  onStop: (transcript: string) => void;
+  interviewLanguage: InterviewLanguage;
+  onInterviewLanguageChange: (language: InterviewLanguage) => void;
+  onTranscriptsComplete: (original: string, english: string) => void;
   onRecordingStart?: (startTime: string) => void;
   onRecordingStop?: (endTime: string) => void;
   className?: string;
@@ -26,14 +38,14 @@ interface InterviewRecordingCardProps {
 
 export function InterviewRecordingCard({
   title = "Record interview",
-  description = "Record the interview or type/paste a transcript, then stop to apply it to Facts revealed",
-  initialTranscript = "",
-  onStop,
+  description = "Select the interview language, record, then review the original and English transcripts below",
+  interviewLanguage,
+  onInterviewLanguageChange,
+  onTranscriptsComplete,
   onRecordingStart,
   onRecordingStop,
   className,
 }: InterviewRecordingCardProps) {
-  const [transcript, setTranscript] = useState(initialTranscript);
   const { isRecording, recordingTime, start, stop, formatTime } = useRecordingTimer();
   const {
     isRecording: isMediaRecording,
@@ -47,31 +59,24 @@ export function InterviewRecordingCard({
   const isActivelyRecording = useLiveInference ? isMediaRecording : isRecording;
 
   useEffect(() => {
-    setTranscript(initialTranscript);
-  }, [initialTranscript]);
-
-  useEffect(() => {
-    if (job?.status === "transcribed" && job.transcript && job.id !== appliedJobIdRef.current) {
-      appliedJobIdRef.current = job.id;
-      const text = job.transcript.trim();
-      setTranscript(text);
-      onStop(text);
-      toast.success("Transcript applied to Facts revealed");
+    if (job?.status !== "transcribed" || job.id === appliedJobIdRef.current) {
+      return;
     }
-  }, [job, onStop]);
+    const english = (job.transcript_english ?? job.transcript ?? "").trim();
+    const original = (job.transcript_original ?? english).trim();
+    if (!english && !original) {
+      return;
+    }
+    appliedJobIdRef.current = job.id;
+    onTranscriptsComplete(original, english);
+    toast.success("Transcripts applied to Facts revealed");
+  }, [job, onTranscriptsComplete]);
 
   useEffect(() => {
     if (inferenceError) {
       toast.error(inferenceError);
     }
   }, [inferenceError]);
-
-  const applyManualStop = useCallback(() => {
-    const endTime = formatClockTime(new Date());
-    onRecordingStop?.(endTime);
-    onStop(transcript.trim());
-    toast.success("Recording stopped — transcript applied to Facts revealed");
-  }, [onRecordingStop, onStop, transcript]);
 
   const handleRecord = async () => {
     if (useLiveInference) {
@@ -91,7 +96,7 @@ export function InterviewRecordingCard({
         const blob = await stopMediaRecording();
         onRecordingStop?.(formatClockTime(new Date()));
         toast.info("Processing recording...");
-        await submitTranscription(blob, "field_notes");
+        await submitTranscription(blob, "field_notes", interviewLanguage);
       } catch {
         toast.error("Failed to submit recording");
       }
@@ -101,9 +106,11 @@ export function InterviewRecordingCard({
     if (!isRecording) {
       start();
       onRecordingStart?.(formatClockTime(new Date()));
+      toast.info("Enter the transcript in Facts revealed below, then stop the timer");
     } else {
       stop();
-      applyManualStop();
+      onRecordingStop?.(formatClockTime(new Date()));
+      toast.success("Recording stopped — continue in Facts revealed below");
     }
   };
 
@@ -113,15 +120,35 @@ export function InterviewRecordingCard({
         <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>
           {isProcessing
-            ? "Transcribing recording — please wait..."
+            ? "Transcribing and translating — please wait..."
             : isActivelyRecording
               ? useLiveInference
-                ? "Recording in progress — stop when finished to transcribe and apply to Facts revealed"
-                : "Recording in progress — enter the transcript below, then stop to apply to Facts revealed"
+                ? "Recording in progress — stop when finished to transcribe"
+                : "Recording in progress — enter transcript in Facts revealed below, then stop"
               : description}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="interview-language">Interview language</Label>
+          <Select
+            value={interviewLanguage}
+            onValueChange={(value) => onInterviewLanguageChange(value as InterviewLanguage)}
+            disabled={isActivelyRecording || isProcessing}
+          >
+            <SelectTrigger id="interview-language" className="w-full max-w-sm">
+              <SelectValue placeholder="Select language" />
+            </SelectTrigger>
+            <SelectContent>
+              {INTERVIEW_LANGUAGE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="flex items-center justify-center gap-3 border-b pb-4">
           {(isActivelyRecording || isProcessing) && (
             <span className="text-sm font-mono text-primary tabular-nums">
@@ -156,14 +183,6 @@ export function InterviewRecordingCard({
             )}
           </Button>
         </div>
-        <Textarea
-          value={transcript}
-          onChange={(e) => setTranscript(e.target.value)}
-          placeholder="Type or paste the interview transcript here, or use Start Recording for live transcription..."
-          rows={8}
-          className="font-mono text-sm"
-          disabled={isProcessing}
-        />
       </CardContent>
     </Card>
   );
