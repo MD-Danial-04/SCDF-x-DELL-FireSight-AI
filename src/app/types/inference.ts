@@ -1,3 +1,5 @@
+import type { AnalyzeInterviewResponse } from "./interviewAnalysis";
+
 export type ExtractableField =
   | "applianceCallSign"
   | "locationOfFire"
@@ -18,9 +20,11 @@ export type JobStatus =
   | "processing"
   | "transcribed"
   | "extract_pending"
+  | "analyze_pending"
   | "completed"
   | "failed";
 export type MessageType = "stop_message" | "field_notes";
+export type JobKind = "audio_inference" | "interview_analysis";
 
 export interface InferenceResult {
   fields: Partial<Record<ExtractableField, string>>;
@@ -31,10 +35,12 @@ export interface InferenceResult {
 export interface InferenceJob {
   id: string;
   status: JobStatus;
+  job_kind?: JobKind;
   message_type: MessageType;
   incident_type_name?: string | null;
   transcript?: string | null;
   result?: InferenceResult | null;
+  analysis_result?: AnalyzeInterviewResponse | null;
   error?: string | null;
   created_at: string;
   updated_at: string;
@@ -45,6 +51,10 @@ export interface ExtractJobRequest {
   text: string;
   messageType: MessageType;
   incidentTypeName?: string;
+}
+
+export function isCoordinatorConfigured(): boolean {
+  return Boolean(import.meta.env.VITE_COORDINATOR_URL && import.meta.env.VITE_WEB_API_KEY);
 }
 
 export function isInferenceConfigured(): boolean {

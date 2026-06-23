@@ -1,4 +1,5 @@
 import type { ExtractJobRequest, InferenceJob, MessageType } from "../types/inference";
+import type { InterviewQuestionInput } from "../types/interviewAnalysis";
 
 const coordinatorUrl = () =>
   (import.meta.env.VITE_COORDINATOR_URL as string | undefined)?.replace(/\/$/, "") ?? "";
@@ -82,6 +83,33 @@ export async function requestJobExtraction(
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Failed to request extraction (${response.status}): ${detail}`);
+  }
+
+  return response.json() as Promise<InferenceJob>;
+}
+
+export async function createAnalyzeInterviewJob(
+  transcript: string,
+  questions: InterviewQuestionInput[]
+): Promise<InferenceJob> {
+  const base = coordinatorUrl();
+  const key = webApiKey();
+  if (!base || !key) {
+    throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+  }
+
+  const response = await fetch(`${base}/v1/analyze-interview`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ transcript, questions }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to create analysis job (${response.status}): ${detail}`);
   }
 
   return response.json() as Promise<InferenceJob>;

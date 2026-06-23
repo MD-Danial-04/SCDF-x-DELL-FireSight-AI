@@ -1,6 +1,8 @@
 import { useMemo, useRef } from "react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
+import { Textarea } from "./ui/textarea";
+import { Label } from "./ui/label";
 import { ChevronDown, ChevronUp, Copy, ImagePlus, Trash2 } from "lucide-react";
 import { getPhotoLogDisplayInfo, type PhotoLogEntry } from "../types/photoLog";
 
@@ -12,6 +14,7 @@ interface PhotoLogEditorProps {
   onRemovePhoto: (id: string) => void;
   onReorderPhoto: (id: string, direction: "up" | "down") => void;
   onCopyPhoto: (id: string) => void;
+  onUpdatePhotoCaption: (id: string, caption: string) => void;
 }
 
 function formatEditorLabel(boxLabel: string): string {
@@ -28,6 +31,7 @@ export function PhotoLogEditor({
   onRemovePhoto,
   onReorderPhoto,
   onCopyPhoto,
+  onUpdatePhotoCaption,
 }: PhotoLogEditorProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const displayInfo = useMemo(() => getPhotoLogDisplayInfo(photos), [photos]);
@@ -67,8 +71,9 @@ export function PhotoLogEditor({
         <p className="text-sm font-medium">Photo log (Annex D &amp; F)</p>
         <p className="text-xs text-gray-500 mt-1">
           Upload fire-scene photos. Each photo is numbered in order; the UID is taken from the
-          file name (without extension). Use Copy to add a &quot;Copy of photo&quot; entry in
-          both annexes. Removing a photo renumbers the rest.
+          file name (without extension). Add a caption to fill Annex D and show below each photo
+          in Annex F. Use Copy to add a &quot;Copy of photo&quot; entry in both annexes.
+          Removing a photo renumbers the rest.
         </p>
       </div>
 
@@ -98,7 +103,7 @@ export function PhotoLogEditor({
       {photos.length === 0 ? (
         <p className="text-sm text-gray-500 italic">No photos added yet.</p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {displayInfo.map((info, index) => {
             const photo = info.entry;
             const editorLabel = formatEditorLabel(info.boxLabel);
@@ -106,85 +111,100 @@ export function PhotoLogEditor({
             return (
               <li
                 key={photo.id}
-                className={`flex items-center gap-3 rounded-md border p-2 ${
+                className={`rounded-md border p-3 ${
                   info.isCopy ? "bg-slate-100 border-slate-200" : "bg-gray-50"
                 }`}
               >
-                <div className="w-14 h-14 shrink-0 rounded border bg-white overflow-hidden">
-                  {previewUrls[photo.id] ? (
-                    <img
-                      src={previewUrls[photo.id]}
-                      alt={editorLabel}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      <ImagePlus className="w-5 h-5" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold">{editorLabel}</p>
-                    {info.isCopy && (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                        Copy
-                      </Badge>
+                <div className="flex items-start gap-3">
+                  <div className="w-14 h-14 shrink-0 rounded border bg-white overflow-hidden">
+                    {previewUrls[photo.id] ? (
+                      <img
+                        src={previewUrls[photo.id]}
+                        alt={editorLabel}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-400">
+                        <ImagePlus className="w-5 h-5" />
+                      </div>
                     )}
                   </div>
-                  <p className="text-xs text-gray-600 truncate" title={photo.fileName}>
-                    {photo.fileName}
-                  </p>
-                  <p className="text-xs font-mono text-gray-800 mt-0.5">
-                    UID: {photo.uid}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold">{editorLabel}</p>
+                      {info.isCopy && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                          Copy
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-600 truncate" title={photo.fileName}>
+                      {photo.fileName}
+                    </p>
+                    <p className="text-xs font-mono text-gray-800 mt-0.5">
+                      UID: {photo.uid}
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      disabled={index === 0}
+                      title="Move up"
+                      onClick={() => onReorderPhoto(photo.id, "up")}
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      disabled={index === photos.length - 1}
+                      title="Move down"
+                      onClick={() => onReorderPhoto(photo.id, "down")}
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {!info.isCopy && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      title="Create copy of photo"
+                      onClick={() => onCopyPhoto(photo.id)}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    title="Remove photo"
+                    onClick={() => onRemovePhoto(photo.id)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
-                <div className="flex flex-col gap-1 shrink-0">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    disabled={index === 0}
-                    title="Move up"
-                    onClick={() => onReorderPhoto(photo.id, "up")}
-                  >
-                    <ChevronUp className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    disabled={index === photos.length - 1}
-                    title="Move down"
-                    onClick={() => onReorderPhoto(photo.id, "down")}
-                  >
-                    <ChevronDown className="w-4 h-4" />
-                  </Button>
+                <div className="mt-2">
+                  <Label htmlFor={`caption-${photo.id}`} className="text-xs text-gray-600">
+                    Caption
+                  </Label>
+                  <Textarea
+                    id={`caption-${photo.id}`}
+                    value={photo.caption ?? ""}
+                    onChange={(e) => onUpdatePhotoCaption(photo.id, e.target.value)}
+                    rows={2}
+                    placeholder="Description for Annex D & F"
+                    className="mt-1 text-sm"
+                  />
                 </div>
-                {!info.isCopy && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    title="Create copy of photo"
-                    onClick={() => onCopyPhoto(photo.id)}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  title="Remove photo"
-                  onClick={() => onRemovePhoto(photo.id)}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
               </li>
             );
           })}

@@ -1,4 +1,6 @@
-import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
+import { ClipboardCopy, FileText, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
@@ -20,6 +22,9 @@ import {
   VEHICLE_FIRE_LEADING_QUESTIONS,
   VEHICLE_FIRE_LEADING_QUESTIONS_TITLE,
 } from "../constants/vehicleFireLeadingQuestions";
+import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
+import type { AnalyzeInterviewResponse } from "../types/interviewAnalysis";
+import { isCoordinatorConfigured } from "../types/inference";
 import {
   createEmptyInterviewee,
   type Interviewee,
@@ -93,6 +98,8 @@ const RECORDING_FIELDS: IntervieweeFieldConfig[] = [
   { key: "recordedBy", label: "Recorded By (Rank, Name & Signature)" },
 ];
 
+const MAX_ANALYSIS_TRANSCRIPT_LENGTH = 8000;
+
 interface IntervieweeListEditorProps {
   interviewees: Interviewee[];
   onChange: (interviewees: Interviewee[]) => void;
@@ -142,6 +149,66 @@ function IntervieweeFieldGrid({
   );
 }
 
+function FollowUpSuggestionsPanel({
+  intervieweeId,
+  followUps,
+  onAddToNotes,
+}: {
+  intervieweeId: string;
+  followUps: { related_question_id: string | null; prompt: string; reason: string }[];
+  onAddToNotes: (text: string) => void;
+}) {
+  if (followUps.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-gray-800">Suggested follow-up questions</p>
+        <p className="text-xs text-gray-500 mt-1">
+          Generated from gaps or unclear answers in the transcript.
+        </p>
+      </div>
+      <ol className="space-y-3">
+        {followUps.map((followUp, index) => (
+          <li key={`${intervieweeId}-follow-up-${index}`} className="text-sm text-gray-800">
+            <p className="font-medium">{followUp.prompt}</p>
+            {followUp.reason ? (
+              <p className="text-xs text-gray-500 mt-0.5">{followUp.reason}</p>
+            ) : null}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(followUp.prompt);
+                    toast.success("Follow-up copied to clipboard");
+                  } catch {
+                    toast.error("Failed to copy to clipboard");
+                  }
+                }}
+              >
+                <ClipboardCopy className="mr-1 h-3.5 w-3.5" />
+                Copy
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onAddToNotes(followUp.prompt)}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                Add to notes
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 export function IntervieweeListEditor({
   interviewees,
   onChange,
@@ -151,6 +218,12 @@ export function IntervieweeListEditor({
   generatingStatementId,
   isGeneratingAll = false,
 }: IntervieweeListEditorProps) {
+  const { runAnalysis } = useInterviewAnalysis();
+  const [analysisResults, setAnalysisResults] = useState<
+    Record<string, AnalyzeInterviewResponse>
+  >({});
+  const [analyzingIntervieweeId, setAnalyzingIntervieweeId] = useState<string | null>(null);
+
   const updateInterviewee = (
     intervieweeId: string,
     key: IntervieweeFieldKey,
@@ -168,6 +241,56 @@ export function IntervieweeListEditor({
   const removeInterviewee = (intervieweeId: string) => {
     if (interviewees.length <= 1) return;
     onChange(interviewees.filter((i) => i.id !== intervieweeId));
+  };
+
+  const handleAnalyzeCoverage = async (
+    intervieweeId: string,
+    transcript: string,
+    questions: LeadingQuestion[]
+  ) => {
+    if (!isCoordinatorConfigured()) {
+      toast.error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+      return;
+    }
+
+    const trimmed = transcript.trim();
+    if (!trimmed) {
+      toast.error("Add a transcript in Facts revealed before analyzing");
+      return;
+    }
+
+    if (trimmed.length > MAX_ANALYSIS_TRANSCRIPT_LENGTH) {
+      toast.error(
+        `Transcript is too long for analysis (max ${MAX_ANALYSIS_TRANSCRIPT_LENGTH} characters)`
+      );
+      return;
+    }
+
+    setAnalyzingIntervieweeId(intervieweeId);
+    try {
+      const response = await runAnalysis(
+        trimmed,
+        questions.map((q) => ({
+          id: q.id,
+          prompt: q.prompt,
+          hint: q.hint,
+        }))
+      );
+      setAnalysisResults((prev) => ({ ...prev, [intervieweeId]: response }));
+      toast.success("Coverage analysis complete");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Coverage analysis failed");
+    } finally {
+      setAnalyzingIntervieweeId(null);
+    }
+  };
+
+  const appendToFacts = (intervieweeId: string, text: string) => {
+    const interviewee = interviewees.find((i) => i.id === intervieweeId);
+    if (!interviewee) return;
+    const prefix = interviewee.facts.trim() ? "\n\n" : "";
+    updateInterviewee(intervieweeId, "facts", `${interviewee.facts.trim()}${prefix}${text}`);
+    toast.success("Added to Facts revealed");
   };
 
   return (
@@ -188,6 +311,11 @@ export function IntervieweeListEditor({
           const activeLeadingQuestions = LEADING_QUESTION_SET_OPTIONS.find(
             (option) => option.id === interviewee.leadingQuestionSet
           );
+          const isAnalyzingThis = analyzingIntervieweeId === interviewee.id;
+          const analysisResult = analysisResults[interviewee.id];
+          const coverageMap = analysisResult
+            ? new Map(analysisResult.coverage.map((item) => [item.id, item]))
+            : undefined;
 
           return (
             <div
@@ -251,13 +379,18 @@ export function IntervieweeListEditor({
                     <Checkbox
                       id={`${interviewee.id}-leading-questions-${option.id}`}
                       checked={interviewee.leadingQuestionSet === option.id}
-                      onCheckedChange={(checked) =>
+                      onCheckedChange={(checked) => {
+                        setAnalysisResults((prev) => {
+                          const next = { ...prev };
+                          delete next[interviewee.id];
+                          return next;
+                        });
                         updateInterviewee(
                           interviewee.id,
                           "leadingQuestionSet",
                           checked === true ? option.id : "none"
-                        )
-                      }
+                        );
+                      }}
                     />
                     <Label
                       htmlFor={`${interviewee.id}-leading-questions-${option.id}`}
@@ -270,17 +403,64 @@ export function IntervieweeListEditor({
               </div>
 
               {activeLeadingQuestions && (
-                <LeadingQuestionsPanel
-                  title={activeLeadingQuestions.title}
-                  questions={activeLeadingQuestions.questions}
-                />
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-gray-500">
+                      Compare transcript against the checklist to find gaps.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={
+                        !interviewee.facts.trim() ||
+                        isAnalyzingThis ||
+                        !isCoordinatorConfigured()
+                      }
+                      onClick={() =>
+                        void handleAnalyzeCoverage(
+                          interviewee.id,
+                          interviewee.facts,
+                          activeLeadingQuestions.questions
+                        )
+                      }
+                    >
+                      {isAnalyzingThis ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-2 h-4 w-4" />
+                      )}
+                      Analyze coverage
+                    </Button>
+                  </div>
+
+                  <LeadingQuestionsPanel
+                    title={activeLeadingQuestions.title}
+                    questions={activeLeadingQuestions.questions}
+                    coverage={coverageMap}
+                  />
+
+                  {analysisResult ? (
+                    <FollowUpSuggestionsPanel
+                      intervieweeId={interviewee.id}
+                      followUps={analysisResult.follow_ups}
+                      onAddToNotes={(text) => appendToFacts(interviewee.id, text)}
+                    />
+                  ) : null}
+                </>
               )}
 
               <InterviewRecordingCard
                 title="Record interview"
-                description="Type or paste the interview transcript, then stop recording to apply it to Facts revealed"
+                description="Record the interview or type/paste a transcript, then stop to apply it to Facts revealed"
                 initialTranscript={interviewee.facts}
                 onStop={(text) => updateInterviewee(interviewee.id, "facts", text)}
+                onRecordingStart={(startTime) =>
+                  updateInterviewee(interviewee.id, "recordedStartTime", startTime)
+                }
+                onRecordingStop={(endTime) =>
+                  updateInterviewee(interviewee.id, "recordedEndTime", endTime)
+                }
               />
 
               <div>
@@ -288,7 +468,14 @@ export function IntervieweeListEditor({
                 <Textarea
                   id={`${interviewee.id}-facts`}
                   value={interviewee.facts}
-                  onChange={(e) => updateInterviewee(interviewee.id, "facts", e.target.value)}
+                  onChange={(e) => {
+                    setAnalysisResults((prev) => {
+                      const next = { ...prev };
+                      delete next[interviewee.id];
+                      return next;
+                    });
+                    updateInterviewee(interviewee.id, "facts", e.target.value);
+                  }}
                   rows={4}
                   className="mt-1 font-mono text-sm"
                 />

@@ -39,6 +39,7 @@ interface ReportFormFieldsProps {
   onRemovePhoto?: (id: string) => void;
   onReorderPhoto?: (id: string, direction: "up" | "down") => void;
   onCopyPhoto?: (id: string) => void;
+  onUpdatePhotoCaption?: (id: string, caption: string) => void;
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
@@ -137,6 +138,7 @@ export function ReportFormFields({
   onRemovePhoto,
   onReorderPhoto,
   onCopyPhoto,
+  onUpdatePhotoCaption,
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
   floorplanSvg = null,
@@ -194,6 +196,7 @@ export function ReportFormFields({
                     onRemovePhoto={onRemovePhoto}
                     onReorderPhoto={onReorderPhoto}
                     onCopyPhoto={onCopyPhoto}
+                    onUpdatePhotoCaption={onUpdatePhotoCaption}
                     photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
                     photoLogPreviewLoading={photoLogPreviewLoading}
                     floorplanSvg={floorplanSvg}

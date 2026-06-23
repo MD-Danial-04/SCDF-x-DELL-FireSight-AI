@@ -40,12 +40,80 @@ const LAYOUT = {
     boxX: 52,
     boxWidth: 615,
     box1Y: 110,
-    box1Height: 380,
-    box2Y: 525,
-    box2Height: 380,
+    box1Height: 360,
+    box2Y: 545,
+    box2Height: 360,
     labelOffset: 18,
+    captionLineHeight: 14,
   },
 } as const;
+
+function truncateWithEllipsis(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string {
+  if (!text) return "";
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = "…";
+  let truncated = text;
+  while (truncated.length > 0 && ctx.measureText(truncated + ellipsis).width > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated.length > 0 ? truncated + ellipsis : ellipsis;
+}
+
+function wrapTextToLines(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const lines: string[] = [];
+  let current = "";
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const candidate = current ? `${current} ${word}` : word;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+    if (current) {
+      lines.push(current);
+      if (lines.length >= maxLines) {
+        const remainder = [word, ...words.slice(i + 1)].join(" ");
+        lines[maxLines - 1] = truncateWithEllipsis(
+          ctx,
+          `${lines[maxLines - 1]} ${remainder}`,
+          maxWidth,
+        );
+        return lines;
+      }
+      current = ctx.measureText(word).width <= maxWidth
+        ? word
+        : truncateWithEllipsis(ctx, word, maxWidth);
+      if (ctx.measureText(word).width > maxWidth) {
+        if (lines.length >= maxLines) return lines;
+        lines.push(current);
+        current = "";
+      }
+    } else {
+      current = truncateWithEllipsis(ctx, word, maxWidth);
+      if (word !== current || ctx.measureText(word).width > maxWidth) {
+        lines.push(current);
+        current = "";
+        if (lines.length >= maxLines) return lines;
+      }
+    }
+  }
+
+  if (current) lines.push(current);
+  return lines.slice(0, maxLines);
+}
 
 function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -163,9 +231,12 @@ function drawAnnexDRow(
   rowIndex: number,
   tableLabel: string,
   uid: string,
+  caption?: string,
 ): void {
   const { annexD: d } = LAYOUT;
   const y = d.tableTop + d.rowHeight * (rowIndex + 1);
+  const captionColLeft = d.colUid + 100;
+  const captionMaxWidth = d.tableRight - captionColLeft - 8;
 
   ctx.strokeStyle = "#000000";
   ctx.lineWidth = 1;
@@ -183,6 +254,15 @@ function drawAnnexDRow(
   ctx.textAlign = "center";
   ctx.fillText(tableLabel, d.colPhoto, y + 24);
   ctx.fillText(uid, d.colUid, y + 24);
+
+  if (caption) {
+    ctx.textAlign = "left";
+    ctx.fillText(
+      truncateWithEllipsis(ctx, caption, captionMaxWidth),
+      captionColLeft + 4,
+      y + 24,
+    );
+  }
 }
 
 export async function generateAnnexDBlobs(
@@ -204,7 +284,13 @@ export async function generateAnnexDBlobs(
     const end = Math.min(start + ROWS_PER_D_PAGE, displayInfo.length);
     for (let i = start; i < end; i++) {
       const info = displayInfo[i];
-      drawAnnexDRow(ctx, i - start, info.tableLabel, info.entry.uid);
+      drawAnnexDRow(
+        ctx,
+        i - start,
+        info.tableLabel,
+        info.entry.uid,
+        info.entry.caption,
+      );
     }
 
     drawPageFooter(ctx, pageCount === 1 ? "D-1" : `D-${page + 1}`);
@@ -223,6 +309,7 @@ async function drawPhotoBox(
   boxHeight: number,
   boxLabel: string,
   uid: string,
+  caption?: string,
 ): Promise<void> {
   const { annexF: f } = LAYOUT;
 
@@ -255,6 +342,18 @@ async function drawPhotoBox(
   ctx.textAlign = "right";
   ctx.font = "12px Arial, sans-serif";
   ctx.fillText(uid, boxX + boxWidth, labelY);
+
+  if (caption) {
+    ctx.fillStyle = "#000000";
+    ctx.textAlign = "left";
+    ctx.font = "11px Arial, sans-serif";
+    const lines = wrapTextToLines(ctx, caption, boxWidth, 2);
+    let captionY = labelY + f.captionLineHeight;
+    for (const line of lines) {
+      ctx.fillText(line, boxX, captionY);
+      captionY += f.captionLineHeight;
+    }
+  }
 }
 
 export async function generateAnnexFBlobs(
@@ -288,6 +387,7 @@ export async function generateAnnexFBlobs(
         boxHeight,
         pageItems[i].boxLabel,
         pageItems[i].entry.uid,
+        pageItems[i].entry.caption,
       );
     }
 

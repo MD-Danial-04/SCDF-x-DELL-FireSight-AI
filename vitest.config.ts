@@ -9,6 +9,8 @@ export default defineConfig({
       "src/app/lib/generateStatementDocx.test.ts",
       "src/app/lib/svgViewport.test.ts",
       "src/app/lib/floorplanEditor.textEdit.test.ts",
+      "src/app/types/__tests__/**/*.test.ts",
+      "src/app/lib/__tests__/**/*.test.ts",
     ],
   },
   resolve: {

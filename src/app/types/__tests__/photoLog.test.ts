@@ -4,7 +4,7 @@ import {
   createPhotoLogEntry,
   getPhotoLogDisplayInfo,
   parsePhotoUid,
-} from "../app/types/photoLog";
+} from "../photoLog";
 
 describe("parsePhotoUid", () => {
   it("returns file name without extension", () => {
@@ -57,5 +57,13 @@ describe("createPhotoCopy", () => {
     expect(copy.uid).toBe(original.uid);
     expect(copy.blob).toBe(original.blob);
     expect(copy.id).not.toBe(original.id);
+  });
+
+  it("does not copy caption from the original", () => {
+    const file = new File(["x"], "fire-001.jpeg", { type: "image/jpeg" });
+    const original = { ...createPhotoLogEntry(file), caption: "Kitchen damage" };
+    const copy = createPhotoCopy(original);
+
+    expect(copy.caption).toBeUndefined();
   });
 });
