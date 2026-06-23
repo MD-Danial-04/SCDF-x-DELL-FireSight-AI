@@ -161,15 +161,22 @@ export function PhotoLogEditor({
             return infoIndex >= 0 && infoIndex < currentIndex;
           })
           .map((info) => {
-            const caption =
-              priorResults[info.entry.id]?.caption ?? info.entry.caption ?? "";
+            const fromBatch = priorResults[info.entry.id];
             return {
               number: info.number as number,
               uid: info.entry.uid,
-              caption,
+              suggestedSection:
+                fromBatch?.suggested_section ?? info.entry.suggestedSection ?? null,
+              detectedElements:
+                fromBatch?.detected_elements ?? info.entry.detectedElements ?? [],
+              caption: fromBatch?.caption ?? info.entry.caption,
             };
           })
-          .filter((item) => item.caption.trim().length > 0);
+          .filter(
+            (item) =>
+              (item.detectedElements?.length ?? 0) > 0 ||
+              (item.caption?.trim().length ?? 0) > 0,
+          );
 
         return buildPhotoAnalysisContext(photoAnalysisContext, priorCaptions);
       });
