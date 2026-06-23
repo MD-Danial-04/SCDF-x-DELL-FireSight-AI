@@ -162,6 +162,12 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     });
   }, []);
 
+  const handleUpdatePhotoCaption = useCallback((id: string, caption: string) => {
+    setPhotos((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, caption: caption || undefined } : p)),
+    );
+  }, []);
+
   const selectedAnnexes = useMemo(
     () => parseSelectedAnnexes(reportFields.selectedAnnexes),
     [reportFields.selectedAnnexes],
@@ -675,6 +681,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               onRemovePhoto={handleRemovePhoto}
               onReorderPhoto={handleReorderPhoto}
               onCopyPhoto={handleCopyPhoto}
+              onUpdatePhotoCaption={handleUpdatePhotoCaption}
               photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
               photoLogPreviewLoading={photoLogPreviewLoading}
               floorplanSvg={floorplanSvg}
@@ -723,6 +730,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 onRemovePhoto={handleRemovePhoto}
                 onReorderPhoto={handleReorderPhoto}
                 onCopyPhoto={handleCopyPhoto}
+                onUpdatePhotoCaption={handleUpdatePhotoCaption}
                 photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
                 photoLogPreviewLoading={photoLogPreviewLoading}
                 floorplanSvg={floorplanSvg}

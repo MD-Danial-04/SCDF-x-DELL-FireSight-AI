@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createInferenceJob, getInferenceJob } from "../lib/coordinatorApi";
 import { getSupabaseClient } from "../lib/supabaseClient";
-import type { InferenceJob, JobStatus } from "../types/inference";
+import type { InferenceJob, JobStatus, MessageType } from "../types/inference";
 
 const POLL_INTERVAL_MS = 2000;
 const TERMINAL_STATUSES: JobStatus[] = ["transcribed", "failed"];
@@ -10,7 +10,7 @@ interface UseTranscriptionJobState {
   job: InferenceJob | null;
   isProcessing: boolean;
   error: string | null;
-  submitTranscription: (file: Blob) => Promise<void>;
+  submitTranscription: (file: Blob, messageType?: MessageType) => Promise<void>;
   reset: () => void;
 }
 
@@ -116,11 +116,11 @@ export function useTranscriptionJob(): UseTranscriptionJobState {
   );
 
   const submitTranscription = useCallback(
-    async (file: Blob) => {
+    async (file: Blob, messageType: MessageType = "stop_message") => {
       setError(null);
       setIsProcessing(true);
       try {
-        const created = await createInferenceJob(file, "stop_message");
+        const created = await createInferenceJob(file, messageType);
         applyJobUpdate(created);
         if (!isTerminal(created.status)) {
           subscribeToJob(created.id);

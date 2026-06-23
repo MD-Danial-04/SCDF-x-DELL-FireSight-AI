@@ -26,6 +26,7 @@ interface AnnexSelectorProps {
   onRemovePhoto?: (id: string) => void;
   onReorderPhoto?: (id: string, direction: "up" | "down") => void;
   onCopyPhoto?: (id: string) => void;
+  onUpdatePhotoCaption?: (id: string, caption: string) => void;
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
@@ -46,6 +47,7 @@ export function AnnexSelector({
   onRemovePhoto,
   onReorderPhoto,
   onCopyPhoto,
+  onUpdatePhotoCaption,
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
   floorplanSvg = null,
@@ -98,7 +100,7 @@ export function AnnexSelector({
           onFloorplanSvgChange={onFloorplanSvgChange}
         />
       )}
-      {onAddPhotos && onRemovePhoto && onReorderPhoto && onCopyPhoto && (
+      {onAddPhotos && onRemovePhoto && onReorderPhoto && onCopyPhoto && onUpdatePhotoCaption && (
         <PhotoLogEditor
           enabled={
             selectedIds.includes("D") ||
@@ -111,6 +113,7 @@ export function AnnexSelector({
           onRemovePhoto={onRemovePhoto}
           onReorderPhoto={onReorderPhoto}
           onCopyPhoto={onCopyPhoto}
+          onUpdatePhotoCaption={onUpdatePhotoCaption}
         />
       )}
       {onOverrideChange && (
