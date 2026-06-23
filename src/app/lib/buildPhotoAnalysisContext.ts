@@ -106,6 +106,7 @@ export function mapPhotoAnalysisToEntry(
       result.confidence.suggested_section,
     ),
     suggestedSectionConfidence: result.confidence.suggested_section,
+    sectionCandidates: result.section_candidates ?? undefined,
     detectedElements: result.detected_elements,
   };
 }
@@ -116,5 +117,6 @@ export type PhotoAnalysisPartialEntry = Pick<
   | "captionSource"
   | "suggestedSection"
   | "suggestedSectionConfidence"
+  | "sectionCandidates"
   | "detectedElements"
 >;

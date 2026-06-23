@@ -21,6 +21,7 @@ import { IntervieweeListEditor } from "./IntervieweeListEditor";
 import type { Interviewee } from "../types/interviewee";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
 import type { PhotoAnalysisPartialEntry, PhotoAnalysisReportContext } from "../lib/buildPhotoAnalysisContext";
+import type { SuggestedPhotoSection } from "../types/photoAnalysis";
 import {
   buildAnnexAttachmentList,
   getAnnexById,
@@ -43,7 +44,7 @@ interface ReportFormFieldsProps {
   onUpdatePhotoCaption?: (id: string, caption: string) => void;
   photoAnalysisContext?: PhotoAnalysisReportContext;
   onPhotosAnalyzed?: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
-  onApplyPhotoSection?: (photoId: string) => void;
+  onApplyPhotoSection?: (photoId: string, section: SuggestedPhotoSection) => void;
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;

@@ -24,8 +24,16 @@ import {
 import { usePhotoAnalysis } from "../hooks/usePhotoAnalysis";
 import { isCoordinatorConfigured } from "../types/inference";
 import {
+  getSectionLinkTooltip,
+  isSectionHighlighted,
+  isSectionLinkable,
   PHOTO_REF_LABELS,
+  SECTION_2_LINK_SECTIONS,
+  SECTION_5_LINK_SECTIONS,
+  SECTION_LINK_BUTTON_LABELS,
   SUGGESTED_SECTION_CONFIDENCE_THRESHOLD,
+  type SectionCandidates,
+  type SuggestedPhotoSection,
 } from "../types/photoAnalysis";
 import { getPhotoLogDisplayInfo, type PhotoLogEntry } from "../types/photoLog";
 
@@ -40,13 +48,53 @@ interface PhotoLogEditorProps {
   onCopyPhoto: (id: string) => void;
   onUpdatePhotoCaption: (id: string, caption: string) => void;
   onPhotosAnalyzed: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
-  onApplyPhotoSection: (photoId: string) => void;
+  onApplyPhotoSection: (photoId: string, section: SuggestedPhotoSection) => void;
 }
 
 function formatEditorLabel(boxLabel: string): string {
   return boxLabel
     .replace(/^PHOTO /, "Photo ")
     .replace(/^COPY OF PHOTO /, "Copy of ");
+}
+
+function SectionLinkButtonGroup({
+  label,
+  sections,
+  photoId,
+  candidates,
+  onApply,
+}: {
+  label: string;
+  sections: readonly SuggestedPhotoSection[];
+  photoId: string;
+  candidates: SectionCandidates | undefined;
+  onApply: (photoId: string, section: SuggestedPhotoSection) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-gray-500">{label}</p>
+      <div className="flex flex-wrap gap-1">
+        {sections.map((section) => {
+          const linkable = isSectionLinkable(candidates, section);
+          const highlighted = isSectionHighlighted(candidates, section);
+          return (
+            <Button
+              key={section}
+              type="button"
+              variant={highlighted ? "default" : "outline"}
+              size="sm"
+              className="h-7 text-xs px-2"
+              disabled={!linkable}
+              title={getSectionLinkTooltip(candidates, section)}
+              onClick={() => onApply(photoId, section)}
+            >
+              {SECTION_LINK_BUTTON_LABELS[section]}
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function PhotoLogEditor({
@@ -321,7 +369,8 @@ export function PhotoLogEditor({
             const photo = info.entry;
             const editorLabel = formatEditorLabel(info.boxLabel);
             const isAnalyzingThis = analyzingPhotoIds.has(photo.id);
-            const hasSectionSuggestion = Boolean(photo.suggestedSection);
+            const hasAnalysis =
+              photo.captionSource === "ai" || Boolean(photo.sectionCandidates);
             const lowConfidenceSection =
               !photo.suggestedSection &&
               photo.suggestedSectionConfidence != null &&
@@ -372,9 +421,9 @@ export function PhotoLogEditor({
                           AI caption
                         </Badge>
                       )}
-                      {hasSectionSuggestion && photo.suggestedSection && (
+                      {photo.suggestedSection && (
                         <Badge className="text-[10px] px-1.5 py-0">
-                          {PHOTO_REF_LABELS[photo.suggestedSection]}
+                          Top: {PHOTO_REF_LABELS[photo.suggestedSection]}
                         </Badge>
                       )}
                     </div>
@@ -446,7 +495,7 @@ export function PhotoLogEditor({
                   />
                 </div>
                 {!info.isCopy && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div className="mt-2 space-y-2">
                     <Button
                       type="button"
                       variant="secondary"
@@ -461,15 +510,26 @@ export function PhotoLogEditor({
                       )}
                       Analyze
                     </Button>
-                    {hasSectionSuggestion && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onApplyPhotoSection(photo.id)}
-                      >
-                        Apply to report
-                      </Button>
+                    {hasAnalysis && (
+                      <div className="rounded-md border bg-white p-2 space-y-2">
+                        <p className="text-xs font-medium text-gray-700">Link to report</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <SectionLinkButtonGroup
+                            label="Section 2"
+                            sections={SECTION_2_LINK_SECTIONS}
+                            photoId={photo.id}
+                            candidates={photo.sectionCandidates}
+                            onApply={onApplyPhotoSection}
+                          />
+                          <SectionLinkButtonGroup
+                            label="Section 5"
+                            sections={SECTION_5_LINK_SECTIONS}
+                            photoId={photo.id}
+                            candidates={photo.sectionCandidates}
+                            onApply={onApplyPhotoSection}
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}

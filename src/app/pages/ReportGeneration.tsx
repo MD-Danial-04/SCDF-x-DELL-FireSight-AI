@@ -47,6 +47,7 @@ import {
 import {
   PHOTO_REF_LABELS,
   SUGGESTED_SECTION_TO_PHOTO_REF,
+  type SuggestedPhotoSection,
 } from "../types/photoAnalysis";
 
 type Step = "review" | "edit";
@@ -199,10 +200,10 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   );
 
   const handleApplyPhotoSection = useCallback(
-    (photoId: string) => {
+    (photoId: string, section: SuggestedPhotoSection) => {
       const photo = photos.find((p) => p.id === photoId);
-      if (!photo?.suggestedSection) {
-        toast.error("No section suggestion available for this photo");
+      if (!photo) {
+        toast.error("Photo not found");
         return;
       }
 
@@ -215,13 +216,12 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         return;
       }
 
-      const section = photo.suggestedSection;
       const fieldKey = SUGGESTED_SECTION_TO_PHOTO_REF[section];
       setReportFields((prev) => ({
         ...prev,
         [fieldKey]: applyPhotoSectionRef(prev[fieldKey], section, photoNumber),
       }));
-      toast.success(`Added to ${PHOTO_REF_LABELS[section]}`);
+      toast.success(`Linked to ${PHOTO_REF_LABELS[section]}`);
     },
     [photos],
   );
