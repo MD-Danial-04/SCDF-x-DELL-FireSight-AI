@@ -376,8 +376,19 @@ struct ARSketchCaptureView: View {
                     var vehicle = Vehicle()
                     vehicle.label = "Vehicle \(vehicles.count + 1)"
                     vehicle.position = CrashScanPoint(x: round2(cx), y: round2(cz))
-                    vehicle.length = round2(max(w, l))
-                    vehicle.width = round2(min(w, l))
+                    // w = footprint extent along world X, l = extent along world Z.
+                    // Keep the longer side as "length" and use heading to orient
+                    // it onto the correct axis so the top-down preview matches the
+                    // traced footprint (0° = long axis along X, 90° = along Z).
+                    if l >= w {
+                        vehicle.length = round2(l)
+                        vehicle.width = round2(w)
+                        vehicle.headingDegrees = 90
+                    } else {
+                        vehicle.length = round2(w)
+                        vehicle.width = round2(l)
+                        vehicle.headingDegrees = 0
+                    }
                     vehicles.append(vehicle)
                 case let .marker(x, z, kindRaw):
                     var marker = SceneMarker()
