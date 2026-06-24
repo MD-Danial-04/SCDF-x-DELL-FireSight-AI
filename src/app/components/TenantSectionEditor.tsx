@@ -64,14 +64,14 @@ function TenantFieldGrid({
               value={fields[config.key]}
               onChange={(e) => onChange(config.key, e.target.value)}
               rows={3}
-              className="mt-1 font-mono text-sm"
+              className="mt-1 border-slate-400 bg-white font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
             />
           ) : (
             <Input
               id={config.key}
               value={fields[config.key]}
               onChange={(e) => onChange(config.key, e.target.value)}
-              className="mt-1"
+              className="mt-1 border-slate-400 bg-white text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
             />
           )}
         </div>
