@@ -30,9 +30,11 @@ interface InterviewRecordingCardProps {
   description?: string;
   interviewLanguage: InterviewLanguage;
   onInterviewLanguageChange: (language: InterviewLanguage) => void;
-  onTranscriptsComplete: (original: string, english: string) => void;
+  onTranscriptsComplete: (original: string, english: string, jobId: string) => void;
   onRecordingStart?: (startTime: string) => void;
   onRecordingStop?: (endTime: string) => void;
+  showLanguageSelect?: boolean;
+  appliedToastMessage?: string;
   className?: string;
 }
 
@@ -44,6 +46,8 @@ export function InterviewRecordingCard({
   onTranscriptsComplete,
   onRecordingStart,
   onRecordingStop,
+  showLanguageSelect = true,
+  appliedToastMessage = "Transcripts applied to Facts revealed",
   className,
 }: InterviewRecordingCardProps) {
   const { isRecording, recordingTime, start, stop, formatTime } = useRecordingTimer();
@@ -68,9 +72,9 @@ export function InterviewRecordingCard({
       return;
     }
     appliedJobIdRef.current = job.id;
-    onTranscriptsComplete(original, english);
-    toast.success("Transcripts applied to Facts revealed");
-  }, [job, onTranscriptsComplete]);
+    onTranscriptsComplete(original, english, job.id);
+    toast.success(appliedToastMessage);
+  }, [job, onTranscriptsComplete, appliedToastMessage]);
 
   useEffect(() => {
     if (inferenceError) {
@@ -96,7 +100,7 @@ export function InterviewRecordingCard({
         const blob = await stopMediaRecording();
         onRecordingStop?.(formatClockTime(new Date()));
         toast.info("Processing recording...");
-        await submitTranscription(blob, "field_notes", interviewLanguage);
+        await submitTranscription(blob, "interview", interviewLanguage);
       } catch {
         toast.error("Failed to submit recording");
       }
@@ -129,25 +133,27 @@ export function InterviewRecordingCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="interview-language">Interview language</Label>
-          <Select
-            value={interviewLanguage}
-            onValueChange={(value) => onInterviewLanguageChange(value as InterviewLanguage)}
-            disabled={isActivelyRecording || isProcessing}
-          >
-            <SelectTrigger id="interview-language" className="w-full max-w-sm">
-              <SelectValue placeholder="Select language" />
-            </SelectTrigger>
-            <SelectContent>
-              {INTERVIEW_LANGUAGE_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {showLanguageSelect && (
+          <div className="space-y-2">
+            <Label htmlFor="interview-language">Interview language</Label>
+            <Select
+              value={interviewLanguage}
+              onValueChange={(value) => onInterviewLanguageChange(value as InterviewLanguage)}
+              disabled={isActivelyRecording || isProcessing}
+            >
+              <SelectTrigger id="interview-language" className="w-full max-w-sm">
+                <SelectValue placeholder="Select language" />
+              </SelectTrigger>
+              <SelectContent>
+                {INTERVIEW_LANGUAGE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         <div className="flex items-center justify-center gap-3 border-b pb-4">
           {(isActivelyRecording || isProcessing) && (

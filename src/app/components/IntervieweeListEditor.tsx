@@ -23,6 +23,9 @@ import {
   type LeadingQuestion,
 } from "../constants/leadingQuestions";
 import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
+import { useExtractionJob } from "../hooks/useExtractionJob";
+import { extractInterviewFields } from "../lib/extractInterviewFields";
+import { mergeIntervieweeFields } from "../lib/mergeIntervieweeFields";
 import { isCoordinatorConfigured } from "../types/inference";
 import type {
   AnalyzeInterviewResponse,
@@ -135,6 +138,7 @@ function IntervieweeFieldGrid({
   fields,
   interviewee,
   onFieldChange,
+  extractedKeys,
 }: {
   fields: IntervieweeFieldConfig[];
   interviewee: Interviewee;
@@ -143,6 +147,7 @@ function IntervieweeFieldGrid({
     key: IntervieweeFieldKey,
     value: string | LeadingQuestionSet | InterviewLanguage
   ) => void;
+  extractedKeys?: Set<IntervieweeFieldKey>;
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -151,7 +156,15 @@ function IntervieweeFieldGrid({
           key={field.key}
           className={field.multiline ? "md:col-span-2" : undefined}
         >
-          <Label htmlFor={`${interviewee.id}-${field.key}`}>{field.label}</Label>
+          <Label
+            htmlFor={`${interviewee.id}-${field.key}`}
+            className="flex items-center gap-2"
+          >
+            {field.label}
+            {extractedKeys?.has(field.key) ? (
+              <span className="text-xs font-normal text-green-600">(auto-filled)</span>
+            ) : null}
+          </Label>
           {field.multiline ? (
             <Textarea
               id={`${interviewee.id}-${field.key}`}
@@ -368,8 +381,12 @@ export function IntervieweeListEditor({
   isGeneratingAll = false,
 }: IntervieweeListEditorProps) {
   const { runAnalysis } = useInterviewAnalysis();
+  const { runExtraction } = useExtractionJob();
   const [analysisResults, setAnalysisResults] = useState<
     Record<string, AnalyzeInterviewResponse>
+  >({});
+  const [extractedFieldKeys, setExtractedFieldKeys] = useState<
+    Record<string, Set<IntervieweeFieldKey>>
   >({});
   const [analyzingIntervieweeId, setAnalyzingIntervieweeId] = useState<
     string | null
@@ -393,6 +410,16 @@ export function IntervieweeListEditor({
 
   const removeInterviewee = (intervieweeId: string) => {
     if (interviewees.length <= 1) return;
+    setAnalysisResults((prev) => {
+      const next = { ...prev };
+      delete next[intervieweeId];
+      return next;
+    });
+    setExtractedFieldKeys((prev) => {
+      const next = { ...prev };
+      delete next[intervieweeId];
+      return next;
+    });
     onChange(interviewees.filter((item) => item.id !== intervieweeId));
   };
 
@@ -450,20 +477,84 @@ export function IntervieweeListEditor({
     toast.success("Added to Facts revealed");
   };
 
-  const applyTranscripts = (intervieweeId: string, original: string, english: string) => {
+  const applyTranscripts = async (
+    intervieweeId: string,
+    original: string,
+    english: string,
+    jobId: string
+  ) => {
+    const interviewee = interviewees.find((item) => item.id === intervieweeId);
+    if (!interviewee) return;
+    const transcriptPatched: Interviewee = {
+      ...interviewee,
+      factsOriginal: original,
+      facts: english,
+      languageSpoken: INTERVIEW_LANGUAGE_SPOKEN_LABELS[interviewee.interviewLanguage],
+    };
     onChange(
       interviewees.map((item) =>
-        item.id === intervieweeId
-          ? {
-              ...item,
-              factsOriginal: original,
-              facts: english,
-              languageSpoken:
-                INTERVIEW_LANGUAGE_SPOKEN_LABELS[item.interviewLanguage],
-            }
-          : item
+        item.id === intervieweeId ? transcriptPatched : item
       )
     );
+
+    if (!isCoordinatorConfigured()) {
+      const fallback = extractInterviewFields(english);
+      const merged = mergeIntervieweeFields(transcriptPatched, fallback);
+      if (merged.extractedKeys.size > 0) {
+        onChange(
+          interviewees.map((item) =>
+            item.id === intervieweeId ? merged.interviewee : item
+          )
+        );
+        setExtractedFieldKeys((prev) => ({
+          ...prev,
+          [intervieweeId]: merged.extractedKeys,
+        }));
+        toast.warning("Using local fallback extraction for interview details");
+      }
+      return;
+    }
+
+    try {
+      const extractionJob = await runExtraction({
+        jobId,
+        text: english,
+        messageType: "interview",
+      });
+
+      const extracted =
+        extractionJob.interview_details_result ?? extractInterviewFields(english);
+      const merged = mergeIntervieweeFields(transcriptPatched, extracted);
+      if (merged.extractedKeys.size === 0) return;
+
+      onChange(
+        interviewees.map((item) =>
+          item.id === intervieweeId ? merged.interviewee : item
+        )
+      );
+      setExtractedFieldKeys((prev) => ({
+        ...prev,
+        [intervieweeId]: merged.extractedKeys,
+      }));
+      toast.success(`Personal details extracted (${merged.extractedKeys.size} fields)`);
+    } catch (err) {
+      const fallback = extractInterviewFields(english);
+      const merged = mergeIntervieweeFields(transcriptPatched, fallback);
+      if (merged.extractedKeys.size > 0) {
+        onChange(
+          interviewees.map((item) =>
+            item.id === intervieweeId ? merged.interviewee : item
+          )
+        );
+        setExtractedFieldKeys((prev) => ({
+          ...prev,
+          [intervieweeId]: merged.extractedKeys,
+        }));
+        toast.warning("Using local fallback extraction for interview details");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Interview detail extraction failed");
+      }
+    }
   };
 
   const handleInterviewLanguageChange = (
@@ -559,6 +650,7 @@ export function IntervieweeListEditor({
                       fields={PERSONAL_FIELDS}
                       interviewee={interviewee}
                       onFieldChange={updateInterviewee}
+                      extractedKeys={extractedFieldKeys[interviewee.id]}
                     />
                   </IntervieweeSectionAccordion>
 
@@ -571,6 +663,7 @@ export function IntervieweeListEditor({
                       fields={CONTACT_FIELDS}
                       interviewee={interviewee}
                       onFieldChange={updateInterviewee}
+                      extractedKeys={extractedFieldKeys[interviewee.id]}
                     />
                   </IntervieweeSectionAccordion>
 
@@ -583,6 +676,7 @@ export function IntervieweeListEditor({
                       fields={RECORDING_FIELDS}
                       interviewee={interviewee}
                       onFieldChange={updateInterviewee}
+                      extractedKeys={extractedFieldKeys[interviewee.id]}
                     />
                   </IntervieweeSectionAccordion>
 
@@ -633,8 +727,8 @@ export function IntervieweeListEditor({
                     onInterviewLanguageChange={(language) =>
                       handleInterviewLanguageChange(interviewee.id, language)
                     }
-                    onTranscriptsComplete={(original, english) =>
-                      applyTranscripts(interviewee.id, original, english)
+                    onTranscriptsComplete={(original, english, jobId) =>
+                      applyTranscripts(interviewee.id, original, english, jobId)
                     }
                     onRecordingStart={(startTime) =>
                       updateInterviewee(

@@ -30,6 +30,7 @@ describe("mapIntervieweeToStatement", () => {
     interviewee.address = "Blk 1 Example Street";
     interviewee.contactMobile = "91234567";
     interviewee.contactHome = "67890123";
+    interviewee.contactOffice = "61234567";
     interviewee.facts = "Upon arrival, white smoke was seen.";
     interviewee.recordedStartTime = "10:00";
     interviewee.recordedEndTime = "10:30";
@@ -41,6 +42,7 @@ describe("mapIntervieweeToStatement", () => {
     expect(mapped.incidentNo).toBe("/20260608/1495");
     expect(mapped.occupation).toBe("Tenant");
     expect(mapped.nric).toBe("S1234567A");
+    expect(mapped.contactOffice).toBe("61234567");
     expect(mapped.recordedTime).toBe("Start: 10:00 End: 10:30");
     expect(mapped.recordedDate).toBe("08 June 2026");
     expect(mapped.interviewTakenPlace).toBe("");

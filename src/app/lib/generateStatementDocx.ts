@@ -31,6 +31,7 @@ export interface StatementRenderData {
   placeOfEmployment: string;
   contactHome: string;
   contactMobile: string;
+  contactOffice: string;
   recordedTime: string;
   recordedDate: string;
   interviewTakenPlace: string;
@@ -80,6 +81,7 @@ export function mapIntervieweeToStatement(
     placeOfEmployment: interviewee.placeOfEmployment,
     contactHome: interviewee.contactHome,
     contactMobile: interviewee.contactMobile,
+    contactOffice: interviewee.contactOffice,
     recordedTime: formatRecordedTime(
       interviewee.recordedStartTime,
       interviewee.recordedEndTime

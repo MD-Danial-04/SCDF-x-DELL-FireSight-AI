@@ -15,6 +15,20 @@ export interface ReportFormSectionConfig {
   fields?: ReportFormFieldConfig[];
 }
 
+export const TENANT_PERSONAL_FIELDS: ReportFormFieldConfig[] = [
+  { key: "tenantName", label: "Name" },
+  { key: "tenantDesignation", label: "Designation" },
+  { key: "tenantNric", label: "NRIC / FIN No." },
+  { key: "tenantNationality", label: "Nationality" },
+  { key: "tenantAddress", label: "Address", multiline: true },
+];
+
+export const TENANT_CONTACT_FIELDS: ReportFormFieldConfig[] = [
+  { key: "tenantContactMobile", label: "Contact No. (Mobile)" },
+  { key: "tenantContactHome", label: "Contact No. (Home)" },
+  { key: "tenantContactOffice", label: "Contact No. (Office)" },
+];
+
 export const REPORT_FORM_SECTIONS: ReportFormSectionConfig[] = [
   {
     id: "1",
@@ -50,16 +64,7 @@ export const REPORT_FORM_SECTIONS: ReportFormSectionConfig[] = [
   {
     id: "3",
     title: "3 PARTICULARS ON TENANT OF THE AFFECTED PREMISES/ENTITY",
-    fields: [
-      { key: "tenantName", label: "Name" },
-      { key: "tenantDesignation", label: "Designation" },
-      { key: "tenantNric", label: "NRIC / FIN No." },
-      { key: "tenantNationality", label: "Nationality" },
-      { key: "tenantAddress", label: "Address", multiline: true },
-      { key: "tenantContactMobile", label: "Contact No. (Mobile)" },
-      { key: "tenantContactHome", label: "Contact No. (Home)" },
-      { key: "tenantContactOffice", label: "Contact No. (Office)" },
-    ],
+    fields: [...TENANT_PERSONAL_FIELDS, ...TENANT_CONTACT_FIELDS],
   },
   {
     id: "4",
