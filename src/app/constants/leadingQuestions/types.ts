@@ -1,4 +1,4 @@
-import type { InterviewLanguage } from "../types/interviewee";
+import type { InterviewLanguage } from "../../types/interviewee";
 
 export type LocalizedText = Record<InterviewLanguage, string>;
 
