@@ -44,6 +44,7 @@ import { getPhotoLogDisplayInfo, type PhotoLogEntry } from "../types/photoLog";
 const ANNEX_E_PAGE_INDEX = 4;
 const TAP_THRESHOLD_PX = 5;
 const HANDLE_SIZE_PX = 22;
+const ANNEX_E_MARKERS_STORAGE_PREFIX = "annex-e-markers";
 
 const COMPASS_ANGLES: { label: string; angle: number }[] = [
   { label: "N", angle: 270 },
@@ -85,6 +86,46 @@ interface SvgViewportMapping {
   offsetY: number;
   rectLeft: number;
   rectTop: number;
+}
+
+function hashString(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function buildAnnexEMarkersStorageKey({
+  incidentNo,
+  locationOfFire,
+  floorplanSvg,
+}: {
+  incidentNo?: string;
+  locationOfFire?: string;
+  floorplanSvg: string | null;
+}) {
+  const fingerprint = floorplanSvg ? hashString(floorplanSvg) : "no-floorplan";
+  return [
+    ANNEX_E_MARKERS_STORAGE_PREFIX,
+    incidentNo?.trim() || "no-incident",
+    locationOfFire?.trim() || "no-location",
+    fingerprint,
+  ].join(":");
+}
+
+function isValidMarker(candidate: unknown): candidate is AnnexEMarker {
+  if (!candidate || typeof candidate !== "object") return false;
+  const marker = candidate as Record<string, unknown>;
+  return (
+    typeof marker.id === "string" &&
+    typeof marker.cx === "number" &&
+    typeof marker.cy === "number" &&
+    typeof marker.tipX === "number" &&
+    typeof marker.tipY === "number" &&
+    (typeof marker.photoId === "string" || marker.photoId === null)
+  );
 }
 
 function computeSvgViewportMapping(
@@ -305,6 +346,16 @@ export function AnnexEEditor({
     startMarker: AnnexEMarker;
   } | null>(null);
 
+  const markersStorageKey = useMemo(
+    () =>
+      buildAnnexEMarkersStorageKey({
+        incidentNo,
+        locationOfFire,
+        floorplanSvg,
+      }),
+    [floorplanSvg, incidentNo, locationOfFire],
+  );
+
   const viewBox = useMemo(
     () => (floorplanSvg ? parseViewBoxFromSvg(floorplanSvg) : null),
     [floorplanSvg],
@@ -449,6 +500,43 @@ export function AnnexEEditor({
       return changed ? next : current;
     });
   }, [viewBox]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!floorplanSvg) {
+      setMarkers([]);
+      setSelectedMarkerId(null);
+      setSelectionFocus(null);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(markersStorageKey);
+      if (!raw) {
+        setMarkers([]);
+        setSelectedMarkerId(null);
+        setSelectionFocus(null);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      const nextMarkers = Array.isArray(parsed) ? parsed.filter(isValidMarker) : [];
+      setMarkers(nextMarkers);
+      setSelectedMarkerId((current) =>
+        current && nextMarkers.some((marker) => marker.id === current) ? current : null,
+      );
+      setSelectionFocus(null);
+    } catch {
+      setMarkers([]);
+      setSelectedMarkerId(null);
+      setSelectionFocus(null);
+    }
+  }, [floorplanSvg, markersStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !floorplanSvg) return;
+    window.localStorage.setItem(markersStorageKey, JSON.stringify(markers));
+  }, [floorplanSvg, markers, markersStorageKey]);
 
   useEffect(() => {
     if (!enabled || !floorplanSvg || !viewBox) {

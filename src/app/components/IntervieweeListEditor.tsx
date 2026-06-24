@@ -21,7 +21,7 @@ import {
   LEADING_QUESTION_SETS,
   toEnglishQuestionInput,
   type LeadingQuestion,
-} from "../constants/leadingQuestions/index";
+} from "../constants/leadingQuestions";
 import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
 import { isCoordinatorConfigured } from "../types/inference";
 import type {
