@@ -1,5 +1,5 @@
 import { ClipboardCopy, FileText, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -18,13 +18,15 @@ import {
   LPG_FIRE_LEADING_QUESTIONS,
   LPG_FIRE_LEADING_QUESTIONS_TITLE,
 } from "../constants/lpgFireLeadingQuestions";
-import type { LeadingQuestion } from "../constants/leadingQuestions";
+import {
+  type LeadingQuestion,
+  toEnglishQuestionInput,
+} from "../constants/leadingQuestions";
 import {
   VEHICLE_FIRE_LEADING_QUESTIONS,
   VEHICLE_FIRE_LEADING_QUESTIONS_TITLE,
 } from "../constants/vehicleFireLeadingQuestions";
 import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
-import { useQuestionTranslation } from "../hooks/useQuestionTranslation";
 import type { AnalyzeInterviewResponse, FollowUpSuggestion } from "../types/interviewAnalysis";
 import { isCoordinatorConfigured } from "../types/inference";
 import {
@@ -240,42 +242,6 @@ function IntervieweeLeadingQuestionsSection({
   ) => void;
   onAddToNotes: (text: string) => void;
 }) {
-  const { translateQuestions, isTranslating } = useQuestionTranslation();
-  const [translatedQuestions, setTranslatedQuestions] = useState<
-    Map<string, import("../types/interviewAnalysis").TranslatedInterviewQuestion> | undefined
-  >();
-
-  useEffect(() => {
-    let cancelled = false;
-    const questions = activeLeadingQuestions.questions.map((q) => ({
-      id: q.id,
-      prompt: q.prompt,
-      hint: q.hint,
-      section: q.section,
-    }));
-
-    void translateQuestions(questions, interviewee.interviewLanguage)
-      .then((map) => {
-        if (!cancelled) {
-          setTranslatedQuestions(map);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          toast.error(err instanceof Error ? err.message : "Failed to translate questions");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeLeadingQuestions.id,
-    activeLeadingQuestions.questions,
-    interviewee.interviewLanguage,
-    translateQuestions,
-  ]);
-
   const coverageMap = analysisResult
     ? new Map(analysisResult.coverage.map((item) => [item.id, item]))
     : undefined;
@@ -317,8 +283,6 @@ function IntervieweeLeadingQuestionsSection({
         title={activeLeadingQuestions.title}
         questions={activeLeadingQuestions.questions}
         interviewLanguage={interviewee.interviewLanguage}
-        translatedQuestions={translatedQuestions}
-        isTranslating={isTranslating}
         coverage={coverageMap}
       />
 
@@ -396,12 +360,7 @@ export function IntervieweeListEditor({
     try {
       const response = await runAnalysis(
         trimmed,
-        questions.map((q) => ({
-          id: q.id,
-          prompt: q.prompt,
-          hint: q.hint,
-          section: q.section,
-        })),
+        questions.map(toEnglishQuestionInput),
         interviewLanguage
       );
       setAnalysisResults((prev) => ({ ...prev, [intervieweeId]: response }));
