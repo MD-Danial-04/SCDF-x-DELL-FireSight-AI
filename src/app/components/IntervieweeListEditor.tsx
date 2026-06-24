@@ -11,21 +11,10 @@ import { InterviewRecordingCard } from "./InterviewRecordingCard";
 import { SignaturePad } from "./SignaturePad";
 import { LeadingQuestionsPanel } from "./LeadingQuestionsPanel";
 import {
-  AMD_LEADING_QUESTIONS,
-  AMD_LEADING_QUESTIONS_TITLE,
-} from "../constants/amdLeadingQuestions";
-import {
-  LPG_FIRE_LEADING_QUESTIONS,
-  LPG_FIRE_LEADING_QUESTIONS_TITLE,
-} from "../constants/lpgFireLeadingQuestions";
-import {
+  LEADING_QUESTION_SETS,
   type LeadingQuestion,
   toEnglishQuestionInput,
 } from "../constants/leadingQuestions";
-import {
-  VEHICLE_FIRE_LEADING_QUESTIONS,
-  VEHICLE_FIRE_LEADING_QUESTIONS_TITLE,
-} from "../constants/vehicleFireLeadingQuestions";
 import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
 import type { AnalyzeInterviewResponse, FollowUpSuggestion } from "../types/interviewAnalysis";
 import { isCoordinatorConfigured } from "../types/inference";
@@ -37,32 +26,6 @@ import {
   type InterviewLanguage,
   type LeadingQuestionSet,
 } from "../types/interviewee";
-
-const LEADING_QUESTION_SET_OPTIONS: {
-  id: Exclude<LeadingQuestionSet, "none">;
-  label: string;
-  title: string;
-  questions: LeadingQuestion[];
-}[] = [
-  {
-    id: "amd",
-    label: "Show AMD / PMD leading questions",
-    title: AMD_LEADING_QUESTIONS_TITLE,
-    questions: AMD_LEADING_QUESTIONS,
-  },
-  {
-    id: "vehicle-fire",
-    label: "Show vehicle fire leading questions",
-    title: VEHICLE_FIRE_LEADING_QUESTIONS_TITLE,
-    questions: VEHICLE_FIRE_LEADING_QUESTIONS,
-  },
-  {
-    id: "lpg-town-gas",
-    label: "Show LPG / Town Gas leading questions",
-    title: LPG_FIRE_LEADING_QUESTIONS_TITLE,
-    questions: LPG_FIRE_LEADING_QUESTIONS,
-  },
-];
 
 interface IntervieweeFieldConfig {
   key: IntervieweeFieldKey;
@@ -231,7 +194,7 @@ function IntervieweeLeadingQuestionsSection({
   onAddToNotes,
 }: {
   interviewee: Interviewee;
-  activeLeadingQuestions: (typeof LEADING_QUESTION_SET_OPTIONS)[number];
+  activeLeadingQuestions: (typeof LEADING_QUESTION_SETS)[number];
   isAnalyzingThis: boolean;
   analysisResult?: AnalyzeInterviewResponse;
   onAnalyzeCoverage: (
@@ -438,7 +401,7 @@ export function IntervieweeListEditor({
       <div className="space-y-6">
         {interviewees.map((interviewee, index) => {
           const isGenerating = generatingStatementId === interviewee.id;
-          const activeLeadingQuestions = LEADING_QUESTION_SET_OPTIONS.find(
+          const activeLeadingQuestions = LEADING_QUESTION_SETS.find(
             (option) => option.id === interviewee.leadingQuestionSet
           );
           const isAnalyzingThis = analyzingIntervieweeId === interviewee.id;
@@ -501,7 +464,7 @@ export function IntervieweeListEditor({
               </div>
 
               <div className="space-y-2">
-                {LEADING_QUESTION_SET_OPTIONS.map((option) => (
+                {LEADING_QUESTION_SETS.map((option) => (
                   <div key={option.id} className="flex items-center gap-2">
                     <Checkbox
                       id={`${interviewee.id}-leading-questions-${option.id}`}
