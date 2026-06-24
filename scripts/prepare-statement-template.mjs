@@ -83,6 +83,7 @@ function injectTablePlaceholders(xml) {
     [5, 0, "placeOfEmployment"],
     [6, 1, "contactHome"],
     [6, 2, "contactMobile"],
+    [6, 2, "contactOffice"],
     [8, 0, "recordedTime"],
     [8, 1, "recordedDate"],
     [8, 2, "interviewTakenPlace"],

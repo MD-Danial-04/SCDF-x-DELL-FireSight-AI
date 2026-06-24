@@ -18,6 +18,7 @@ import {
   getDefaultOpenSections,
   type ReportFormFieldConfig,
 } from "../constants/reportFormSections";
+import { TenantSectionEditor } from "./TenantSectionEditor";
 import {
   buildAnnexAttachmentList,
   getAnnexById,
@@ -465,20 +466,28 @@ export function ReportFormFields({
           </div>
         )}
 
-        {section.fields && (
-          <FieldsGrid
-            fieldConfigs={
-              section.id === "8"
-                ? section.fields.filter(
-                    (field) =>
-                      field.key !== "annexReferenceSource" && field.key !== "selectedAnnexes"
-                  )
-                : section.fields
-            }
+        {section.id === "3" ? (
+          <TenantSectionEditor
             fields={fields}
             extractedKeys={extractedKeys}
             onChange={onChange}
           />
+        ) : (
+          section.fields && (
+            <FieldsGrid
+              fieldConfigs={
+                section.id === "8"
+                  ? section.fields.filter(
+                      (field) =>
+                        field.key !== "annexReferenceSource" && field.key !== "selectedAnnexes"
+                    )
+                  : section.fields
+              }
+              fields={fields}
+              extractedKeys={extractedKeys}
+              onChange={onChange}
+            />
+          )
         )}
 
         {section.subsections?.map((subsection) => (
