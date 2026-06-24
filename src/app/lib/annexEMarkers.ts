@@ -81,15 +81,19 @@ export function buildArrowGeometry(
   const dx = tipX - cx;
   const dy = tipY - cy;
   const len = Math.hypot(dx, dy);
-  if (len < 1) {
+  if (len < 1e-6) {
     const lineStartX = cx + radius;
     const lineStartY = cy;
+    const fallbackHeadLength = Math.max(headLength * 0.8, radius * 0.55);
+    const fallbackHeadWidth = Math.max(headWidth * 0.8, radius * 0.32);
+    const backX = lineStartX - fallbackHeadLength;
+    const backY = lineStartY;
     return {
       lineStartX,
       lineStartY,
       lineEndX: lineStartX,
       lineEndY: lineStartY,
-      headPoints: "",
+      headPoints: `${lineStartX},${lineStartY} ${backX},${backY + fallbackHeadWidth} ${backX},${backY - fallbackHeadWidth}`,
     };
   }
 
@@ -111,19 +115,25 @@ export function buildArrowGeometry(
 
   const desiredMinShaftLen = Math.max(headLength * 0.2, headWidth * 0.5);
   const minShaftLen = Math.min(desiredMinShaftLen, outwardLen * 0.4);
-  const effectiveHeadLength = Math.min(headLength, Math.max(0, outwardLen - minShaftLen));
+  const minVisibleHeadLength = Math.max(headLength * 0.65, radius * 0.5);
+  const minVisibleHeadWidth = Math.max(headWidth * 0.65, radius * 0.28);
+  const effectiveHeadLength = outwardLen <= minVisibleHeadLength
+    ? minVisibleHeadLength
+    : Math.min(headLength, Math.max(minVisibleHeadLength, outwardLen - minShaftLen));
   const headScale = headLength > 0 ? effectiveHeadLength / headLength : 0;
-  const effectiveHeadWidth = headWidth * headScale;
+  const effectiveHeadWidth = Math.max(minVisibleHeadWidth, headWidth * headScale);
   const backX = tipX - ux * effectiveHeadLength;
   const backY = tipY - uy * effectiveHeadLength;
   const px = -uy;
   const py = ux;
+  const shaftEndX = outwardLen <= effectiveHeadLength ? lineStartX : backX;
+  const shaftEndY = outwardLen <= effectiveHeadLength ? lineStartY : backY;
 
   return {
     lineStartX,
     lineStartY,
-    lineEndX: backX,
-    lineEndY: backY,
+    lineEndX: shaftEndX,
+    lineEndY: shaftEndY,
     headPoints:
       effectiveHeadLength > 0
         ? `${tipX},${tipY} ${backX + px * effectiveHeadWidth},${backY + py * effectiveHeadWidth} ${backX - px * effectiveHeadWidth},${backY - py * effectiveHeadWidth}`
