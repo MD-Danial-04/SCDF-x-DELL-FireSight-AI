@@ -341,6 +341,49 @@ export function FloorplanInspectorPanel({
           </>
         )}
 
+        {generatedElement?.type === "image" && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="image-width">Width</Label>
+              <Input
+                id="image-width"
+                type="number"
+                min="0"
+                step="any"
+                value={String(selectedAmendment.width ?? generatedElement.width ?? 0)}
+                onChange={(event) => {
+                  const width = Math.max(0, Number.parseFloat(event.target.value) || 0);
+                  updateSelectedAmendment({ width });
+                  setGeneratedElements((current) =>
+                    current.map((element) =>
+                      element.id === generatedElement.id ? { ...element, width } : element,
+                    ),
+                  );
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="image-height">Height</Label>
+              <Input
+                id="image-height"
+                type="number"
+                min="0"
+                step="any"
+                value={String(selectedAmendment.height ?? generatedElement.height ?? 0)}
+                onChange={(event) => {
+                  const height = Math.max(0, Number.parseFloat(event.target.value) || 0);
+                  updateSelectedAmendment({ height });
+                  setGeneratedElements((current) =>
+                    current.map((element) =>
+                      element.id === generatedElement.id ? { ...element, height } : element,
+                    ),
+                  );
+                }}
+              />
+            </div>
+          </>
+        )}
+
         {isShapeSelection && !isObjectBoxSelection && (
           <>
             <div className="space-y-2">

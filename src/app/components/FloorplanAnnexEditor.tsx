@@ -29,11 +29,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "./ui/accordion";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { cn } from "./ui/utils";
 import {
   createBlankFloorplan,
   createDefaultObjectBox,
+  extractImportedObjectBoxElements,
   getFloorplanElementMetrics,
   inferObjectBoxDefaults,
   isFloorplanBackgroundElement,
@@ -56,6 +63,7 @@ import { convertRoomPlanFile } from "../lib/importRoomPlanFloorplan";
 import { svgStringToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
 import { FloorplanInspectorPanel } from "./FloorplanInspectorPanel";
 import { clientToSvg, computeSvgViewportMapping } from "../lib/svgViewport";
+import { SHARED_FLOORPLAN_PNG_LIBRARY } from "../constants/floorplanPngLibrary";
 
 const BLANK_FLOORPLAN = createBlankFloorplan();
 
@@ -81,7 +89,12 @@ type DragState =
       pointerId: number;
       targetId: string;
       targetTag: string;
+      targetIsGenerated: boolean;
+      startScaleX: number;
+      startScaleY: number;
       startPoint: { x: number; y: number };
+      startClientX: number;
+      startClientY: number;
       startMetrics: FloorplanElementMetrics;
       startSize: { width: number; height: number };
     }
@@ -135,8 +148,18 @@ interface TextEditState {
   color: string;
 }
 
+interface PngLibraryItem {
+  id: string;
+  name: string;
+  dataUrl: string;
+  width: number;
+  height: number;
+  createdAt: number;
+}
+
 const ZOOM_IN_FACTOR = 0.88;
 const ZOOM_OUT_FACTOR = 1.14;
+const FLOORPLAN_PNG_LIBRARY_STORAGE_KEY = "firesight-floorplan-png-library";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -333,6 +356,7 @@ function getBoundsForGenerated(element: FloorplanGeneratedElement) {
       const width = (element.textContent?.length ?? 6) * 16;
       return { width, height: 28, centerX: element.x, centerY: element.y - 14 };
     }
+    case "image":
     case "rect":
     case "objectBox":
       return {
@@ -404,10 +428,13 @@ export function FloorplanAnnexEditor({
   const [textEditState, setTextEditState] = useState<TextEditState | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>("select");
   const [objectBoxShape, setObjectBoxShape] = useState<ObjectBoxShape>("rect");
+  const [pngLibrary, setPngLibrary] = useState<PngLibraryItem[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const textEditRef = useRef<HTMLTextAreaElement>(null);
   const textEditCommittingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const libraryImageInputRef = useRef<HTMLInputElement>(null);
   const pendingFileRef = useRef<File | null>(null);
 
   const layerOptions = useMemo(
@@ -475,28 +502,73 @@ export function FloorplanAnnexEditor({
   const generatedElement = selectedLayer?.isGenerated
     ? generatedElements.find((element) => element.id === selectedLayer.id) ?? null
     : null;
-  const selectedSize = generatedElement ? getBoundsForGenerated(generatedElement) : null;
+  const effectiveGeneratedElement = generatedElement?.type === "image"
+    ? {
+        ...generatedElement,
+        width: selectedAmendment.width ?? generatedElement.width,
+        height: selectedAmendment.height ?? generatedElement.height,
+        radius: selectedAmendment.radius ?? generatedElement.radius,
+        radiusX: selectedAmendment.radiusX ?? generatedElement.radiusX,
+        radiusY: selectedAmendment.radiusY ?? generatedElement.radiusY,
+        x2: selectedAmendment.x2 ?? generatedElement.x2,
+        y2: selectedAmendment.y2 ?? generatedElement.y2,
+        rotation: selectedAmendment.rotation ?? generatedElement.rotation,
+      }
+    : generatedElement;
+  const selectedSize = effectiveGeneratedElement ? getBoundsForGenerated(effectiveGeneratedElement) : null;
   const nativeMetrics =
     selectedId && svgText && selectedLayer && !selectedLayer.isGenerated
       ? getFloorplanElementMetrics(svgText, selectedId)
       : null;
-  const activeMetrics = generatedElement
+  const effectiveNativeMetrics = nativeMetrics
     ? {
-        tagName: generatedElement.type,
+        ...nativeMetrics,
+        width:
+          (selectedAmendment.width ?? nativeMetrics.width) * (selectedAmendment.scaleX ?? 1),
+        height:
+          (selectedAmendment.height ?? nativeMetrics.height) * (selectedAmendment.scaleY ?? 1),
+        radius: selectedAmendment.radius ?? nativeMetrics.radius,
+        radiusX: selectedAmendment.radiusX ?? nativeMetrics.radiusX,
+        radiusY: selectedAmendment.radiusY ?? nativeMetrics.radiusY,
+        x2: selectedAmendment.x2 ?? nativeMetrics.x2,
+        y2: selectedAmendment.y2 ?? nativeMetrics.y2,
+      }
+    : null;
+  const activeMetrics = effectiveGeneratedElement
+    ? {
+        tagName: effectiveGeneratedElement.type,
         width: selectedSize?.width ?? 0,
         height: selectedSize?.height ?? 0,
-        centerX: selectedSize?.centerX ?? generatedElement.x,
-        centerY: selectedSize?.centerY ?? generatedElement.y,
-        x: generatedElement.x,
-        y: generatedElement.y,
-        x2: generatedElement.x2,
-        y2: generatedElement.y2,
-        radius: generatedElement.radius,
-        radiusX: generatedElement.radiusX,
-        radiusY: generatedElement.radiusY,
+        centerX: selectedSize?.centerX ?? effectiveGeneratedElement.x,
+        centerY: selectedSize?.centerY ?? effectiveGeneratedElement.y,
+        x: effectiveGeneratedElement.x,
+        y: effectiveGeneratedElement.y,
+        x2: effectiveGeneratedElement.x2,
+        y2: effectiveGeneratedElement.y2,
+        radius: effectiveGeneratedElement.radius,
+        radiusX: effectiveGeneratedElement.radiusX,
+        radiusY: effectiveGeneratedElement.radiusY,
       }
-    : nativeMetrics;
+    : effectiveNativeMetrics;
   const amendmentCount = Object.keys(amendments).length + generatedElements.length + groups.length;
+  const gridStyle = useMemo(() => {
+    if (!showGrid || !camera || !baseViewBox || !canvasRef.current) return undefined;
+    const rect = canvasRef.current.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return undefined;
+
+    const mapping = computeSvgViewportMapping(rect, camera);
+    const worldGridSize = Math.max(baseViewBox.width, baseViewBox.height) / 20;
+    const pixelGridSize = Math.max(12, worldGridSize * mapping.scale);
+    const offsetX = -((camera.x % worldGridSize) * mapping.scale);
+    const offsetY = -((camera.y % worldGridSize) * mapping.scale);
+
+    return {
+      backgroundImage:
+        "linear-gradient(rgba(148,163,184,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.16) 1px, transparent 1px)",
+      backgroundSize: `${pixelGridSize}px ${pixelGridSize}px`,
+      backgroundPosition: `${offsetX}px ${offsetY}px`,
+    } as const;
+  }, [showGrid, camera, baseViewBox]);
   const isRectSelection = selectedLayer?.tagName === "rect";
   const isObjectBoxSelection = selectedLayer?.tagName === "objectBox";
   const isShapeSelection = Boolean(selectedLayer && !selectedLayer.isText);
@@ -507,6 +579,32 @@ export function FloorplanAnnexEditor({
         ? textEditState.value
         : selectedAmendment.textContent ?? generatedElement?.textContent ?? selectedLayer.textContent ?? selectedLayer.label
       : null;
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(FLOORPLAN_PNG_LIBRARY_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      setPngLibrary(
+        parsed.filter(
+          (entry): entry is PngLibraryItem =>
+            entry &&
+            typeof entry.id === "string" &&
+            typeof entry.name === "string" &&
+            typeof entry.dataUrl === "string" &&
+            typeof entry.width === "number" &&
+            typeof entry.height === "number",
+        ),
+      );
+    } catch {
+      window.localStorage.removeItem(FLOORPLAN_PNG_LIBRARY_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(FLOORPLAN_PNG_LIBRARY_STORAGE_KEY, JSON.stringify(pngLibrary));
+  }, [pngLibrary]);
 
   useEffect(() => {
     if (!textEditState || !textEditRef.current) return;
@@ -789,21 +887,31 @@ export function FloorplanAnnexEditor({
     setInspectorOpen(false);
   }
 
-  function loadFloorplan(rawSvg: string, nextFileName: string) {
-    const parsed = parseFloorplan(rawSvg);
+  function loadFloorplan(
+    rawSvg: string,
+    nextFileName: string,
+    options?: { convertImportedObjectRects?: boolean },
+  ) {
+    const normalized = options?.convertImportedObjectRects
+      ? extractImportedObjectBoxElements(rawSvg)
+      : { svgText: rawSvg, generatedElements: [] };
+    const parsed = parseFloorplan(normalized.svgText);
     setSvgText(parsed.svgText);
     setLayers(parsed.layers);
     setBaseViewBox(parsed.baseViewBox);
     setCamera(parsed.baseViewBox);
-    setSingleSelection(parsed.layers[0]?.id ?? null);
+    setSingleSelection(normalized.generatedElements[0]?.id ?? parsed.layers[0]?.id ?? null);
     setSelectedGroupId(null);
     setGroups([]);
     setAmendments({});
-    setGeneratedElements([]);
+    setGeneratedElements(normalized.generatedElements);
     setFileName(nextFileName);
     setUploadError(null);
     setInspectorOpen(false);
     setHistory([]);
+    requestAnimationFrame(() => {
+      fitCameraToBounds(parsed.baseViewBox, 1.05);
+    });
   }
 
   function isJsonFile(file: File) {
@@ -823,7 +931,7 @@ export function FloorplanAnnexEditor({
         rawSvg = await file.text();
       }
       const name = jsonImport ? file.name.replace(/\.json$/i, ".svg") : file.name;
-      loadFloorplan(rawSvg, name);
+      loadFloorplan(rawSvg, name, { convertImportedObjectRects: jsonImport });
       toast.success(
         jsonImport ? "Layout plan generated from RoomPlan scan" : "SVG layout plan loaded",
       );
@@ -840,6 +948,214 @@ export function FloorplanAnnexEditor({
     }
   }
 
+  function findImageContentBounds(data: Uint8ClampedArray, width: number, height: number) {
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = (y * width + x) * 4;
+        const red = data[index];
+        const green = data[index + 1];
+        const blue = data[index + 2];
+        const alpha = data[index + 3];
+        const isTransparent = alpha <= 8;
+        const isNearWhite = red >= 245 && green >= 245 && blue >= 245;
+
+        if (isTransparent || isNearWhite) continue;
+
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+
+    if (maxX < minX || maxY < minY) return null;
+    return {
+      minX,
+      minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1,
+    };
+  }
+
+  async function normalizeImageSource(source: string) {
+    const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          resolve({ width: image.naturalWidth, height: image.naturalHeight });
+          return;
+        }
+
+        context.drawImage(image, 0, 0);
+        const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height);
+        const bounds = findImageContentBounds(data, width, height);
+        if (!bounds) {
+          resolve({ width: image.naturalWidth, height: image.naturalHeight });
+          return;
+        }
+        resolve({
+          width: bounds.width,
+          height: bounds.height,
+        });
+      };
+      image.onerror = () => reject(new Error("Unable to load the selected PNG."));
+      image.src = source;
+    });
+
+    const trimmedDataUrl = await new Promise<string>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          resolve(source);
+          return;
+        }
+
+        context.drawImage(image, 0, 0);
+        const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height);
+        const bounds = findImageContentBounds(data, width, height);
+        if (!bounds) {
+          resolve(source);
+          return;
+        }
+        const trimmedCanvas = document.createElement("canvas");
+        trimmedCanvas.width = bounds.width;
+        trimmedCanvas.height = bounds.height;
+        const trimmedContext = trimmedCanvas.getContext("2d");
+        if (!trimmedContext) {
+          resolve(source);
+          return;
+        }
+
+        trimmedContext.drawImage(
+          canvas,
+          bounds.minX,
+          bounds.minY,
+          bounds.width,
+          bounds.height,
+          0,
+          0,
+          bounds.width,
+          bounds.height,
+        );
+
+        resolve(trimmedCanvas.toDataURL("image/png"));
+      };
+      image.onerror = () => reject(new Error("Unable to load the selected PNG."));
+      image.src = source;
+    });
+
+    return { dataUrl: trimmedDataUrl, dimensions };
+  }
+
+  async function readImageFile(file: File) {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") resolve(reader.result);
+        else reject(new Error("Unable to read the selected image."));
+      };
+      reader.onerror = () => reject(new Error("Unable to read the selected image."));
+      reader.readAsDataURL(file);
+    });
+
+    return normalizeImageSource(dataUrl);
+  }
+
+  function placePngElement(asset: { name: string; dataUrl: string; width: number; height: number }) {
+    if (!baseViewBox || !camera) return;
+    const aspectRatio = asset.width > 0 && asset.height > 0 ? asset.width / asset.height : 1;
+    const viewportScale = Math.max(getViewportScale() ?? 1, 0.0001);
+    const minVisibleWidth = 96 / viewportScale;
+    const minVisibleHeight = 96 / viewportScale;
+    const maxWidth = camera.width * 0.18;
+    const maxHeight = camera.height * 0.22;
+    let width = Math.max(camera.width * 0.08, minVisibleWidth);
+    let height = width / Math.max(aspectRatio, 0.01);
+
+    if (height < minVisibleHeight) {
+      height = minVisibleHeight;
+      width = height * Math.max(aspectRatio, 0.01);
+    }
+
+    if (width > maxWidth) {
+      width = maxWidth;
+      height = width / Math.max(aspectRatio, 0.01);
+    }
+
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * Math.max(aspectRatio, 0.01);
+    }
+
+    const centerX = camera.x + camera.width / 2;
+    const centerY = camera.y + camera.height / 2;
+    const marginX = Math.max(camera.width * 0.04, width / 2);
+    const marginY = Math.max(camera.height * 0.04, height / 2);
+    const clampedCenterX = Math.min(
+      camera.x + camera.width - marginX,
+      Math.max(camera.x + marginX, centerX),
+    );
+    const clampedCenterY = Math.min(
+      camera.y + camera.height - marginY,
+      Math.max(camera.y + marginY, centerY),
+    );
+    const imageElement: FloorplanGeneratedElement = {
+      id: `generated-image-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+      type: "image",
+      label: asset.name.replace(/\.[^.]+$/, "") || "Uploaded PNG",
+      imageHref: asset.dataUrl,
+      x: clampedCenterX - width / 2,
+      y: clampedCenterY - height / 2,
+      width,
+      height,
+    };
+
+    captureHistory();
+    setGeneratedElements((current) => [...current, imageElement]);
+    setSingleSelection(imageElement.id);
+    setInspectorOpen(true);
+    fitCameraToBounds(
+      {
+        x: imageElement.x,
+        y: imageElement.y,
+        width,
+        height,
+      },
+      1.5,
+    );
+    toast.success("PNG element added to the floorplan.");
+  }
+
+  async function handleImageUpload(file: File) {
+    setUploadError(null);
+    try {
+      const { dataUrl, dimensions } = await readImageFile(file);
+      placePngElement({
+        name: file.name,
+        dataUrl,
+        width: dimensions.width,
+        height: dimensions.height,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to place the selected PNG.";
+      setUploadError(message);
+      toast.error(message);
+    }
+  }
+
   function handleImportChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -852,6 +1168,72 @@ export function FloorplanAnnexEditor({
     }
 
     void processImportFile(file);
+  }
+
+  function handleImageImportChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.type !== "image/png" && !file.name.toLowerCase().endsWith(".png")) {
+      const message = "Please upload a PNG file for floorplan elements.";
+      setUploadError(message);
+      toast.error(message);
+      return;
+    }
+    void handleImageUpload(file);
+  }
+
+  async function handleLibraryImageImportChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.type !== "image/png" && !file.name.toLowerCase().endsWith(".png")) {
+      const message = "Please upload a PNG file for the library.";
+      setUploadError(message);
+      toast.error(message);
+      return;
+    }
+
+    setUploadError(null);
+    try {
+      const { dataUrl, dimensions } = await readImageFile(file);
+      const item: PngLibraryItem = {
+        id: `library-png-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+        name: file.name.replace(/\.[^.]+$/, "") || "PNG element",
+        dataUrl,
+        width: dimensions.width,
+        height: dimensions.height,
+        createdAt: Date.now(),
+      };
+      setPngLibrary((current) => [item, ...current]);
+      toast.success("PNG saved to the floorplan library.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save the PNG to the library.";
+      setUploadError(message);
+      toast.error(message);
+    }
+  }
+
+  async function placeLibraryImage(item: PngLibraryItem) {
+    setUploadError(null);
+    try {
+      const normalized = await normalizeImageSource(item.dataUrl);
+      placePngElement({
+        name: item.name,
+        dataUrl: normalized.dataUrl,
+        width: normalized.dimensions.width,
+        height: normalized.dimensions.height,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to place the selected PNG.";
+      setUploadError(message);
+      toast.error(message);
+    }
+  }
+
+  function removeLibraryImage(itemId: string) {
+    setPngLibrary((current) => current.filter((item) => item.id !== itemId));
+    toast.success("PNG removed from the floorplan library.");
   }
 
   function handleConfirmReplace() {
@@ -911,8 +1293,8 @@ export function FloorplanAnnexEditor({
 
     setCamera((current) => {
       if (!current) return current;
-      const minWidth = baseViewBox.width * 0.1;
-      const maxWidth = baseViewBox.width * 2.5;
+      const minWidth = baseViewBox.width * 0.03;
+      const maxWidth = baseViewBox.width * 6;
       const nextWidth = clamp(current.width * factor, minWidth, maxWidth);
       const nextHeight = (nextWidth / current.width) * current.height;
       const ratioX = (anchor.x - current.x) / current.width;
@@ -926,8 +1308,41 @@ export function FloorplanAnnexEditor({
     });
   }
 
+  function fitCameraToBounds(bounds: { x: number; y: number; width: number; height: number }, padding = 1.3) {
+    const canvas = canvasRef.current;
+    const viewportAspect =
+      canvas && canvas.clientWidth > 0 && canvas.clientHeight > 0
+        ? canvas.clientWidth / canvas.clientHeight
+        : camera
+          ? camera.width / Math.max(camera.height, 0.0001)
+          : 1;
+
+    const paddedWidth = Math.max(bounds.width * padding, 1);
+    const paddedHeight = Math.max(bounds.height * padding, 1);
+    let nextWidth = paddedWidth;
+    let nextHeight = paddedHeight;
+
+    if (paddedWidth / paddedHeight > viewportAspect) {
+      nextHeight = paddedWidth / Math.max(viewportAspect, 0.0001);
+    } else {
+      nextWidth = paddedHeight * viewportAspect;
+    }
+
+    setCamera({
+      x: bounds.x + bounds.width / 2 - nextWidth / 2,
+      y: bounds.y + bounds.height / 2 - nextHeight / 2,
+      width: nextWidth,
+      height: nextHeight,
+    });
+  }
+
   function resetCamera() {
-    if (baseViewBox) setCamera(baseViewBox);
+    if (baseViewBox) {
+      setCamera(baseViewBox);
+      requestAnimationFrame(() => {
+        fitCameraToBounds(baseViewBox, 1.05);
+      });
+    }
   }
 
   function runObjectBoxLayout(
@@ -1157,18 +1572,76 @@ export function FloorplanAnnexEditor({
         dragState.targetTag === "objectBox" && baseViewBox
           ? inferObjectBoxDefaults(baseViewBox, svgText)
           : null;
-      const minWidth = objectBoxDefaults ? objectBoxDefaults.width * 0.15 : 20;
-      const minHeight = objectBoxDefaults ? objectBoxDefaults.height * 0.15 : 20;
-      const nextWidth = Math.max(minWidth, dragState.startSize.width + deltaX);
-      const nextHeight = Math.max(minHeight, dragState.startSize.height + deltaY);
+      const imageMinWidth = baseViewBox
+        ? Math.max(baseViewBox.width * 0.01, dragState.startSize.width * 0.1)
+        : Math.max(0.25, dragState.startSize.width * 0.1);
+      const imageMinHeight = baseViewBox
+        ? Math.max(baseViewBox.height * 0.01, dragState.startSize.height * 0.1)
+        : Math.max(0.25, dragState.startSize.height * 0.1);
+      const minWidth =
+        dragState.targetTag === "image"
+          ? imageMinWidth
+          : objectBoxDefaults
+            ? objectBoxDefaults.width * 0.15
+            : 20;
+      const minHeight =
+        dragState.targetTag === "image"
+          ? imageMinHeight
+          : objectBoxDefaults
+            ? objectBoxDefaults.height * 0.15
+            : 20;
+      let nextWidth = Math.max(minWidth, dragState.startSize.width + deltaX);
+      let nextHeight = Math.max(minHeight, dragState.startSize.height + deltaY);
+
+      if (dragState.targetTag === "image") {
+        const startAspectRatio = dragState.startSize.width / Math.max(1, dragState.startSize.height);
+        const viewportScale = Math.max(getViewportScale() ?? 1, 0.0001);
+        const startScreenWidth = Math.max(12, dragState.startSize.width * viewportScale);
+        const startScreenHeight = Math.max(12, dragState.startSize.height * viewportScale);
+        const deltaClientX = event.clientX - dragState.startClientX;
+        const deltaClientY = event.clientY - dragState.startClientY;
+        const scaleFromWidth = (startScreenWidth + deltaClientX) / startScreenWidth;
+        const scaleFromHeight = (startScreenHeight + deltaClientY) / startScreenHeight;
+        const widthDominant =
+          Math.abs(deltaClientX / startScreenWidth) >= Math.abs(deltaClientY / startScreenHeight);
+        const scale = Math.max(0.1, widthDominant ? scaleFromWidth : scaleFromHeight);
+        nextWidth = Math.max(minWidth, dragState.startSize.width * scale);
+        nextHeight = Math.max(minHeight, nextWidth / Math.max(0.01, startAspectRatio));
+      }
+
       setAmendments((current) => {
         const next = { ...current };
         const currentEntry = { ...next[dragState.targetId] };
+        const useScaleResize =
+          !dragState.targetIsGenerated &&
+          (dragState.targetTag === "rect" ||
+            dragState.targetTag === "path" ||
+            dragState.targetTag === "polyline" ||
+            dragState.targetTag === "polygon");
+
+        if (useScaleResize) {
+          currentEntry.scaleX = Math.max(
+            0.1,
+            dragState.startScaleX * (nextWidth / Math.max(1, dragState.startSize.width)),
+          );
+          currentEntry.scaleY = Math.max(
+            0.1,
+            dragState.startScaleY * (nextHeight / Math.max(1, dragState.startSize.height)),
+          );
+          delete currentEntry.width;
+          delete currentEntry.height;
+          next[dragState.targetId] = currentEntry;
+          return next;
+        }
+
         switch (dragState.targetTag) {
+          case "image":
           case "rect":
           case "objectBox":
             currentEntry.width = nextWidth;
             currentEntry.height = nextHeight;
+            delete currentEntry.scaleX;
+            delete currentEntry.scaleY;
             break;
           case "circle":
             currentEntry.radius = Math.max(10, Math.max(nextWidth, nextHeight) / 2);
@@ -1187,8 +1660,14 @@ export function FloorplanAnnexEditor({
             currentEntry.height = nextHeight;
             break;
           case "path":
-            currentEntry.scaleX = Math.max(0.2, nextWidth / Math.max(1, dragState.startSize.width));
-            currentEntry.scaleY = Math.max(0.2, nextHeight / Math.max(1, dragState.startSize.height));
+            currentEntry.scaleX = Math.max(
+              0.2,
+              dragState.startScaleX * (nextWidth / Math.max(1, dragState.startSize.width)),
+            );
+            currentEntry.scaleY = Math.max(
+              0.2,
+              dragState.startScaleY * (nextHeight / Math.max(1, dragState.startSize.height)),
+            );
             break;
         }
         next[dragState.targetId] = currentEntry;
@@ -1244,12 +1723,9 @@ export function FloorplanAnnexEditor({
     setGeneratedElements(layout.generatedElements);
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (event.ctrlKey) {
-      applyZoom(event.deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR, event.clientX, event.clientY);
+  function applyCanvasWheel(deltaX: number, deltaY: number, clientX: number, clientY: number, isZoomGesture: boolean) {
+    if (isZoomGesture) {
+      applyZoom(deltaY > 0 ? ZOOM_OUT_FACTOR : ZOOM_IN_FACTOR, clientX, clientY);
       return;
     }
 
@@ -1258,10 +1734,32 @@ export function FloorplanAnnexEditor({
 
     setCamera({
       ...camera,
-      x: camera.x + event.deltaX / scale,
-      y: camera.y + event.deltaY / scale,
+      x: camera.x + deltaX / scale,
+      y: camera.y + deltaY / scale,
     });
   }
+
+  function handleWheel(event: WheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    applyCanvasWheel(event.deltaX, event.deltaY, event.clientX, event.clientY, event.ctrlKey);
+  }
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleNativeWheel = (event: globalThis.WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      applyCanvasWheel(event.deltaX, event.deltaY, event.clientX, event.clientY, event.ctrlKey);
+    };
+
+    canvas.addEventListener("wheel", handleNativeWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", handleNativeWheel);
+    };
+  }, [camera, baseViewBox]);
 
   function addElement(type: FloorplanShapeType) {
     if (!baseViewBox) return;
@@ -1402,7 +1900,12 @@ export function FloorplanAnnexEditor({
       pointerId: event.pointerId,
       targetId: selectedId,
       targetTag: activeMetrics.tagName,
+      targetIsGenerated: Boolean(selectedLayer?.isGenerated),
+      startScaleX: selectedAmendment.scaleX ?? 1,
+      startScaleY: selectedAmendment.scaleY ?? 1,
       startPoint: point,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
       startMetrics: JSON.parse(JSON.stringify(activeMetrics)),
       startSize: { width: activeMetrics.width, height: activeMetrics.height },
     });
@@ -1463,6 +1966,22 @@ export function FloorplanAnnexEditor({
             className="hidden"
             onChange={handleImportChange}
           />
+          <input
+            ref={imageInputRef}
+            id="floorplan-image-upload"
+            type="file"
+            accept=".png,image/png"
+            className="hidden"
+            onChange={handleImageImportChange}
+          />
+          <input
+            ref={libraryImageInputRef}
+            id="floorplan-library-image-upload"
+            type="file"
+            accept=".png,image/png"
+            className="hidden"
+            onChange={handleLibraryImageImportChange}
+          />
           <Button
             type="button"
             variant="secondary"
@@ -1480,6 +1999,22 @@ export function FloorplanAnnexEditor({
                 Import layout plan
               </>
             )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => imageInputRef.current?.click()}
+          >
+            <Upload className="mr-2 h-4 w-4" />
+            Upload PNG element
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => libraryImageInputRef.current?.click()}
+          >
+            <Upload className="mr-2 h-4 w-4" />
+            Add PNG to my library
           </Button>
         </div>
       </div>
@@ -1510,6 +2045,121 @@ export function FloorplanAnnexEditor({
           {uploadError}
         </p>
       )}
+
+      <div className="rounded-2xl border border-border bg-slate-50/70 px-4">
+        <Accordion type="single" collapsible defaultValue="png-libraries" className="w-full">
+          <AccordionItem value="png-libraries" className="border-b-0">
+            <AccordionTrigger className="py-3 hover:no-underline">
+              <div className="flex flex-1 flex-wrap items-center justify-between gap-3 pr-4 text-left">
+                <div>
+                  <p className="font-medium text-foreground">PNG element libraries</p>
+                  <p className="text-sm text-muted-foreground">
+                    Shared PNGs are developer-managed for all users. Personal PNGs are stored in this browser only.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{SHARED_FLOORPLAN_PNG_LIBRARY.length} shared</Badge>
+                  <Badge variant="outline">{pngLibrary.length} personal</Badge>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pb-4">
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-foreground">Shared library</p>
+                    <p className="text-xs text-muted-foreground">Developer-managed only</p>
+                  </div>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Developers add shared PNGs in [src/app/constants/floorplanPngLibrary.ts](/C:/Users/lawyu/SCDF-x-DELL-FireSight-AI/src/app/constants/floorplanPngLibrary.ts) and store the PNG files under `src/assets/floorplan-library/`.
+                  </p>
+                  {SHARED_FLOORPLAN_PNG_LIBRARY.length > 0 ? (
+                    <div className="flex flex-wrap gap-3">
+                      {SHARED_FLOORPLAN_PNG_LIBRARY.map((item) => (
+                        <div
+                          key={item.id}
+                          className="group flex w-[160px] flex-col rounded-xl border border-border bg-white p-3 shadow-sm"
+                        >
+                          <button
+                            type="button"
+                            className="flex h-24 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+                            onClick={() => placeLibraryImage(item)}
+                            title={`Place ${item.name}`}
+                          >
+                            <img src={item.dataUrl} alt={item.name} className="max-h-full max-w-full object-contain" />
+                          </button>
+                          <button
+                            type="button"
+                            className="mt-2 min-w-0 text-left text-sm font-medium text-foreground hover:text-primary"
+                            onClick={() => placeLibraryImage(item)}
+                            title={item.name}
+                          >
+                            <span className="block truncate">{item.name}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No shared PNG elements yet. Add them to the repo so every user gets the same library.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-foreground">My library</p>
+                    <p className="text-xs text-muted-foreground">User-managed in this browser</p>
+                  </div>
+                  {pngLibrary.length > 0 ? (
+                    <div className="flex flex-wrap gap-3">
+                      {pngLibrary.map((item) => (
+                        <div
+                          key={item.id}
+                          className="group flex w-[160px] flex-col rounded-xl border border-border bg-white p-3 shadow-sm"
+                        >
+                          <button
+                            type="button"
+                            className="flex h-24 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+                            onClick={() => placeLibraryImage(item)}
+                            title={`Place ${item.name}`}
+                          >
+                            <img src={item.dataUrl} alt={item.name} className="max-h-full max-w-full object-contain" />
+                          </button>
+                          <div className="mt-2 flex items-start justify-between gap-2">
+                            <button
+                              type="button"
+                              className="min-w-0 text-left text-sm font-medium text-foreground hover:text-primary"
+                              onClick={() => placeLibraryImage(item)}
+                              title={item.name}
+                            >
+                              <span className="block truncate">{item.name}</span>
+                            </button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0"
+                              onClick={() => removeLibraryImage(item.id)}
+                              title={`Remove ${item.name}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No personal PNG elements yet. Use <span className="font-medium">Add PNG to my library</span> to save some here.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
 
       <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -1655,7 +2305,10 @@ export function FloorplanAnnexEditor({
               )}
             >
             {showGrid && (
-              <div className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(rgba(148,163,184,0.16)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.16)_1px,transparent_1px)] bg-[size:32px_32px]" />
+              <div
+                className="pointer-events-none absolute inset-0 z-0"
+                style={gridStyle}
+              />
             )}
             {canvasSvg && (
               <div
