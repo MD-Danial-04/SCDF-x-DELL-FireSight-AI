@@ -135,6 +135,14 @@ export function getMarkerLength(marker: Pick<AnnexEMarker, "cx" | "cy" | "tipX" 
   return Math.hypot(marker.tipX - marker.cx, marker.tipY - marker.cy);
 }
 
+export function getMarkerVisibleLength(
+  marker: Pick<AnnexEMarker, "cx" | "cy" | "tipX" | "tipY">,
+  viewBox: AnnexEViewBox,
+): number {
+  const { radius } = computeMarkerScale(viewBox);
+  return Math.max(0, getMarkerLength(marker) - radius);
+}
+
 /** 0 = right, increases clockwise on screen (SVG y-down). */
 export function getMarkerAngleDeg(marker: Pick<AnnexEMarker, "cx" | "cy" | "tipX" | "tipY">): number {
   const angleRad = Math.atan2(marker.tipY - marker.cy, marker.tipX - marker.cx);
@@ -154,12 +162,22 @@ export function setMarkerTipFromAngleLength(
   };
 }
 
+export function setMarkerTipFromAngleVisibleLength(
+  marker: Pick<AnnexEMarker, "cx" | "cy">,
+  angleDeg: number,
+  visibleLength: number,
+  viewBox: AnnexEViewBox,
+): { tipX: number; tipY: number } {
+  const { radius } = computeMarkerScale(viewBox);
+  return setMarkerTipFromAngleLength(marker, angleDeg, radius + Math.max(0, visibleLength));
+}
+
 export function getMarkerLengthBounds(viewBox: AnnexEViewBox): { min: number; max: number } {
   const scale = computeMarkerScale(viewBox);
   const minDim = Math.min(viewBox.width, viewBox.height);
   return {
-    min: scale.radius + scale.arrowHeadLength * 1.2,
-    max: minDim * 0.4,
+    min: 0.1,
+    max: Math.max(0.5, minDim * 0.4 - scale.radius),
   };
 }
 
@@ -170,10 +188,10 @@ export function clampMarkerTip(
   viewBox: AnnexEViewBox,
 ): { tipX: number; tipY: number } {
   const bounds = getMarkerLengthBounds(viewBox);
-  const length = getMarkerLength({ cx: marker.cx, cy: marker.cy, tipX, tipY });
-  const clampedLength = Math.min(bounds.max, Math.max(bounds.min, length));
+  const visibleLength = getMarkerVisibleLength({ cx: marker.cx, cy: marker.cy, tipX, tipY }, viewBox);
+  const clampedVisibleLength = Math.min(bounds.max, Math.max(bounds.min, visibleLength));
   const angleDeg = getMarkerAngleDeg({ cx: marker.cx, cy: marker.cy, tipX, tipY });
-  return setMarkerTipFromAngleLength(marker, angleDeg, clampedLength);
+  return setMarkerTipFromAngleVisibleLength(marker, angleDeg, clampedVisibleLength, viewBox);
 }
 
 export function createDefaultMarker(
@@ -186,7 +204,7 @@ export function createDefaultMarker(
     id: `marker-${Date.now()}-${Math.round(Math.random() * 1000)}`,
     cx,
     cy,
-    tipX: cx + defaultArrowLength,
+    tipX: setMarkerTipFromAngleVisibleLength({ cx, cy }, 0, defaultArrowLength, viewBox).tipX,
     tipY: cy,
     photoId: null,
   };

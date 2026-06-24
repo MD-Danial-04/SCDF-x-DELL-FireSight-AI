@@ -7,13 +7,18 @@ import chairWithArmrestUrl from "../../assets/floorplan-library/chair_with_armre
 import deskWithMonitorUrl from "../../assets/floorplan-library/desk_with_monitor.png?url";
 import doubleDoorLeftUrl from "../../assets/floorplan-library/double_door_left.png?url";
 import doubleDoorRightUrl from "../../assets/floorplan-library/double_door_right.png?url";
+import generalTemplateUrl from "../../assets/floorplan-library/General_Template.png?url";
 import liftUrl from "../../assets/floorplan-library/lift.png?url";
 import lorryUrl from "../../assets/floorplan-library/lorry.png?url";
+import mailboxUrl from "../../assets/floorplan-library/mailbox.png?url";
 import motorcycleUrl from "../../assets/floorplan-library/motorcycle.png?url";
 import motorcycleWithCarriageBoxUrl from "../../assets/floorplan-library/motorcycle_with_carriage_box.png?url";
 import motorcycleHondaCupUrl from "../../assets/floorplan-library/motorcylce(Honda_Cup).png?url";
+import noticeBoardUrl from "../../assets/floorplan-library/notice_board.png?url";
 import oddShapeStairUrl from "../../assets/floorplan-library/odd_shape_stair.png?url";
 import queenSizeBedUrl from "../../assets/floorplan-library/queen_size_bed.png?url";
+import rectangleDiningTableUrl from "../../assets/floorplan-library/rectangle_dining_table.png?url";
+import roundDiningTableUrl from "../../assets/floorplan-library/round_dining_table.png?url";
 import scooterUrl from "../../assets/floorplan-library/scooter.png?url";
 import scooterWithCarriageBoxUrl from "../../assets/floorplan-library/scooter_with_carriage_box.png?url";
 import singleBedUrl from "../../assets/floorplan-library/single_bed.png?url";
@@ -25,6 +30,7 @@ import sofa3Url from "../../assets/floorplan-library/sofa_3.png?url";
 import skidLoaderTopViewUrl from "../../assets/floorplan-library/skid_laoder_top_view.png?url";
 import skidLoaderSideViewUrl from "../../assets/floorplan-library/skid_loader_side_view.png?url";
 import slidingWindowUrl from "../../assets/floorplan-library/sliding_window.png?url";
+import slopeUrl from "../../assets/floorplan-library/slope.png?url";
 import spiralStairUrl from "../../assets/floorplan-library/spiral_stair.png?url";
 import stairsDownUrl from "../../assets/floorplan-library/stairs_down.png?url";
 import stairsUpUrl from "../../assets/floorplan-library/stairs_up.png?url";
@@ -59,8 +65,10 @@ export const SHARED_FLOORPLAN_PNG_LIBRARY: SharedFloorplanPngLibraryItem[] = [
   { id: "desk-with-monitor", name: "Desk with monitor", dataUrl: deskWithMonitorUrl, width: 720, height: 1040 },
   { id: "double-door-left", name: "Double door left", dataUrl: doubleDoorLeftUrl, width: 720, height: 1040 },
   { id: "double-door-right", name: "Double door right", dataUrl: doubleDoorRightUrl, width: 720, height: 1040 },
+  { id: "general-template", name: "General template", dataUrl: generalTemplateUrl, width: 720, height: 1040 },
   { id: "lift", name: "Lift", dataUrl: liftUrl, width: 720, height: 1040 },
   { id: "lorry", name: "Lorry", dataUrl: lorryUrl, width: 720, height: 1040 },
+  { id: "mailbox", name: "Mailbox", dataUrl: mailboxUrl, width: 720, height: 1040 },
   { id: "motorcycle", name: "Motorcycle", dataUrl: motorcycleUrl, width: 720, height: 1040 },
   {
     id: "motorcycle-with-carriage-box",
@@ -76,8 +84,11 @@ export const SHARED_FLOORPLAN_PNG_LIBRARY: SharedFloorplanPngLibraryItem[] = [
     width: 720,
     height: 1040,
   },
+  { id: "notice-board", name: "Notice board", dataUrl: noticeBoardUrl, width: 720, height: 1040 },
   { id: "odd-shape-stair", name: "Odd shape stair", dataUrl: oddShapeStairUrl, width: 720, height: 1040 },
   { id: "queen-size-bed", name: "Queen size bed", dataUrl: queenSizeBedUrl, width: 720, height: 1040 },
+  { id: "rectangle-dining-table", name: "Rectangle dining table", dataUrl: rectangleDiningTableUrl, width: 720, height: 1040 },
+  { id: "round-dining-table", name: "Round dining table", dataUrl: roundDiningTableUrl, width: 720, height: 1040 },
   { id: "scooter", name: "Scooter", dataUrl: scooterUrl, width: 720, height: 1040 },
   {
     id: "scooter-with-carriage-box",
@@ -95,6 +106,7 @@ export const SHARED_FLOORPLAN_PNG_LIBRARY: SharedFloorplanPngLibraryItem[] = [
   { id: "skid-loader-top-view", name: "Skid loader top view", dataUrl: skidLoaderTopViewUrl, width: 720, height: 1040 },
   { id: "skid-loader-side-view", name: "Skid loader side view", dataUrl: skidLoaderSideViewUrl, width: 720, height: 1040 },
   { id: "sliding-window", name: "Sliding window", dataUrl: slidingWindowUrl, width: 720, height: 1040 },
+  { id: "slope", name: "Slope", dataUrl: slopeUrl, width: 720, height: 1040 },
   { id: "spiral-stair", name: "Spiral stair", dataUrl: spiralStairUrl, width: 720, height: 1040 },
   { id: "stairs-down", name: "Stairs down", dataUrl: stairsDownUrl, width: 720, height: 1040 },
   { id: "stairs-up", name: "Stairs up", dataUrl: stairsUpUrl, width: 720, height: 1040 },
