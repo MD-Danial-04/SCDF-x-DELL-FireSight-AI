@@ -49,6 +49,7 @@ export interface FloorplanAmendment {
   cornerRadiusY?: number;
   x2?: number;
   y2?: number;
+  lineStyle?: FloorplanLineStyle;
 }
 
 export interface ParsedFloorplan {
@@ -98,6 +99,15 @@ export interface FloorplanPoint {
   y: number;
 }
 
+export type FloorplanLineStyle = "solid" | "dashed" | "dotted" | "dashDot";
+
+export const FLOORPLAN_LINE_STYLE_OPTIONS: { value: FloorplanLineStyle; label: string }[] = [
+  { value: "solid", label: "Solid" },
+  { value: "dashed", label: "Dashed" },
+  { value: "dotted", label: "Dotted" },
+  { value: "dashDot", label: "Dash-dot" },
+];
+
 export type ObjectBoxShape =
   | "rect"
   | "circle"
@@ -139,8 +149,22 @@ export interface FloorplanGeneratedElement {
   y2?: number;
   points?: FloorplanPoint[];
   rotation?: number;
+  lineStyle?: FloorplanLineStyle;
   objectLabel?: string;
   objectBoxShape?: ObjectBoxShape;
+}
+
+export function getStrokeDasharrayForLineStyle(lineStyle?: FloorplanLineStyle) {
+  switch (lineStyle) {
+    case "dashed":
+      return "16 10";
+    case "dotted":
+      return "3 9";
+    case "dashDot":
+      return "18 8 3 8";
+    default:
+      return null;
+  }
 }
 
 export interface ObjectBoxDefaults {
@@ -702,6 +726,11 @@ function applyAmendmentToNode(node: Element, amendment?: FloorplanAmendment) {
   if (amendment.strokeWidth !== undefined) {
     node.setAttribute("stroke-width", String(amendment.strokeWidth));
   }
+  if (amendment.lineStyle !== undefined) {
+    const strokeDasharray = getStrokeDasharrayForLineStyle(amendment.lineStyle);
+    if (strokeDasharray) node.setAttribute("stroke-dasharray", strokeDasharray);
+    else node.removeAttribute("stroke-dasharray");
+  }
 
   if (node.tagName === "rect") {
     if (amendment.width !== undefined) node.setAttribute("width", String(amendment.width));
@@ -775,6 +804,7 @@ function withAmendment(
     radiusY: amendment.radiusY ?? element.radiusY,
     x2: amendment.x2 ?? element.x2,
     y2: amendment.y2 ?? element.y2,
+    lineStyle: amendment.lineStyle ?? element.lineStyle,
     fontSize:
       amendment.fontSize !== undefined
         ? Number.parseFloat(amendment.fontSize) || element.fontSize
@@ -943,6 +973,8 @@ function createGeneratedNode(doc: XMLDocument, element: FloorplanGeneratedElemen
       node.setAttribute("y2", String(element.y2 ?? element.y));
       node.setAttribute("stroke", element.stroke ?? "#0f172a");
       node.setAttribute("stroke-width", String(element.strokeWidth ?? 4));
+      const strokeDasharray = getStrokeDasharrayForLineStyle(element.lineStyle);
+      if (strokeDasharray) node.setAttribute("stroke-dasharray", strokeDasharray);
       return node;
     }
     case "polyline":

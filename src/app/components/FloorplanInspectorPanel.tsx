@@ -6,6 +6,7 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import {
   convertObjectBoxShape,
+  FLOORPLAN_LINE_STYLE_OPTIONS,
   OBJECT_BOX_SHAPE_OPTIONS,
   type FloorplanAmendment,
   type FloorplanGeneratedElement,
@@ -377,6 +378,68 @@ export function FloorplanInspectorPanel({
                     current.map((element) =>
                       element.id === generatedElement.id ? { ...element, height } : element,
                     ),
+                  );
+                }}
+              />
+            </div>
+          </>
+        )}
+
+        {generatedElement?.type === "line" && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="line-style">Line style</Label>
+              <Select
+                value={selectedAmendment.lineStyle ?? generatedElement.lineStyle ?? "solid"}
+                onValueChange={(value) => {
+                  updateSelectedAmendment({ lineStyle: value as FloorplanGeneratedElement["lineStyle"] });
+                  setGeneratedElements((current) =>
+                    current.map((element) =>
+                      element.id === generatedElement.id ? { ...element, lineStyle: value as typeof element.lineStyle } : element,
+                    ),
+                  );
+                }}
+              >
+                <SelectTrigger id="line-style" className="bg-white">
+                  <SelectValue placeholder="Line style" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FLOORPLAN_LINE_STYLE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="line-end-x">End X</Label>
+              <Input
+                id="line-end-x"
+                type="number"
+                step="any"
+                value={String(selectedAmendment.x2 ?? generatedElement.x2 ?? generatedElement.x)}
+                onChange={(event) => {
+                  const x2 = Number.parseFloat(event.target.value) || 0;
+                  updateSelectedAmendment({ x2 });
+                  setGeneratedElements((current) =>
+                    current.map((element) => (element.id === generatedElement.id ? { ...element, x2 } : element)),
+                  );
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="line-end-y">End Y</Label>
+              <Input
+                id="line-end-y"
+                type="number"
+                step="any"
+                value={String(selectedAmendment.y2 ?? generatedElement.y2 ?? generatedElement.y)}
+                onChange={(event) => {
+                  const y2 = Number.parseFloat(event.target.value) || 0;
+                  updateSelectedAmendment({ y2 });
+                  setGeneratedElements((current) =>
+                    current.map((element) => (element.id === generatedElement.id ? { ...element, y2 } : element)),
                   );
                 }}
               />

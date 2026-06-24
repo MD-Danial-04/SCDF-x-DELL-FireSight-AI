@@ -75,7 +75,7 @@ export const REPORT_FORM_SECTIONS: ReportFormSectionConfig[] = [
     title: "5 INVESTIGATION & FINDINGS",
     subsections: [
       {
-        title: "a Probable Cause of Fire",
+        title: "A Probable Cause of Fire",
         fields: [
           { key: "probableCause", label: "Probable Cause of Fire", extractable: true, multiline: true },
           { key: "ignitionSource", label: "The Ignition Source", extractable: true },
@@ -84,21 +84,21 @@ export const REPORT_FORM_SECTIONS: ReportFormSectionConfig[] = [
         ],
       },
       {
-        title: "b Area/Point of Fire Origin",
+        title: "B Area/Point of Fire Origin",
         fields: [
           { key: "areaOfFireOrigin", label: "Area of Fire Origin", extractable: true, multiline: true },
           { key: "areaOfOriginPhotoRef", label: "Photo/s No." },
         ],
       },
       {
-        title: "c Burn Pattern/s",
+        title: "C Burn Pattern/s",
         fields: [
           { key: "burnPatterns", label: "Type of Burn Pattern/s Observed", multiline: true },
           { key: "burnPatternsPhotoRef", label: "Photo/s No." },
         ],
       },
       {
-        title: "d Evidentiary Factors",
+        title: "D Evidentiary Factors",
         fields: [
           { key: "evidentiaryFactors", label: "Type of evidence found at the scene", multiline: true },
           { key: "evidentiaryPhotoRef", label: "Photo/s No." },

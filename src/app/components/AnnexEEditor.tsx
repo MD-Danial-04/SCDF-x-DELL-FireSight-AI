@@ -29,10 +29,11 @@ import {
   createDefaultMarker,
   findMarkerHitAtPoint,
   getMarkerAngleDeg,
-  getMarkerLength,
   getMarkerLengthBounds,
+  getMarkerVisibleLength,
   parseViewBoxFromSvg,
   setMarkerTipFromAngleLength,
+  setMarkerTipFromAngleVisibleLength,
   type AnnexEMarker,
   type AnnexEViewBox,
   type MarkerHitPart,
@@ -330,7 +331,10 @@ export function AnnexEEditor({
   const lengthBounds = viewBox ? getMarkerLengthBounds(viewBox) : { min: 0, max: 100 };
 
   const selectedAngle = selectedMarker ? Math.round(getMarkerAngleDeg(selectedMarker)) : 0;
-  const selectedLength = selectedMarker ? getMarkerLength(selectedMarker) : lengthBounds.min;
+  const selectedLength =
+    selectedMarker && viewBox
+      ? getMarkerVisibleLength(selectedMarker, viewBox)
+      : lengthBounds.min;
 
   const renderMarkers = useMemo(
     () =>
@@ -409,7 +413,12 @@ export function AnnexEEditor({
       if (!marker || !viewBox) return;
       const bounds = getMarkerLengthBounds(viewBox);
       const clampedLength = Math.min(bounds.max, Math.max(bounds.min, length));
-      const tip = setMarkerTipFromAngleLength(marker, angleDeg, clampedLength);
+      const tip = setMarkerTipFromAngleVisibleLength(
+        marker,
+        angleDeg,
+        clampedLength,
+        viewBox,
+      );
       updateMarker(markerId, tip);
     },
     [markers, updateMarker, viewBox],
@@ -422,6 +431,24 @@ export function AnnexEEditor({
     observer.observe(canvas);
     return () => observer.disconnect();
   }, [floorplanSvg, viewBox]);
+
+  useEffect(() => {
+    if (!viewBox) return;
+
+    setMarkers((current) => {
+      let changed = false;
+      const next = current.map((marker) => {
+        const clampedTip = clampMarkerTip(marker, marker.tipX, marker.tipY, viewBox);
+        if (clampedTip.tipX !== marker.tipX || clampedTip.tipY !== marker.tipY) {
+          changed = true;
+          return { ...marker, ...clampedTip };
+        }
+        return marker;
+      });
+
+      return changed ? next : current;
+    });
+  }, [viewBox]);
 
   useEffect(() => {
     if (!enabled || !floorplanSvg || !viewBox) {
@@ -653,10 +680,13 @@ export function AnnexEEditor({
   }
 
   function handleTipHandleDrag(clientX: number, clientY: number) {
-    if (!selectedMarker) return;
+    if (!selectedMarker || !viewBox) return;
     const point = clientPointToSvg(clientX, clientY);
     if (!point) return;
-    updateMarker(selectedMarker.id, { tipX: point.x, tipY: point.y });
+    updateMarker(
+      selectedMarker.id,
+      clampMarkerTip(selectedMarker, point.x, point.y, viewBox),
+    );
   }
 
   function endHandleDrag() {
@@ -878,13 +908,13 @@ export function AnnexEEditor({
                   <div className="flex items-center justify-between gap-2">
                     <Label className="text-xs text-muted-foreground">Arrow length</Label>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {Math.round(selectedLength)} units
+                      {selectedLength.toFixed(1)} units
                     </span>
                   </div>
                   <Slider
                     min={lengthBounds.min}
                     max={lengthBounds.max}
-                    step={1}
+                    step={0.1}
                     value={[selectedLength]}
                     disabled={!selectedMarker}
                     onValueChange={([length]) => {

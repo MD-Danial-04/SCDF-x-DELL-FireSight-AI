@@ -9,6 +9,7 @@ import {
   MousePointer2,
   RotateCw,
   Search,
+  Slash,
   Type,
   Ungroup,
   Upload,
@@ -41,7 +42,9 @@ import {
   createBlankFloorplan,
   createDefaultObjectBox,
   extractImportedObjectBoxElements,
+  FLOORPLAN_LINE_STYLE_OPTIONS,
   getFloorplanElementMetrics,
+  getStrokeDasharrayForLineStyle,
   inferObjectBoxDefaults,
   isFloorplanBackgroundElement,
   applyObjectBoxLayout,
@@ -53,6 +56,7 @@ import {
   type FloorplanAmendment,
   type FloorplanElementMetrics,
   type FloorplanGeneratedElement,
+  type FloorplanLineStyle,
   type FloorplanLayer,
   type FloorplanPoint,
   type FloorplanShapeType,
@@ -67,7 +71,12 @@ import { SHARED_FLOORPLAN_PNG_LIBRARY } from "../constants/floorplanPngLibrary";
 
 const BLANK_FLOORPLAN = createBlankFloorplan();
 
-type EditorMode = "select" | "placeObjectBox" | "placeText";
+type EditorMode = "select" | "placeObjectBox" | "placeText" | "placeLine";
+
+interface LineDraft {
+  start: FloorplanPoint;
+  end: FloorplanPoint;
+}
 
 type DragState =
   | {
@@ -105,6 +114,11 @@ type DragState =
       center: { x: number; y: number };
       startRotation: number;
       targetId: string;
+    }
+  | {
+      mode: "draw-line";
+      pointerId: number;
+      startPoint: FloorplanPoint;
     };
 
 interface FloorplanAnnexEditorProps {
@@ -204,6 +218,18 @@ function getNodeHit(target: EventTarget | null, viewBox?: FloorplanViewBox | nul
 }
 
 function getScreenBounds(node: SVGGraphicsElement) {
+  if (node.tagName.toLowerCase() === "line") {
+    const rect = node.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      centerClientX: rect.left + rect.width / 2,
+      centerClientY: rect.top + rect.height / 2,
+    };
+  }
+
   const box = node.getBBox();
   const matrix = node.getScreenCTM();
   if (!matrix) {
@@ -350,6 +376,26 @@ function createDefaultElement(
   }
 }
 
+function createLineElement(
+  start: FloorplanPoint,
+  end: FloorplanPoint,
+  strokeWidth: number,
+  lineStyle: FloorplanLineStyle,
+): FloorplanGeneratedElement {
+  return {
+    id: `generated-line-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+    type: "line",
+    label: "New line",
+    stroke: "#0f172a",
+    strokeWidth,
+    x: start.x,
+    y: start.y,
+    x2: end.x,
+    y2: end.y,
+    lineStyle,
+  };
+}
+
 function getBoundsForGenerated(element: FloorplanGeneratedElement) {
   switch (element.type) {
     case "text": {
@@ -428,8 +474,11 @@ export function FloorplanAnnexEditor({
   const [textEditState, setTextEditState] = useState<TextEditState | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>("select");
   const [objectBoxShape, setObjectBoxShape] = useState<ObjectBoxShape>("rect");
+  const [lineStyle, setLineStyle] = useState<FloorplanLineStyle>("solid");
+  const [lineDraft, setLineDraft] = useState<LineDraft | null>(null);
   const [pngLibrary, setPngLibrary] = useState<PngLibraryItem[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const inspectorRef = useRef<HTMLDivElement>(null);
   const textEditRef = useRef<HTMLTextAreaElement>(null);
   const textEditCommittingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -481,9 +530,19 @@ export function FloorplanAnnexEditor({
       amendments: canvasAmendments,
       camera,
       selectedId,
-      generatedElements,
+      generatedElements: lineDraft
+        ? [
+            ...generatedElements,
+            createLineElement(
+              lineDraft.start,
+              lineDraft.end,
+              Math.max(2, inferObjectBoxDefaults(baseViewBox ?? camera, svgText).strokeWidth),
+              lineStyle,
+            ),
+          ]
+        : generatedElements,
     });
-  }, [amendments, camera, generatedElements, selectedId, svgText, textEditState?.id, textEditState?.value]);
+  }, [amendments, baseViewBox, camera, generatedElements, lineDraft, lineStyle, selectedId, svgText, textEditState?.id, textEditState?.value]);
 
   const exportSvg = useMemo(() => {
     if (!svgText || !baseViewBox) return null;
@@ -617,6 +676,12 @@ export function FloorplanAnnexEditor({
     textEditRef.current.style.height = "auto";
     textEditRef.current.style.height = `${textEditRef.current.scrollHeight}px`;
   }, [textEditState?.value]);
+
+  useEffect(() => {
+    if (editorMode !== "placeLine" && lineDraft) {
+      setLineDraft(null);
+    }
+  }, [editorMode, lineDraft]);
 
   function captureHistory() {
     setHistory((current) => [
@@ -752,17 +817,28 @@ export function FloorplanAnnexEditor({
       deleteSelectedNodes();
     }
 
+    function handleEscapeShortcut(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (lineDraft) {
+        event.preventDefault();
+        setLineDraft(null);
+        setEditorMode("select");
+      }
+    }
+
     window.addEventListener("keydown", handleUndoShortcut);
     window.addEventListener("keydown", handleArrowNudge);
     window.addEventListener("keydown", handleGroupShortcut);
     window.addEventListener("keydown", handleDeleteShortcut);
+    window.addEventListener("keydown", handleEscapeShortcut);
     return () => {
       window.removeEventListener("keydown", handleUndoShortcut);
       window.removeEventListener("keydown", handleArrowNudge);
       window.removeEventListener("keydown", handleGroupShortcut);
       window.removeEventListener("keydown", handleDeleteShortcut);
+      window.removeEventListener("keydown", handleEscapeShortcut);
     };
-  }, [history.length, selectedId, amendments, generatedElements, groups, selectedGroupId, selectedIds, showGrid]);
+  }, [history.length, selectedId, amendments, generatedElements, groups, lineDraft, selectedGroupId, selectedIds, showGrid]);
 
   useEffect(() => {
     onFloorplanSvgChange?.(exportSvg);
@@ -1423,6 +1499,32 @@ export function FloorplanAnnexEditor({
 
     const hit = getNodeHit(event.target, baseViewBox);
 
+    if (editorMode === "placeLine") {
+      const point = getSvgPoint(event.clientX, event.clientY);
+      if (!point || !baseViewBox) return;
+
+      if (!lineDraft) {
+        setLineDraft({ start: point, end: point });
+        setSingleSelection(null);
+        setSelectedGroupId(null);
+        setInspectorOpen(false);
+        return;
+      }
+
+      const distance = Math.hypot(point.x - lineDraft.start.x, point.y - lineDraft.start.y);
+      if (distance < 1) return;
+
+      captureHistory();
+      const strokeWidth = Math.max(2, inferObjectBoxDefaults(baseViewBox, svgText).strokeWidth);
+      const element = createLineElement(lineDraft.start, point, strokeWidth, lineStyle);
+      setGeneratedElements((current) => [...current, element]);
+      setLineDraft(null);
+      setSingleSelection(element.id);
+      setSelectedGroupId(null);
+      setInspectorOpen(true);
+      return;
+    }
+
     if (editorMode === "placeObjectBox") {
       if (!hit || (baseViewBox && isFloorplanBackgroundElement(hit, baseViewBox))) {
         const point = getSvgPoint(event.clientX, event.clientY);
@@ -1531,6 +1633,13 @@ export function FloorplanAnnexEditor({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (editorMode === "placeLine" && lineDraft && !dragState) {
+      const point = getSvgPoint(event.clientX, event.clientY);
+      if (!point) return;
+      setLineDraft((current) => (current ? { ...current, end: point } : current));
+      return;
+    }
+
     if (!dragState || dragState.pointerId !== event.pointerId) return;
 
     if (dragState.mode === "pan") {
@@ -1739,6 +1848,26 @@ export function FloorplanAnnexEditor({
     });
   }
 
+  function canInspectorConsumeWheel(element: HTMLDivElement, deltaX: number, deltaY: number) {
+    const dominantAxis = Math.abs(deltaY) >= Math.abs(deltaX) ? "y" : "x";
+
+    if (dominantAxis === "y") {
+      if (element.scrollHeight <= element.clientHeight + 1) return false;
+      if (deltaY < 0) return element.scrollTop > 1;
+      if (deltaY > 0) {
+        return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+      }
+      return false;
+    }
+
+    if (element.scrollWidth <= element.clientWidth + 1) return false;
+    if (deltaX < 0) return element.scrollLeft > 1;
+    if (deltaX > 0) {
+      return element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+    }
+    return false;
+  }
+
   function handleWheel(event: WheelEvent<HTMLDivElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -1750,6 +1879,9 @@ export function FloorplanAnnexEditor({
     if (!canvas) return;
 
     const handleNativeWheel = (event: globalThis.WheelEvent) => {
+      if (inspectorRef.current?.contains(event.target as Node)) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       applyCanvasWheel(event.deltaX, event.deltaY, event.clientX, event.clientY, event.ctrlKey);
@@ -1760,6 +1892,34 @@ export function FloorplanAnnexEditor({
       canvas.removeEventListener("wheel", handleNativeWheel);
     };
   }, [camera, baseViewBox]);
+
+  useEffect(() => {
+    const inspector = inspectorRef.current;
+    if (!inspector) return;
+
+    const handleInspectorWheel = (event: globalThis.WheelEvent) => {
+      if (event.ctrlKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        applyCanvasWheel(event.deltaX, event.deltaY, event.clientX, event.clientY, true);
+        return;
+      }
+
+      if (canInspectorConsumeWheel(inspector, event.deltaX, event.deltaY)) {
+        event.stopPropagation();
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      applyCanvasWheel(event.deltaX, event.deltaY, event.clientX, event.clientY, false);
+    };
+
+    inspector.addEventListener("wheel", handleInspectorWheel, { passive: false });
+    return () => {
+      inspector.removeEventListener("wheel", handleInspectorWheel);
+    };
+  }, [inspectorOpen, camera, baseViewBox]);
 
   function addElement(type: FloorplanShapeType) {
     if (!baseViewBox) return;
@@ -2047,7 +2207,7 @@ export function FloorplanAnnexEditor({
       )}
 
       <div className="rounded-2xl border border-border bg-slate-50/70 px-4">
-        <Accordion type="single" collapsible defaultValue="png-libraries" className="w-full">
+        <Accordion type="single" collapsible className="w-full">
           <AccordionItem value="png-libraries" className="border-b-0">
             <AccordionTrigger className="py-3 hover:no-underline">
               <div className="flex flex-1 flex-wrap items-center justify-between gap-3 pr-4 text-left">
@@ -2264,6 +2424,30 @@ export function FloorplanAnnexEditor({
                 <Box className="h-4 w-4" />
                 Object box
               </Button>
+              <Select value={lineStyle} onValueChange={(value) => setLineStyle(value as FloorplanLineStyle)}>
+                <SelectTrigger className="w-[150px] bg-white">
+                  <SelectValue placeholder="Line style" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FLOORPLAN_LINE_STYLE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant={editorMode === "placeLine" ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setLineDraft(null);
+                  setEditorMode((current) => (current === "placeLine" ? "select" : "placeLine"));
+                }}
+              >
+                <Slash className="h-4 w-4" />
+                Line
+              </Button>
               <Button
                 type="button"
                 variant={editorMode === "placeText" ? "default" : "outline"}
@@ -2284,6 +2468,13 @@ export function FloorplanAnnexEditor({
               </Button>
             </div>
           </div>
+          {editorMode === "placeLine" && (
+            <p className="text-sm text-muted-foreground">
+              {lineDraft
+                ? "Click again to set the end of the line. Press Esc to cancel."
+                : "Click once to set the start of the line, then click again to set the end."}
+            </p>
+          )}
 
           <div className="flex flex-col gap-4">
             <div
@@ -2296,12 +2487,12 @@ export function FloorplanAnnexEditor({
               onWheel={handleWheel}
               className={cn(
                 "relative flex-1 min-w-0 min-h-[280px] h-[min(480px,50vh)] max-h-[50vh] overflow-hidden rounded-2xl border border-border bg-white overscroll-contain touch-none",
-                editorMode === "placeObjectBox" || editorMode === "placeText"
+                editorMode === "placeObjectBox" || editorMode === "placeText" || editorMode === "placeLine"
                   ? "cursor-crosshair"
                   : dragState?.mode === "pan"
                     ? "cursor-grabbing"
                     : "cursor-grab",
-                (editorMode === "placeObjectBox" || editorMode === "placeText") && "ring-2 ring-sky-200",
+                (editorMode === "placeObjectBox" || editorMode === "placeText" || editorMode === "placeLine") && "ring-2 ring-sky-200",
               )}
             >
             {showGrid && (
@@ -2417,10 +2608,11 @@ export function FloorplanAnnexEditor({
 
             {inspectorOpen && selectedLayer && (
               <div
+                ref={inspectorRef}
                 className="absolute bottom-3 right-3 z-30 w-[min(18rem,calc(100%-1.5rem))] max-h-[min(20rem,40vh)] overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-white/96 p-3 shadow-lg backdrop-blur"
+                data-fs-wheel-scope="inspector"
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => event.stopPropagation()}
-                onWheel={(event) => event.stopPropagation()}
               >
                 <FloorplanInspectorPanel
                   selectedLayer={selectedLayer}

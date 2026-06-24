@@ -101,7 +101,7 @@ export function AnnexSelector({
   onFloorplanSvgChange,
 }: AnnexSelectorProps) {
   const [openEditorId, setOpenEditorId] = useState<string>("");
-  const [previewsOpen, setPreviewsOpen] = useState("generated-previews");
+  const [previewsOpen, setPreviewsOpen] = useState("");
 
   const toggle = (id: string, checked: boolean) => {
     const next = checked
