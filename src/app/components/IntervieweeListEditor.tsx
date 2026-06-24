@@ -1,34 +1,32 @@
 import { ClipboardCopy, FileText, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { InterviewRecordingCard } from "./InterviewRecordingCard";
 import { LeadingQuestionsPanel } from "./LeadingQuestionsPanel";
 import { SignaturePad } from "./SignaturePad";
-import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
-import { Checkbox } from "./ui/checkbox";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Textarea } from "./ui/textarea";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Textarea } from "./ui/textarea";
 import {
   LEADING_QUESTION_SETS,
   toEnglishQuestionInput,
   type LeadingQuestion,
-} from "../constants/leadingQuestions";
+} from "../constants/leadingQuestions/index";
 import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
-import { useQuestionTranslation } from "../hooks/useQuestionTranslation";
 import { isCoordinatorConfigured } from "../types/inference";
 import type {
   AnalyzeInterviewResponse,
   FollowUpSuggestion,
-  TranslatedInterviewQuestion,
 } from "../types/interviewAnalysis";
 import {
   createEmptyInterviewee,
@@ -158,7 +156,9 @@ function IntervieweeFieldGrid({
             <Textarea
               id={`${interviewee.id}-${field.key}`}
               value={interviewee[field.key]}
-              onChange={(e) => onFieldChange(interviewee.id, field.key, e.target.value)}
+              onChange={(e) =>
+                onFieldChange(interviewee.id, field.key, e.target.value)
+              }
               rows={3}
               className="mt-1 border-slate-400 bg-white font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
             />
@@ -166,7 +166,9 @@ function IntervieweeFieldGrid({
             <Input
               id={`${interviewee.id}-${field.key}`}
               value={interviewee[field.key]}
-              onChange={(e) => onFieldChange(interviewee.id, field.key, e.target.value)}
+              onChange={(e) =>
+                onFieldChange(interviewee.id, field.key, e.target.value)
+              }
               className="mt-1 border-slate-400 bg-white text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
             />
           )}
@@ -226,14 +228,19 @@ function FollowUpSuggestionsPanel({
   return (
     <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/50 p-4">
       <div>
-        <p className="text-sm font-semibold text-gray-800">Suggested follow-up questions</p>
+        <p className="text-sm font-semibold text-gray-800">
+          Suggested follow-up questions
+        </p>
         <p className="mt-1 text-xs text-gray-500">
           Ask in the interview language; English is shown for your report notes.
         </p>
       </div>
       <ol className="space-y-3">
         {followUps.map((followUp, index) => (
-          <li key={`${intervieweeId}-follow-up-${index}`} className="text-sm text-gray-800">
+          <li
+            key={`${intervieweeId}-follow-up-${index}`}
+            className="text-sm text-gray-800"
+          >
             <p className="font-medium">{followUp.prompt_conduct}</p>
             {showBilingual && followUp.prompt_conduct !== followUp.prompt ? (
               <p className="mt-0.5 text-xs text-gray-400">{followUp.prompt}</p>
@@ -295,42 +302,6 @@ function IntervieweeLeadingQuestionsSection({
   ) => void;
   onAddToNotes: (text: string) => void;
 }) {
-  const { translateQuestions, isTranslating } = useQuestionTranslation();
-  const [translatedQuestions, setTranslatedQuestions] = useState<
-    Map<string, TranslatedInterviewQuestion> | undefined
-  >();
-
-  useEffect(() => {
-    let cancelled = false;
-    const questions = activeLeadingQuestions.questions.map((q) => ({
-      id: q.id,
-      prompt: q.prompt,
-      hint: q.hint,
-      section: q.section,
-    }));
-
-    void translateQuestions(questions, interviewee.interviewLanguage)
-      .then((map) => {
-        if (!cancelled) {
-          setTranslatedQuestions(map);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          toast.error(err instanceof Error ? err.message : "Failed to translate questions");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeLeadingQuestions.id,
-    activeLeadingQuestions.questions,
-    interviewee.interviewLanguage,
-    translateQuestions,
-  ]);
-
   const coverageMap = analysisResult
     ? new Map(analysisResult.coverage.map((item) => [item.id, item]))
     : undefined;
@@ -345,7 +316,11 @@ function IntervieweeLeadingQuestionsSection({
           type="button"
           variant="secondary"
           size="sm"
-          disabled={!interviewee.facts.trim() || isAnalyzingThis || !isCoordinatorConfigured()}
+          disabled={
+            !interviewee.facts.trim() ||
+            isAnalyzingThis ||
+            !isCoordinatorConfigured()
+          }
           onClick={() =>
             void onAnalyzeCoverage(
               interviewee.id,
@@ -368,8 +343,6 @@ function IntervieweeLeadingQuestionsSection({
         title={activeLeadingQuestions.title}
         questions={activeLeadingQuestions.questions}
         interviewLanguage={interviewee.interviewLanguage}
-        translatedQuestions={translatedQuestions}
-        isTranslating={isTranslating}
         coverage={coverageMap}
       />
 
@@ -395,17 +368,23 @@ export function IntervieweeListEditor({
   isGeneratingAll = false,
 }: IntervieweeListEditorProps) {
   const { runAnalysis } = useInterviewAnalysis();
-  const [analysisResults, setAnalysisResults] = useState<Record<string, AnalyzeInterviewResponse>>(
-    {}
-  );
-  const [analyzingIntervieweeId, setAnalyzingIntervieweeId] = useState<string | null>(null);
+  const [analysisResults, setAnalysisResults] = useState<
+    Record<string, AnalyzeInterviewResponse>
+  >({});
+  const [analyzingIntervieweeId, setAnalyzingIntervieweeId] = useState<
+    string | null
+  >(null);
 
   const updateInterviewee = (
     intervieweeId: string,
     key: IntervieweeFieldKey,
     value: string | LeadingQuestionSet | InterviewLanguage
   ) => {
-    onChange(interviewees.map((item) => (item.id === intervieweeId ? { ...item, [key]: value } : item)));
+    onChange(
+      interviewees.map((item) =>
+        item.id === intervieweeId ? { ...item, [key]: value } : item
+      )
+    );
   };
 
   const addInterviewee = () => {
@@ -424,7 +403,9 @@ export function IntervieweeListEditor({
     interviewLanguage: InterviewLanguage
   ) => {
     if (!isCoordinatorConfigured()) {
-      toast.error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+      toast.error(
+        "Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)"
+      );
       return;
     }
 
@@ -461,7 +442,11 @@ export function IntervieweeListEditor({
     const interviewee = interviewees.find((item) => item.id === intervieweeId);
     if (!interviewee) return;
     const prefix = interviewee.facts.trim() ? "\n\n" : "";
-    updateInterviewee(intervieweeId, "facts", `${interviewee.facts.trim()}${prefix}${text}`);
+    updateInterviewee(
+      intervieweeId,
+      "facts",
+      `${interviewee.facts.trim()}${prefix}${text}`
+    );
     toast.success("Added to Facts revealed");
   };
 
@@ -473,7 +458,8 @@ export function IntervieweeListEditor({
               ...item,
               factsOriginal: original,
               facts: english,
-              languageSpoken: INTERVIEW_LANGUAGE_SPOKEN_LABELS[item.interviewLanguage],
+              languageSpoken:
+                INTERVIEW_LANGUAGE_SPOKEN_LABELS[item.interviewLanguage],
             }
           : item
       )
@@ -521,9 +507,18 @@ export function IntervieweeListEditor({
           );
           const isAnalyzingThis = analyzingIntervieweeId === interviewee.id;
           const analysisResult = analysisResults[interviewee.id];
-          const personalStatus = getIntervieweeSectionStatus(interviewee, PERSONAL_FIELDS);
-          const contactStatus = getIntervieweeSectionStatus(interviewee, CONTACT_FIELDS);
-          const recordingStatus = getIntervieweeSectionStatus(interviewee, RECORDING_FIELDS);
+          const personalStatus = getIntervieweeSectionStatus(
+            interviewee,
+            PERSONAL_FIELDS
+          );
+          const contactStatus = getIntervieweeSectionStatus(
+            interviewee,
+            CONTACT_FIELDS
+          );
+          const recordingStatus = getIntervieweeSectionStatus(
+            interviewee,
+            RECORDING_FIELDS
+          );
 
           return (
             <Accordion
@@ -642,7 +637,11 @@ export function IntervieweeListEditor({
                       applyTranscripts(interviewee.id, original, english)
                     }
                     onRecordingStart={(startTime) =>
-                      updateInterviewee(interviewee.id, "recordedStartTime", startTime)
+                      updateInterviewee(
+                        interviewee.id,
+                        "recordedStartTime",
+                        startTime
+                      )
                     }
                     onRecordingStop={(endTime) =>
                       updateInterviewee(interviewee.id, "recordedEndTime", endTime)
@@ -661,7 +660,11 @@ export function IntervieweeListEditor({
                           id={`${interviewee.id}-facts-original`}
                           value={interviewee.factsOriginal}
                           onChange={(e) => {
-                            updateInterviewee(interviewee.id, "factsOriginal", e.target.value);
+                            updateInterviewee(
+                              interviewee.id,
+                              "factsOriginal",
+                              e.target.value
+                            );
                           }}
                           rows={6}
                           placeholder="Transcript in the language the interview was conducted..."
@@ -678,7 +681,11 @@ export function IntervieweeListEditor({
                               delete next[interviewee.id];
                               return next;
                             });
-                            updateInterviewee(interviewee.id, "facts", e.target.value);
+                            updateInterviewee(
+                              interviewee.id,
+                              "facts",
+                              e.target.value
+                            );
                           }}
                           rows={6}
                           placeholder="English translation used for coverage analysis and statement export..."
@@ -694,7 +701,11 @@ export function IntervieweeListEditor({
                       className="mt-1"
                       value={interviewee.signatureDataUrl}
                       onChange={(dataUrl) =>
-                        updateInterviewee(interviewee.id, "signatureDataUrl", dataUrl)
+                        updateInterviewee(
+                          interviewee.id,
+                          "signatureDataUrl",
+                          dataUrl
+                        )
                       }
                     />
                   </div>

@@ -1,4 +1,4 @@
-import type { AnalyzeInterviewResponse, QuestionTranslationResult } from "./interviewAnalysis";
+import type { AnalyzeInterviewResponse } from "./interviewAnalysis";
 import type { PhotoAnalysisResult } from "./photoAnalysis";
 
 export type ExtractableField =
@@ -28,8 +28,7 @@ export type MessageType = "stop_message" | "field_notes";
 export type JobKind =
   | "audio_inference"
   | "interview_analysis"
-  | "photo_analysis"
-  | "question_translation";
+  | "photo_analysis";
 export type InterviewLanguage = "en" | "ms" | "ta" | "zh";
 
 export interface AnalyzePhotoContext {
@@ -56,7 +55,7 @@ export interface InferenceJob {
   transcript_original?: string | null;
   transcript_english?: string | null;
   result?: InferenceResult | null;
-  analysis_result?: AnalyzeInterviewResponse | QuestionTranslationResult | null;
+  analysis_result?: AnalyzeInterviewResponse | null;
   photo_path?: string | null;
   photo_context?: AnalyzePhotoContext | null;
   photo_analysis_result?: PhotoAnalysisResult | null;

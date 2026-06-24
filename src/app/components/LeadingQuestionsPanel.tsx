@@ -1,5 +1,5 @@
-import { Loader2 } from "lucide-react";
 import {
+  getLocalizedText,
   groupLeadingQuestionsBySection,
   type LeadingQuestion,
 } from "../constants/leadingQuestions";
@@ -7,7 +7,6 @@ import type { InterviewLanguage } from "../types/interviewee";
 import type {
   QuestionCoverage,
   QuestionCoverageStatus,
-  TranslatedInterviewQuestion,
 } from "../types/interviewAnalysis";
 import { cn } from "./ui/utils";
 
@@ -15,8 +14,6 @@ interface LeadingQuestionsPanelProps {
   title: string;
   questions: LeadingQuestion[];
   interviewLanguage: InterviewLanguage;
-  translatedQuestions?: Map<string, TranslatedInterviewQuestion>;
-  isTranslating?: boolean;
   coverage?: Map<string, QuestionCoverage>;
 }
 
@@ -38,12 +35,10 @@ export function LeadingQuestionsPanel({
   title,
   questions,
   interviewLanguage,
-  translatedQuestions,
-  isTranslating = false,
   coverage,
 }: LeadingQuestionsPanelProps) {
   const sections = groupLeadingQuestionsBySection(questions);
-  const showBilingual = interviewLanguage !== "en" && Boolean(translatedQuestions?.size);
+  const showBilingual = interviewLanguage !== "en";
   let questionNumber = 0;
 
   return (
@@ -53,38 +48,29 @@ export function LeadingQuestionsPanel({
         <p className="text-xs text-gray-500 mt-1">
           Use these prompts during the interview. Record responses in Facts revealed below.
           {coverage ? " Coverage status is shown after analysis." : ""}
-          {isTranslating ? " Translating checklist..." : ""}
         </p>
-        {isTranslating ? (
-          <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Preparing questions in the interview language
-          </div>
-        ) : null}
       </div>
 
       {sections.map(({ section, questions: sectionQuestions }) => {
-        const sectionConduct =
-          showBilingual &&
-          sectionQuestions
-            .map((q) => translatedQuestions?.get(q.id)?.section_conduct)
-            .find(Boolean);
+        const sectionConduct = getLocalizedText(section, interviewLanguage);
+        const sectionEnglish = section.en;
 
         return (
-          <div key={section}>
+          <div key={sectionEnglish}>
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-              {sectionConduct || section}
+              {sectionConduct}
             </p>
-            {showBilingual && sectionConduct && sectionConduct !== section ? (
-              <p className="text-[11px] text-gray-400 mb-2">{section}</p>
+            {showBilingual && sectionConduct !== sectionEnglish ? (
+              <p className="text-[11px] text-gray-400 mb-2">{sectionEnglish}</p>
             ) : null}
             <ol className="space-y-2">
               {sectionQuestions.map((question) => {
                 questionNumber += 1;
                 const itemCoverage = coverage?.get(question.id);
-                const translation = translatedQuestions?.get(question.id);
-                const conductPrompt = translation?.prompt_conduct ?? question.prompt;
-                const conductHint = translation?.hint_conduct ?? question.hint;
+                const conductPrompt = getLocalizedText(question.prompt, interviewLanguage);
+                const conductHint = question.hint
+                  ? getLocalizedText(question.hint, interviewLanguage)
+                  : undefined;
 
                 return (
                   <li
@@ -108,11 +94,11 @@ export function LeadingQuestionsPanel({
                           {showBilingual ? (
                             <>
                               <span className="block text-xs text-gray-400 mt-1">
-                                {question.prompt}
+                                {question.prompt.en}
                               </span>
                               {question.hint ? (
                                 <span className="block text-[11px] text-gray-400">
-                                  {question.hint}
+                                  {question.hint.en}
                                 </span>
                               ) : null}
                             </>
