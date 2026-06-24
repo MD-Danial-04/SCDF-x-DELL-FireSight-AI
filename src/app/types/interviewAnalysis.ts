@@ -21,18 +21,6 @@ export interface FollowUpSuggestion {
   reason: string;
 }
 
-export interface TranslatedInterviewQuestion {
-  id: string;
-  prompt_conduct: string;
-  hint_conduct?: string | null;
-  section_conduct?: string | null;
-}
-
-export interface QuestionTranslationResult {
-  questions: TranslatedInterviewQuestion[];
-  source: "fake" | "ollama" | "nim";
-}
-
 export interface AnalyzeInterviewResponse {
   coverage: QuestionCoverage[];
   follow_ups: FollowUpSuggestion[];
