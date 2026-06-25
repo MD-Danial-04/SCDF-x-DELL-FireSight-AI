@@ -594,6 +594,19 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     }
   };
 
+  const handlePreviewStatementBlob = useCallback(
+    async (intervieweeId: string): Promise<Blob> => {
+      const interviewee = reportFields.interviewees.find(
+        (i) => i.id === intervieweeId
+      );
+      if (!interviewee) {
+        throw new Error("Interviewee not found");
+      }
+      return generateStatementDocx(interviewee, reportFields);
+    },
+    [reportFields]
+  );
+
   const handleGenerateAllStatements = async () => {
     if (reportFields.interviewees.length === 0) return;
 
@@ -740,6 +753,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               onIntervieweesChange={updateInterviewees}
               onGenerateStatement={handleGenerateStatement}
               onGenerateAllStatements={handleGenerateAllStatements}
+              onPreviewStatement={handlePreviewStatementBlob}
               generatingStatementId={generatingStatementId}
               isGeneratingAllStatements={isGeneratingAllStatements}
             />
@@ -793,6 +807,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 onIntervieweesChange={updateInterviewees}
                 onGenerateStatement={handleGenerateStatement}
                 onGenerateAllStatements={handleGenerateAllStatements}
+                onPreviewStatement={handlePreviewStatementBlob}
                 generatingStatementId={generatingStatementId}
                 isGeneratingAllStatements={isGeneratingAllStatements}
               />

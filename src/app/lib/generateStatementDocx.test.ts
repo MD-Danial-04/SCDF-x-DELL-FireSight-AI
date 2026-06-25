@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { createEmptyReportFields } from "../types/fireReport";
 import { createEmptyInterviewee } from "../types/interviewee";
 import {
+  INTERVIEWEE_SIGNATURE_MARKER,
   getStatementFilename,
   mapIntervieweeToStatement,
 } from "./generateStatementDocx";
@@ -67,6 +68,32 @@ describe("getStatementFilename", () => {
     expect(getStatementFilename("/20260608/1495", "John Tan")).toBe(
       "/20260608/1495_Statement_John_Tan.docx"
     );
+  });
+});
+
+describe("Statement template field mapping", () => {
+  it("maps every placeholder present in statement-form.docx", () => {
+    const zip = new PizZip(fs.readFileSync(templatePath));
+    const documentXml = zip.file("word/document.xml")?.asText() ?? "";
+    const placeholders = new Set(
+      Array.from(documentXml.matchAll(/\{([^}]+)\}/g)).map((match) =>
+        match[1].trim()
+      )
+    );
+
+    expect(placeholders.size).toBeGreaterThan(0);
+
+    const mapped = mapIntervieweeToStatement(
+      createEmptyInterviewee(),
+      createEmptyReportFields()
+    );
+    const mappedKeys = new Set(Object.keys(mapped));
+
+    const unmapped = Array.from(placeholders).filter(
+      (key) => key !== INTERVIEWEE_SIGNATURE_MARKER && !mappedKeys.has(key)
+    );
+
+    expect(unmapped).toEqual([]);
   });
 });
 

@@ -56,6 +56,7 @@ interface ReportFormFieldsProps {
   onIntervieweesChange?: (interviewees: Interviewee[]) => void;
   onGenerateStatement?: (intervieweeId: string) => void;
   onGenerateAllStatements?: () => void;
+  onPreviewStatement?: (intervieweeId: string) => Promise<Blob>;
   generatingStatementId?: string | null;
   isGeneratingAllStatements?: boolean;
 }
@@ -337,6 +338,7 @@ export function ReportFormFields({
   onIntervieweesChange,
   onGenerateStatement,
   onGenerateAllStatements,
+  onPreviewStatement,
   generatingStatementId,
   isGeneratingAllStatements = false,
 }: ReportFormFieldsProps) {
@@ -520,6 +522,7 @@ export function ReportFormFields({
                   investigatorNameRank={fields.investigatorNameRank}
                   onGenerateStatement={onGenerateStatement}
                   onGenerateAllStatements={onGenerateAllStatements}
+                  onPreviewStatement={onPreviewStatement}
                   generatingStatementId={generatingStatementId}
                   isGeneratingAll={isGeneratingAllStatements}
                 />

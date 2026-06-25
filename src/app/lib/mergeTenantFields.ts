@@ -29,7 +29,8 @@ export interface MergeTenantFieldsResult {
 
 export function mergeTenantFields(
   fields: FireReportData,
-  extracted: InterviewDetailsResult | null | undefined
+  extracted: InterviewDetailsResult | null | undefined,
+  overwriteKeys?: Set<FireReportFieldKey>
 ): MergeTenantFieldsResult {
   const updates: TenantFieldUpdate[] = [];
   const extractedKeys = new Set<FireReportFieldKey>();
@@ -43,7 +44,13 @@ export function mergeTenantFields(
   ) as [InterviewExtractableField, FireReportFieldKey][]) {
     const currentValue = `${fields[tenantKey] ?? ""}`.trim();
     const incomingValue = `${extracted.fields[interviewField] ?? ""}`.trim();
-    if (currentValue || !incomingValue) {
+    if (!incomingValue) {
+      continue;
+    }
+    if (currentValue && !overwriteKeys?.has(tenantKey)) {
+      continue;
+    }
+    if (currentValue === incomingValue) {
       continue;
     }
     updates.push({ key: tenantKey, value: incomingValue });

@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
@@ -17,7 +19,10 @@ import {
 } from "../constants/reportFormSections";
 import { useExtractionJob } from "../hooks/useExtractionJob";
 import { extractInterviewFields } from "../lib/extractInterviewFields";
-import { mergeTenantFields } from "../lib/mergeTenantFields";
+import {
+  mergeTenantFields,
+  type MergeTenantFieldsResult,
+} from "../lib/mergeTenantFields";
 import type { FireReportData, FireReportFieldKey } from "../types/fireReport";
 import { EXTRACTABLE_KEYS } from "../types/fireReport";
 import { isCoordinatorConfigured } from "../types/inference";
@@ -85,17 +90,16 @@ export function TenantSectionEditor({
   extractedKeys,
   onChange,
 }: TenantSectionEditorProps) {
-  const { runExtraction } = useExtractionJob();
+  const { runExtraction, isExtracting } = useExtractionJob();
   const [localExtractedKeys, setLocalExtractedKeys] = useState<
     Set<FireReportFieldKey>
   >(new Set());
+  const [lastJobId, setLastJobId] = useState<string | null>(null);
 
   const combinedExtractedKeys = new Set<string>(extractedKeys);
   localExtractedKeys.forEach((key) => combinedExtractedKeys.add(key));
 
-  const applyFallback = (english: string): boolean => {
-    const fallback = extractInterviewFields(english);
-    const merged = mergeTenantFields(fields, fallback);
+  const applyMerge = (merged: MergeTenantFieldsResult): boolean => {
     if (merged.updates.length === 0) {
       return false;
     }
@@ -108,14 +112,30 @@ export function TenantSectionEditor({
     return true;
   };
 
-  const applyTranscript = async (
-    _original: string,
+  const applyFallback = (
     english: string,
-    jobId: string
+    overwriteKeys?: Set<FireReportFieldKey>
+  ): boolean => {
+    const fallback = extractInterviewFields(english);
+    return applyMerge(mergeTenantFields(fields, fallback, overwriteKeys));
+  };
+
+  const extractAndApply = async (
+    text: string,
+    jobId: string | null,
+    overwriteKeys?: Set<FireReportFieldKey>
   ) => {
-    if (!isCoordinatorConfigured()) {
-      if (applyFallback(english)) {
+    const english = text.trim();
+    if (!english) {
+      toast.error("Add a transcript first");
+      return;
+    }
+
+    if (!isCoordinatorConfigured() || !jobId) {
+      if (applyFallback(english, overwriteKeys)) {
         toast.warning("Using local fallback extraction for tenant details");
+      } else {
+        toast.info("No new tenant details found in transcript");
       }
       return;
     }
@@ -127,23 +147,20 @@ export function TenantSectionEditor({
         messageType: "interview",
       });
 
-      const merged = mergeTenantFields(fields, job.interview_details_result);
-      if (merged.updates.length === 0) {
-        if (applyFallback(english)) {
-          toast.warning("Using local fallback extraction for tenant details");
-        }
-        return;
+      const merged = mergeTenantFields(
+        fields,
+        job.interview_details_result,
+        overwriteKeys
+      );
+      if (applyMerge(merged)) {
+        toast.success(`Tenant details extracted (${merged.updates.length} fields)`);
+      } else if (applyFallback(english, overwriteKeys)) {
+        toast.warning("Using local fallback extraction for tenant details");
+      } else {
+        toast.info("No new tenant details found in transcript");
       }
-
-      merged.updates.forEach((update) => onChange(update.key, update.value));
-      setLocalExtractedKeys((prev) => {
-        const next = new Set(prev);
-        merged.extractedKeys.forEach((key) => next.add(key));
-        return next;
-      });
-      toast.success(`Tenant details extracted (${merged.updates.length} fields)`);
     } catch (err) {
-      if (applyFallback(english)) {
+      if (applyFallback(english, overwriteKeys)) {
         toast.warning("Using local fallback extraction for tenant details");
       } else {
         toast.error(
@@ -151,6 +168,24 @@ export function TenantSectionEditor({
         );
       }
     }
+  };
+
+  const applyTranscript = async (
+    _original: string,
+    english: string,
+    jobId: string
+  ) => {
+    onChange("tenantInterviewTranscript", english);
+    setLastJobId(jobId);
+    await extractAndApply(english, jobId);
+  };
+
+  const reExtract = () => {
+    void extractAndApply(
+      fields.tenantInterviewTranscript,
+      lastJobId,
+      localExtractedKeys
+    );
   };
 
   return (
@@ -196,6 +231,36 @@ export function TenantSectionEditor({
             appliedToastMessage="Transcript captured - extracting tenant details"
             onTranscriptsComplete={applyTranscript}
           />
+
+          <div className="mt-4">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="tenantInterviewTranscript">Transcript</Label>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={reExtract}
+                disabled={!fields.tenantInterviewTranscript.trim() || isExtracting}
+              >
+                {isExtracting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                Extract details from transcript
+              </Button>
+            </div>
+            <Textarea
+              id="tenantInterviewTranscript"
+              value={fields.tenantInterviewTranscript}
+              onChange={(e) =>
+                onChange("tenantInterviewTranscript", e.target.value)
+              }
+              rows={6}
+              placeholder="The tenant interview transcript appears here after recording, and can be edited..."
+              className="mt-1 border-slate-400 bg-white font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
+            />
+          </div>
         </AccordionContent>
       </AccordionItem>
     </Accordion>

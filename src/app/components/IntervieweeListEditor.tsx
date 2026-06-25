@@ -1,9 +1,10 @@
-import { ClipboardCopy, FileText, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ClipboardCopy, Eye, FileText, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { InterviewRecordingCard } from "./InterviewRecordingCard";
 import { LeadingQuestionsPanel } from "./LeadingQuestionsPanel";
 import { SignaturePad } from "./SignaturePad";
+import { StatementFormPreviewDialog } from "./StatementFormPreviewDialog";
 import {
   Accordion,
   AccordionContent,
@@ -88,6 +89,7 @@ interface IntervieweeListEditorProps {
   investigatorNameRank?: string;
   onGenerateStatement?: (intervieweeId: string) => void;
   onGenerateAllStatements?: () => void;
+  onPreviewStatement?: (intervieweeId: string) => Promise<Blob>;
   generatingStatementId?: string | null;
   isGeneratingAll?: boolean;
 }
@@ -377,6 +379,7 @@ export function IntervieweeListEditor({
   investigatorNameRank = "",
   onGenerateStatement,
   onGenerateAllStatements,
+  onPreviewStatement,
   generatingStatementId,
   isGeneratingAll = false,
 }: IntervieweeListEditorProps) {
@@ -389,6 +392,9 @@ export function IntervieweeListEditor({
     Record<string, Set<IntervieweeFieldKey>>
   >({});
   const [analyzingIntervieweeId, setAnalyzingIntervieweeId] = useState<
+    string | null
+  >(null);
+  const [previewIntervieweeId, setPreviewIntervieweeId] = useState<
     string | null
   >(null);
 
@@ -804,22 +810,47 @@ export function IntervieweeListEditor({
                     />
                   </div>
 
-                  {onGenerateStatement && (
-                    <div className="flex justify-end border-t pt-4">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => onGenerateStatement(interviewee.id)}
-                        disabled={isGenerating || isGeneratingAll}
-                      >
-                        {isGenerating ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <FileText className="mr-2 h-4 w-4" />
-                        )}
-                        Generate Statement
-                      </Button>
+                  {(onGenerateStatement || onPreviewStatement) && (
+                    <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+                      {onPreviewStatement && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setPreviewIntervieweeId(interviewee.id)}
+                          disabled={isGenerating || isGeneratingAll}
+                        >
+                          <Eye className="mr-2 h-4 w-4" />
+                          Preview Statement
+                        </Button>
+                      )}
+                      {onGenerateStatement && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => onGenerateStatement(interviewee.id)}
+                          disabled={isGenerating || isGeneratingAll}
+                        >
+                          {isGenerating ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileText className="mr-2 h-4 w-4" />
+                          )}
+                          Generate Statement
+                        </Button>
+                      )}
                     </div>
+                  )}
+
+                  {onPreviewStatement && (
+                    <StatementFormPreviewDialog
+                      open={previewIntervieweeId === interviewee.id}
+                      onOpenChange={(open) =>
+                        setPreviewIntervieweeId(open ? interviewee.id : null)
+                      }
+                      interviewee={interviewee}
+                      getBlob={() => onPreviewStatement(interviewee.id)}
+                      onDownload={() => onGenerateStatement?.(interviewee.id)}
+                    />
                   )}
                 </AccordionContent>
               </AccordionItem>
