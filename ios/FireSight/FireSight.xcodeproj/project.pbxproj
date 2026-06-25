@@ -271,6 +271,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FireSight/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera and LiDAR scanner to capture room layouts for fire report floor plans.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app uses the microphone to record stop messages and field interviews for fire report transcription.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -306,6 +307,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FireSight/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera and LiDAR scanner to capture room layouts for fire report floor plans.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app uses the microphone to record stop messages and field interviews for fire report transcription.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
