@@ -32,6 +32,7 @@ export interface FireReportData {
   tenantContactMobile: string;
   tenantContactHome: string;
   tenantContactOffice: string;
+  tenantInterviewTranscript: string;
 
   // 4 INSURANCE
   insuranceInsured: string;
@@ -106,6 +107,7 @@ export function createEmptyReportFields(): FireReportData {
     tenantContactMobile: "",
     tenantContactHome: "",
     tenantContactOffice: "",
+    tenantInterviewTranscript: "",
     insuranceInsured: "No",
     insuranceSum: "",
     insuranceNotes: "No details were available at the time of this report.",

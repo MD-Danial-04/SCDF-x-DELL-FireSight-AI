@@ -10,9 +10,6 @@ import {
   type PhotoLogHeaderInfo,
 } from "../types/photoLog";
 
-const ROWS_PER_D_PAGE = 15;
-const PHOTOS_PER_F_PAGE = 2;
-
 const LAYOUT = {
   header: {
     confidentialY: 28,
@@ -30,6 +27,9 @@ const LAYOUT = {
     tableTitleY: 380,
     tableTop: 420,
     rowHeight: 36,
+    rowsBottom: 985,
+    captionLineHeight: 15,
+    cellPaddingY: 8,
     tableLeft: 80,
     tableRight: 640,
     colPhoto: 130,
@@ -39,10 +39,11 @@ const LAYOUT = {
   annexF: {
     boxX: 52,
     boxWidth: 615,
-    box1Y: 110,
-    box1Height: 360,
-    box2Y: 545,
-    box2Height: 360,
+    contentTop: 110,
+    contentBottom: 980,
+    imageBoxHeight: 360,
+    minImageBoxHeight: 200,
+    blockGap: 12,
     labelOffset: 18,
     captionLineHeight: 14,
   },
@@ -63,11 +64,14 @@ function truncateWithEllipsis(
   return truncated.length > 0 ? truncated + ellipsis : ellipsis;
 }
 
-function wrapTextToLines(
+/**
+ * Greedy word-wrap with no line cap. Any single word wider than maxWidth is
+ * hard-split across lines so it never overflows the column.
+ */
+function wrapText(
   ctx: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
-  maxLines: number,
 ): string[] {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
@@ -75,44 +79,43 @@ function wrapTextToLines(
   const lines: string[] = [];
   let current = "";
 
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
+  const pushCurrent = () => {
+    if (current) {
+      lines.push(current);
+      current = "";
+    }
+  };
+
+  for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
     if (ctx.measureText(candidate).width <= maxWidth) {
       current = candidate;
       continue;
     }
-    if (current) {
-      lines.push(current);
-      if (lines.length >= maxLines) {
-        const remainder = [word, ...words.slice(i + 1)].join(" ");
-        lines[maxLines - 1] = truncateWithEllipsis(
-          ctx,
-          `${lines[maxLines - 1]} ${remainder}`,
-          maxWidth,
-        );
-        return lines;
-      }
-      current = ctx.measureText(word).width <= maxWidth
-        ? word
-        : truncateWithEllipsis(ctx, word, maxWidth);
-      if (ctx.measureText(word).width > maxWidth) {
-        if (lines.length >= maxLines) return lines;
-        lines.push(current);
-        current = "";
-      }
-    } else {
-      current = truncateWithEllipsis(ctx, word, maxWidth);
-      if (word !== current || ctx.measureText(word).width > maxWidth) {
-        lines.push(current);
-        current = "";
-        if (lines.length >= maxLines) return lines;
+
+    pushCurrent();
+
+    if (ctx.measureText(word).width <= maxWidth) {
+      current = word;
+      continue;
+    }
+
+    // Word itself is wider than the column: break it character by character.
+    let chunk = "";
+    for (const char of word) {
+      const next = chunk + char;
+      if (ctx.measureText(next).width <= maxWidth) {
+        chunk = next;
+      } else {
+        if (chunk) lines.push(chunk);
+        chunk = char;
       }
     }
+    current = chunk;
   }
 
-  if (current) lines.push(current);
-  return lines.slice(0, maxLines);
+  pushCurrent();
+  return lines;
 }
 
 function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
@@ -226,42 +229,48 @@ function drawAnnexDTableHeader(ctx: CanvasRenderingContext2D): void {
   ctx.stroke();
 }
 
+function annexDCaptionMaxWidth(): number {
+  const { annexD: d } = LAYOUT;
+  const captionColLeft = d.colUid + 100;
+  return d.tableRight - captionColLeft - 8;
+}
+
 function drawAnnexDRow(
   ctx: CanvasRenderingContext2D,
-  rowIndex: number,
+  y: number,
+  rowH: number,
   tableLabel: string,
   uid: string,
-  caption?: string,
+  captionLines: string[],
 ): void {
   const { annexD: d } = LAYOUT;
-  const y = d.tableTop + d.rowHeight * (rowIndex + 1);
   const captionColLeft = d.colUid + 100;
-  const captionMaxWidth = d.tableRight - captionColLeft - 8;
+  const centerY = y + rowH / 2 + 4;
 
   ctx.strokeStyle = "#000000";
   ctx.lineWidth = 1;
-  ctx.strokeRect(d.tableLeft, y, d.tableRight - d.tableLeft, d.rowHeight);
+  ctx.strokeRect(d.tableLeft, y, d.tableRight - d.tableLeft, rowH);
 
   ctx.beginPath();
   ctx.moveTo(d.colPhoto + 60, y);
-  ctx.lineTo(d.colPhoto + 60, y + d.rowHeight);
+  ctx.lineTo(d.colPhoto + 60, y + rowH);
   ctx.moveTo(d.colUid + 100, y);
-  ctx.lineTo(d.colUid + 100, y + d.rowHeight);
+  ctx.lineTo(d.colUid + 100, y + rowH);
   ctx.stroke();
 
   ctx.fillStyle = "#000000";
   ctx.font = "12px Arial, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText(tableLabel, d.colPhoto, y + 24);
-  ctx.fillText(uid, d.colUid, y + 24);
+  ctx.fillText(tableLabel, d.colPhoto, centerY);
+  ctx.fillText(uid, d.colUid, centerY);
 
-  if (caption) {
+  if (captionLines.length > 0) {
     ctx.textAlign = "left";
-    ctx.fillText(
-      truncateWithEllipsis(ctx, caption, captionMaxWidth),
-      captionColLeft + 4,
-      y + 24,
-    );
+    let lineY = y + d.cellPaddingY + 12;
+    for (const line of captionLines) {
+      ctx.fillText(line, captionColLeft + 4, lineY);
+      lineY += d.captionLineHeight;
+    }
   }
 }
 
@@ -271,36 +280,86 @@ export async function generateAnnexDBlobs(
 ): Promise<Blob[]> {
   if (photos.length === 0) return [];
 
+  const { annexD: d } = LAYOUT;
   const displayInfo = getPhotoLogDisplayInfo(photos);
-  const pageCount = Math.ceil(displayInfo.length / ROWS_PER_D_PAGE);
-  const blobs: Blob[] = [];
 
-  for (let page = 0; page < pageCount; page++) {
+  // Measure rows up front so we can flow them across pages with variable heights.
+  const measureCtx = createCanvas().ctx;
+  measureCtx.font = "12px Arial, sans-serif";
+  const captionMaxWidth = annexDCaptionMaxWidth();
+  const firstRowTop = d.tableTop + d.rowHeight;
+  const maxRowHeight = d.rowsBottom - firstRowTop;
+
+  type MeasuredRow = {
+    tableLabel: string;
+    uid: string;
+    captionLines: string[];
+    rowH: number;
+  };
+
+  const rows: MeasuredRow[] = displayInfo.map((info) => {
+    const caption = info.entry.caption ?? "";
+    let captionLines = caption ? wrapText(measureCtx, caption, captionMaxWidth) : [];
+    let rowH = Math.max(
+      d.rowHeight,
+      captionLines.length * d.captionLineHeight + 2 * d.cellPaddingY,
+    );
+
+    // Safety: a single caption taller than a full page is truncated to fit.
+    if (rowH > maxRowHeight) {
+      const maxLines = Math.max(
+        1,
+        Math.floor((maxRowHeight - 2 * d.cellPaddingY) / d.captionLineHeight),
+      );
+      captionLines = captionLines.slice(0, maxLines);
+      if (captionLines.length > 0) {
+        captionLines[captionLines.length - 1] = truncateWithEllipsis(
+          measureCtx,
+          captionLines[captionLines.length - 1],
+          captionMaxWidth,
+        );
+      }
+      rowH = maxRowHeight;
+    }
+
+    return { tableLabel: info.tableLabel, uid: info.entry.uid, captionLines, rowH };
+  });
+
+  // Pack rows into pages.
+  const pages: MeasuredRow[][] = [];
+  let currentPage: MeasuredRow[] = [];
+  let y = firstRowTop;
+  for (const row of rows) {
+    if (currentPage.length > 0 && y + row.rowH > d.rowsBottom) {
+      pages.push(currentPage);
+      currentPage = [];
+      y = firstRowTop;
+    }
+    currentPage.push(row);
+    y += row.rowH;
+  }
+  if (currentPage.length > 0) pages.push(currentPage);
+
+  const blobs: Blob[] = [];
+  for (let page = 0; page < pages.length; page++) {
     const { canvas, ctx } = createCanvas();
     drawPageHeader(ctx, "ANNEX D", header);
     drawAnnexDTableHeader(ctx);
 
-    const start = page * ROWS_PER_D_PAGE;
-    const end = Math.min(start + ROWS_PER_D_PAGE, displayInfo.length);
-    for (let i = start; i < end; i++) {
-      const info = displayInfo[i];
-      drawAnnexDRow(
-        ctx,
-        i - start,
-        info.tableLabel,
-        info.entry.uid,
-        info.entry.caption,
-      );
+    let rowY = firstRowTop;
+    for (const row of pages[page]) {
+      drawAnnexDRow(ctx, rowY, row.rowH, row.tableLabel, row.uid, row.captionLines);
+      rowY += row.rowH;
     }
 
-    drawPageFooter(ctx, pageCount === 1 ? "D-1" : `D-${page + 1}`);
+    drawPageFooter(ctx, pages.length === 1 ? "D-1" : `D-${page + 1}`);
     blobs.push(await encodeCanvasPng(canvas));
   }
 
   return blobs;
 }
 
-async function drawPhotoBox(
+function drawPhotoBox(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   boxX: number,
@@ -309,8 +368,8 @@ async function drawPhotoBox(
   boxHeight: number,
   boxLabel: string,
   uid: string,
-  caption?: string,
-): Promise<void> {
+  captionLines: string[],
+): void {
   const { annexF: f } = LAYOUT;
 
   ctx.strokeStyle = "#000000";
@@ -343,13 +402,12 @@ async function drawPhotoBox(
   ctx.font = "12px Arial, sans-serif";
   ctx.fillText(uid, boxX + boxWidth, labelY);
 
-  if (caption) {
+  if (captionLines.length > 0) {
     ctx.fillStyle = "#000000";
     ctx.textAlign = "left";
     ctx.font = "11px Arial, sans-serif";
-    const lines = wrapTextToLines(ctx, caption, boxWidth, 2);
     let captionY = labelY + f.captionLineHeight;
-    for (const line of lines) {
+    for (const line of captionLines) {
       ctx.fillText(line, boxX, captionY);
       captionY += f.captionLineHeight;
     }
@@ -362,36 +420,100 @@ export async function generateAnnexFBlobs(
 ): Promise<Blob[]> {
   if (photos.length === 0) return [];
 
-  const displayInfo = getPhotoLogDisplayInfo(photos);
-  const pageCount = Math.ceil(displayInfo.length / PHOTOS_PER_F_PAGE);
-  const blobs: Blob[] = [];
   const { annexF: f } = LAYOUT;
+  const displayInfo = getPhotoLogDisplayInfo(photos);
 
-  for (let page = 0; page < pageCount; page++) {
+  const measureCtx = createCanvas().ctx;
+  measureCtx.font = "11px Arial, sans-serif";
+
+  // Non-image vertical chrome per photo block: label row + caption + gap below.
+  const labelBlock = f.labelOffset + f.captionLineHeight;
+  const availableHeight = f.contentBottom - f.contentTop;
+
+  type LaidOutPhoto = {
+    item: (typeof displayInfo)[number];
+    captionLines: string[];
+    imageBoxHeight: number;
+    blockHeight: number;
+  };
+
+  const laidOut: LaidOutPhoto[] = displayInfo.map((item) => {
+    const caption = item.entry.caption ?? "";
+    let captionLines = caption ? wrapText(measureCtx, caption, f.boxWidth) : [];
+    let captionH = captionLines.length * f.captionLineHeight;
+    let imageBoxHeight = f.imageBoxHeight;
+    let blockHeight = imageBoxHeight + labelBlock + captionH + f.blockGap;
+
+    // Safety: ensure a single photo block fits on an empty page by shrinking the
+    // image first, then truncating the caption as a last resort.
+    if (blockHeight > availableHeight) {
+      const overflow = blockHeight - availableHeight;
+      const shrink = Math.min(overflow, imageBoxHeight - f.minImageBoxHeight);
+      imageBoxHeight -= Math.max(0, shrink);
+      blockHeight = imageBoxHeight + labelBlock + captionH + f.blockGap;
+    }
+    if (blockHeight > availableHeight) {
+      const captionBudget =
+        availableHeight - imageBoxHeight - labelBlock - f.blockGap;
+      const maxLines = Math.max(0, Math.floor(captionBudget / f.captionLineHeight));
+      captionLines = captionLines.slice(0, maxLines);
+      if (captionLines.length > 0) {
+        captionLines[captionLines.length - 1] = truncateWithEllipsis(
+          measureCtx,
+          captionLines[captionLines.length - 1],
+          f.boxWidth,
+        );
+      }
+      captionH = captionLines.length * f.captionLineHeight;
+      blockHeight = imageBoxHeight + labelBlock + captionH + f.blockGap;
+    }
+
+    return { item, captionLines, imageBoxHeight, blockHeight };
+  });
+
+  // Pack photos into pages.
+  const pages: LaidOutPhoto[][] = [];
+  let currentPage: LaidOutPhoto[] = [];
+  let y = f.contentTop;
+  for (const photo of laidOut) {
+    if (currentPage.length > 0 && y + photo.blockHeight > f.contentBottom) {
+      pages.push(currentPage);
+      currentPage = [];
+      y = f.contentTop;
+    }
+    currentPage.push(photo);
+    y += photo.blockHeight;
+  }
+  if (currentPage.length > 0) pages.push(currentPage);
+
+  const blobs: Blob[] = [];
+  for (let page = 0; page < pages.length; page++) {
     const { canvas, ctx } = createCanvas();
     drawPageHeader(ctx, "ANNEX F", header);
 
-    const start = page * PHOTOS_PER_F_PAGE;
-    const pageItems = displayInfo.slice(start, start + PHOTOS_PER_F_PAGE);
-    const images = await Promise.all(pageItems.map((item) => loadImageFromBlob(item.entry.blob)));
+    const pageItems = pages[page];
+    const images = await Promise.all(
+      pageItems.map((p) => loadImageFromBlob(p.item.entry.blob)),
+    );
 
+    let boxY = f.contentTop;
     for (let i = 0; i < pageItems.length; i++) {
-      const boxY = i === 0 ? f.box1Y : f.box2Y;
-      const boxHeight = i === 0 ? f.box1Height : f.box2Height;
-      await drawPhotoBox(
+      const photo = pageItems[i];
+      drawPhotoBox(
         ctx,
         images[i],
         f.boxX,
         boxY,
         f.boxWidth,
-        boxHeight,
-        pageItems[i].boxLabel,
-        pageItems[i].entry.uid,
-        pageItems[i].entry.caption,
+        photo.imageBoxHeight,
+        photo.item.boxLabel,
+        photo.item.entry.uid,
+        photo.captionLines,
       );
+      boxY += photo.blockHeight;
     }
 
-    drawPageFooter(ctx, pageCount === 1 ? "F-1" : `F-${page + 1}`);
+    drawPageFooter(ctx, pages.length === 1 ? "F-1" : `F-${page + 1}`);
     blobs.push(await encodeCanvasPng(canvas));
   }
 

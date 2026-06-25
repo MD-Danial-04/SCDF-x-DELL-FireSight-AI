@@ -319,7 +319,7 @@ export function AnnexSelector({
                     </div>
                   </div>
                 </AccordionTrigger>
-                <AccordionContent className="pt-1 pb-2">{card.body}</AccordionContent>
+                <AccordionContent forceMount className="pt-1 pb-2">{card.body}</AccordionContent>
               </AccordionItem>
             ))}
           </Accordion>
