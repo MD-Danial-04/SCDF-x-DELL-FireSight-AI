@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -656,11 +656,16 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const hasShownStopMessageToastRef = useRef(false);
   const pinchStartDistanceRef = useRef<number | null>(null);
   const pinchStartZoomRef = useRef(1);
+  const panTouchIdRef = useRef<number | null>(null);
+  const panStartXRef = useRef(0);
+  const panStartYRef = useRef(0);
+  const panStartScrollLeftRef = useRef(0);
+  const panStartScrollTopRef = useRef(0);
   const [previewZoom, setPreviewZoom] = useState(1);
 
   const getDefaultPreviewZoom = useCallback(() => {
     if (typeof window === "undefined") return 1;
-    return window.innerWidth < 640 ? 1.8 : 1;
+    return window.innerWidth < 640 ? 2.4 : 1;
   }, []);
 
   const clampPreviewZoom = useCallback((value: number) => {
@@ -684,31 +689,71 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const schedulePreviewFit = useCallback(() => {
     const elements = getPreviewElements();
     if (!elements) return;
-    scheduleDocxPreviewFit(elements, previewZoom, () => {
-      elements.viewport.scrollLeft = 0;
-    });
+    scheduleDocxPreviewFit(elements, previewZoom);
   }, [getPreviewElements, previewZoom]);
 
-  const handlePreviewTouchStart = useCallback((event: TouchEvent<HTMLDivElement>) => {
-    if (event.touches.length < 2) return;
-    const distance = getTouchDistance(event.touches);
-    if (!distance) return;
-    pinchStartDistanceRef.current = distance;
-    pinchStartZoomRef.current = previewZoom;
+  const handlePreviewTouchStart = useCallback((event: TouchEvent) => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    if (event.touches.length >= 2) {
+      const distance = getTouchDistance(event.touches);
+      if (!distance) return;
+      pinchStartDistanceRef.current = distance;
+      pinchStartZoomRef.current = previewZoom;
+      panTouchIdRef.current = null;
+      return;
+    }
+
+    const touch = event.touches[0];
+    if (!touch) return;
+    panTouchIdRef.current = touch.identifier;
+    panStartXRef.current = touch.clientX;
+    panStartYRef.current = touch.clientY;
+    panStartScrollLeftRef.current = viewport.scrollLeft;
+    panStartScrollTopRef.current = viewport.scrollTop;
   }, [getTouchDistance, previewZoom]);
 
-  const handlePreviewTouchMove = useCallback((event: TouchEvent<HTMLDivElement>) => {
-    if (event.touches.length < 2 || pinchStartDistanceRef.current == null) return;
-    const nextDistance = getTouchDistance(event.touches);
-    if (!nextDistance) return;
+  const handlePreviewTouchMove = useCallback((event: TouchEvent) => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    if (event.touches.length >= 2 && pinchStartDistanceRef.current != null) {
+      const nextDistance = getTouchDistance(event.touches);
+      if (!nextDistance) return;
+      event.preventDefault();
+      const scale = nextDistance / pinchStartDistanceRef.current;
+      setPreviewZoom(clampPreviewZoom(pinchStartZoomRef.current * scale));
+      return;
+    }
+
+    if (event.touches.length !== 1 || panTouchIdRef.current == null) return;
+    const touch = Array.from(event.touches).find((entry) => entry.identifier === panTouchIdRef.current)
+      ?? event.touches[0];
+    if (!touch) return;
     event.preventDefault();
-    const scale = nextDistance / pinchStartDistanceRef.current;
-    setPreviewZoom(clampPreviewZoom(pinchStartZoomRef.current * scale));
+    viewport.scrollLeft = panStartScrollLeftRef.current - (touch.clientX - panStartXRef.current);
+    viewport.scrollTop = panStartScrollTopRef.current - (touch.clientY - panStartYRef.current);
   }, [clampPreviewZoom, getTouchDistance]);
 
-  const handlePreviewTouchEnd = useCallback((event: TouchEvent<HTMLDivElement>) => {
-    if (event.touches.length >= 2) return;
-    pinchStartDistanceRef.current = null;
+  const handlePreviewTouchEnd = useCallback((event: TouchEvent) => {
+    if (event.touches.length < 2) {
+      pinchStartDistanceRef.current = null;
+    }
+    if (event.touches.length === 0) {
+      panTouchIdRef.current = null;
+      return;
+    }
+    if (event.touches.length === 1) {
+      const remainingTouch = event.touches[0];
+      const viewport = previewViewportRef.current;
+      if (!viewport) return;
+      panTouchIdRef.current = remainingTouch.identifier;
+      panStartXRef.current = remainingTouch.clientX;
+      panStartYRef.current = remainingTouch.clientY;
+      panStartScrollLeftRef.current = viewport.scrollLeft;
+      panStartScrollTopRef.current = viewport.scrollTop;
+    }
   }, []);
 
   const renderPreview = useCallback(async (blob: Blob) => {
@@ -780,6 +825,33 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     if (!viewport) return;
     viewport.scrollLeft = 0;
   }, [prrScreen, reportView]);
+
+  useEffect(() => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    const onTouchStart = (event: Event) => {
+      handlePreviewTouchStart(event as TouchEvent);
+    };
+    const onTouchMove = (event: Event) => {
+      handlePreviewTouchMove(event as TouchEvent);
+    };
+    const onTouchEnd = (event: Event) => {
+      handlePreviewTouchEnd(event as TouchEvent);
+    };
+
+    viewport.addEventListener("touchstart", onTouchStart, { passive: true });
+    viewport.addEventListener("touchmove", onTouchMove, { passive: false });
+    viewport.addEventListener("touchend", onTouchEnd, { passive: true });
+    viewport.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      viewport.removeEventListener("touchstart", onTouchStart);
+      viewport.removeEventListener("touchmove", onTouchMove);
+      viewport.removeEventListener("touchend", onTouchEnd);
+      viewport.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [handlePreviewTouchEnd, handlePreviewTouchMove, handlePreviewTouchStart, prrScreen, reportView, step, previewVersion]);
 
   const handleGenerate = async () => {
     const selected = parseSelectedAnnexes(reportFields.selectedAnnexes);
@@ -1180,12 +1252,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               <div
                 ref={previewViewportRef}
                 className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-1 sm:p-3 h-[min(480px,50vh)] xl:h-[min(calc(100vh-7rem),720px)]"
-                onTouchStart={handlePreviewTouchStart}
-                onTouchMove={handlePreviewTouchMove}
-                onTouchEnd={handlePreviewTouchEnd}
-                onTouchCancel={handlePreviewTouchEnd}
               >
-                <div ref={previewScalerRef} className="docx-preview-scaler">
+                <div ref={previewScalerRef} className="docx-preview-scaler sm:mx-auto">
                   <div ref={previewRef} className="docx-preview-host bg-white" />
                 </div>
               </div>
@@ -1260,13 +1328,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
             {!previewError && prrDocBlob && (
               <div
                 ref={previewViewportRef}
-                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-1 sm:p-3 h-[70vh] sm:h-[70vh]"
-                onTouchStart={handlePreviewTouchStart}
-                onTouchMove={handlePreviewTouchMove}
-                onTouchEnd={handlePreviewTouchEnd}
-                onTouchCancel={handlePreviewTouchEnd}
+                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-1 sm:p-3 h-[60dvh] sm:h-[70vh]"
               >
-                <div ref={previewScalerRef} className="docx-preview-scaler">
+                <div ref={previewScalerRef} className="docx-preview-scaler sm:mx-auto">
                   <div ref={previewRef} className="docx-preview-host bg-white" />
                 </div>
               </div>

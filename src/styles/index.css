@@ -9,7 +9,7 @@
   font-size: 16px;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x pan-y;
+  touch-action: none;
 }
 
 .docx-preview-host {
@@ -28,6 +28,12 @@
   display: flex;
   flex-flow: column;
   align-items: flex-start !important;
+}
+
+@media (min-width: 640px) {
+  .docx-preview-host > .docx-preview-wrapper {
+    align-items: center !important;
+  }
 }
 
 .docx-preview-host > .docx-preview-wrapper > section.docx-preview {
