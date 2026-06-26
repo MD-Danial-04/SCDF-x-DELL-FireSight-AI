@@ -87,6 +87,10 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const [floorplanSvg, setFloorplanSvg] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewVersion, setPreviewVersion] = useState(0);
+  const floorplanPersistenceKey = useMemo(
+    () => transcriptionJobId ?? null,
+    [transcriptionJobId],
+  );
 
   const handleAnnexOverrideChange = useCallback((pageIndex: number, blob: Blob | null) => {
     setAnnexImageOverrides((prev) => {
@@ -760,6 +764,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
               photoLogPreviewLoading={photoLogPreviewLoading}
               floorplanSvg={floorplanSvg}
+              floorplanPersistenceKey={floorplanPersistenceKey}
               onFloorplanSvgChange={setFloorplanSvg}
               onIntervieweesChange={updateInterviewees}
               onGenerateStatement={handleGenerateStatement}
@@ -814,6 +819,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
                 photoLogPreviewLoading={photoLogPreviewLoading}
                 floorplanSvg={floorplanSvg}
+                floorplanPersistenceKey={floorplanPersistenceKey}
                 onFloorplanSvgChange={setFloorplanSvg}
                 onIntervieweesChange={updateInterviewees}
                 onGenerateStatement={handleGenerateStatement}
