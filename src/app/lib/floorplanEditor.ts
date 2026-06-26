@@ -113,7 +113,6 @@ export type ObjectBoxShape =
   | "circle"
   | "ellipse"
   | "line"
-  | "polyline"
   | "polygon";
 
 export const OBJECT_BOX_SHAPE_OPTIONS: { value: ObjectBoxShape; label: string }[] = [
@@ -121,7 +120,6 @@ export const OBJECT_BOX_SHAPE_OPTIONS: { value: ObjectBoxShape; label: string }[
   { value: "circle", label: "Circle" },
   { value: "ellipse", label: "Ellipse" },
   { value: "line", label: "Line" },
-  { value: "polyline", label: "Polyline" },
   { value: "polygon", label: "Polygon" },
 ];
 
@@ -245,12 +243,6 @@ function populateObjectBoxShapeFields(
       return {
         ...element,
         objectBoxShape: shape,
-      };
-    case "polyline":
-      return {
-        ...element,
-        objectBoxShape: shape,
-        points: defaultObjectBoxPolylinePoints(x, y, width, height),
       };
     case "polygon":
       return {
@@ -667,28 +659,81 @@ function getNodeBounds(node: Element) {
     }
     case "g": {
       if (node.getAttribute("data-fs-object-box") !== "true") return null;
-      const rect = node.querySelector("rect");
-      return rect ? getNodeBounds(rect) : null;
+      const shapeNode = node.querySelector("rect, circle, ellipse, line, polygon, polyline, path, image");
+      return shapeNode ? getNodeBounds(shapeNode) : null;
     }
     default:
       return null;
   }
 }
 
+function getObjectBoxShapeNode(node: Element) {
+  return node.querySelector("rect, circle, ellipse, line, polygon, polyline");
+}
+
 function applyObjectBoxAmendment(node: Element, amendment?: FloorplanAmendment) {
-  const rect = node.querySelector("rect");
+  const shapeNode = getObjectBoxShapeNode(node);
   const text = node.querySelector("text");
-  if (rect) {
-    if (amendment?.width !== undefined) rect.setAttribute("width", String(amendment.width));
-    if (amendment?.height !== undefined) rect.setAttribute("height", String(amendment.height));
+  const boundsBefore = shapeNode ? getNodeBounds(shapeNode) : null;
+
+  if (shapeNode && boundsBefore) {
+    const nextWidth = amendment?.width ?? boundsBefore.width;
+    const nextHeight = amendment?.height ?? boundsBefore.height;
+    const centerX = boundsBefore.centerX;
+    const centerY = boundsBefore.centerY;
+    const minX = centerX - nextWidth / 2;
+    const minY = centerY - nextHeight / 2;
+
+    switch (shapeNode.tagName) {
+      case "rect":
+        shapeNode.setAttribute("x", String(minX));
+        shapeNode.setAttribute("y", String(minY));
+        shapeNode.setAttribute("width", String(nextWidth));
+        shapeNode.setAttribute("height", String(nextHeight));
+        break;
+      case "circle":
+        shapeNode.setAttribute("cx", String(centerX));
+        shapeNode.setAttribute("cy", String(centerY));
+        shapeNode.setAttribute("r", String(Math.min(nextWidth, nextHeight) / 2));
+        break;
+      case "ellipse":
+        shapeNode.setAttribute("cx", String(centerX));
+        shapeNode.setAttribute("cy", String(centerY));
+        shapeNode.setAttribute("rx", String(nextWidth / 2));
+        shapeNode.setAttribute("ry", String(nextHeight / 2));
+        break;
+      case "line":
+        shapeNode.setAttribute("x1", String(minX));
+        shapeNode.setAttribute("y1", String(centerY));
+        shapeNode.setAttribute("x2", String(minX + nextWidth));
+        shapeNode.setAttribute("y2", String(centerY));
+        break;
+      case "polygon":
+      case "polyline": {
+        const points = parsePoints(shapeNode.getAttribute("points"));
+        const scaledPoints = scalePoints(points, nextWidth, nextHeight);
+        if (scaledPoints.length > 0) {
+          const scaledBounds = getPointBounds(scaledPoints);
+          if (scaledBounds) {
+            const deltaX = minX - scaledBounds.minX;
+            const deltaY = minY - scaledBounds.minY;
+            const translatedPoints = scaledPoints.map((point) => ({
+              x: point.x + deltaX,
+              y: point.y + deltaY,
+            }));
+            shapeNode.setAttribute("points", formatPoints(translatedPoints));
+          }
+        }
+        break;
+      }
+    }
   }
-  const bounds = rect ? getNodeBounds(rect) : null;
+
+  const bounds = shapeNode ? getNodeBounds(shapeNode) : null;
   if (text && bounds) {
     text.setAttribute("x", String(bounds.centerX));
     text.setAttribute("y", String(bounds.centerY));
-    const width = parseNumericLength(rect?.getAttribute("width")) ?? bounds.width;
-    const height = parseNumericLength(rect?.getAttribute("height")) ?? bounds.height;
-    text.setAttribute("font-size", String(Math.min(width, height) * 0.25));
+    text.setAttribute("font-size", String(Math.min(bounds.width, bounds.height) * 0.25));
   }
 }
 
@@ -965,18 +1010,19 @@ function createGeneratedNode(doc: XMLDocument, element: FloorplanGeneratedElemen
       node.setAttribute("stroke-width", String(element.strokeWidth ?? 4));
       return node;
     }
-    case "line": {
-      const node = doc.createElementNS(ns, "line");
-      node.setAttribute("x1", String(element.x));
-      node.setAttribute("y1", String(element.y));
-      node.setAttribute("x2", String(element.x2 ?? element.x + 180));
-      node.setAttribute("y2", String(element.y2 ?? element.y));
-      node.setAttribute("stroke", element.stroke ?? "#0f172a");
-      node.setAttribute("stroke-width", String(element.strokeWidth ?? 4));
-      const strokeDasharray = getStrokeDasharrayForLineStyle(element.lineStyle);
-      if (strokeDasharray) node.setAttribute("stroke-dasharray", strokeDasharray);
-      return node;
-    }
+      case "line": {
+        const node = doc.createElementNS(ns, "line");
+        node.setAttribute("x1", String(element.x));
+        node.setAttribute("y1", String(element.y));
+        node.setAttribute("x2", String(element.x2 ?? element.x + 180));
+        node.setAttribute("y2", String(element.y2 ?? element.y));
+        node.setAttribute("stroke", element.stroke ?? "#0f172a");
+        node.setAttribute("stroke-width", String(element.strokeWidth ?? 4));
+        node.setAttribute("vector-effect", "non-scaling-stroke");
+        const strokeDasharray = getStrokeDasharrayForLineStyle(element.lineStyle);
+        if (strokeDasharray) node.setAttribute("stroke-dasharray", strokeDasharray);
+        return node;
+      }
     case "polyline":
     case "polygon": {
       const node = doc.createElementNS(ns, element.type);
@@ -1182,14 +1228,6 @@ export function renderFloorplanSvg(options: {
       transition: opacity 120ms ease, filter 120ms ease;
       user-select: none;
       -webkit-user-select: none;
-    }
-    [data-fs-selected="true"] {
-      filter: drop-shadow(0 0 10px rgba(37, 99, 235, 0.35));
-    }
-    text[data-fs-selected="true"] {
-      paint-order: stroke;
-      stroke: rgba(219, 234, 254, 0.95);
-      stroke-width: 4px;
     }
     [data-fs-background="true"] {
       pointer-events: none;

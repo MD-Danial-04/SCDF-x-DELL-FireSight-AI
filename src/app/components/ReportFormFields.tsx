@@ -52,6 +52,7 @@ interface ReportFormFieldsProps {
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
+  floorplanPersistenceKey?: string | null;
   onFloorplanSvgChange?: (svg: string | null) => void;
   onIntervieweesChange?: (interviewees: Interviewee[]) => void;
   onGenerateStatement?: (intervieweeId: string) => void;
@@ -350,6 +351,7 @@ export function ReportFormFields({
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
   floorplanSvg = null,
+  floorplanPersistenceKey = null,
   onFloorplanSvgChange,
   onIntervieweesChange,
   onGenerateStatement,
@@ -470,6 +472,7 @@ export function ReportFormFields({
               photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
               photoLogPreviewLoading={photoLogPreviewLoading}
               floorplanSvg={floorplanSvg}
+              floorplanPersistenceKey={floorplanPersistenceKey}
               onFloorplanSvgChange={onFloorplanSvgChange}
               onChange={(ids, attachmentList) => {
                 onChange("selectedAnnexes", ids.join(","));

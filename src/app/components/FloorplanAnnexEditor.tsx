@@ -1,21 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import {
-  Box,
-  Grid3X3,
-  Group,
   History,
   Loader2,
   Map,
   MousePointer2,
   RotateCw,
-  Search,
   Slash,
+  Trash2,
   Type,
-  Ungroup,
   Upload,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "./ui/badge";
@@ -36,6 +30,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
+import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { cn } from "./ui/utils";
 import {
@@ -65,7 +60,6 @@ import {
 } from "../lib/floorplanEditor";
 import { convertRoomPlanFile } from "../lib/importRoomPlanFloorplan";
 import { svgStringToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
-import { FloorplanInspectorPanel } from "./FloorplanInspectorPanel";
 import { clientToSvg, computeSvgViewportMapping } from "../lib/svgViewport";
 import { SHARED_FLOORPLAN_PNG_LIBRARY } from "../constants/floorplanPngLibrary";
 
@@ -125,6 +119,8 @@ interface FloorplanAnnexEditorProps {
   enabled: boolean;
   incidentNo?: string;
   locationOfFire?: string;
+  floorplanSvg?: string | null;
+  persistenceKey?: string | null;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
   onFloorplanSvgChange?: (svg: string | null) => void;
 }
@@ -171,9 +167,43 @@ interface PngLibraryItem {
   createdAt: number;
 }
 
+interface FloorplanEditorSnapshot {
+  svgText: string;
+  camera: FloorplanViewBox;
+  amendments: Record<string, FloorplanAmendment>;
+  generatedElements: FloorplanGeneratedElement[];
+  groups: FloorplanGroup[];
+  selectedId: string | null;
+  selectedIds: string[];
+  selectedGroupId: string | null;
+  showGrid: boolean;
+  fileName: string;
+  objectBoxShape: ObjectBoxShape;
+  lineStyle: FloorplanLineStyle;
+}
+
+interface FloorplanEditorInitialState {
+  svgText: string;
+  layers: FloorplanLayer[];
+  baseViewBox: FloorplanViewBox;
+  camera: FloorplanViewBox;
+  amendments: Record<string, FloorplanAmendment>;
+  generatedElements: FloorplanGeneratedElement[];
+  groups: FloorplanGroup[];
+  selectedId: string | null;
+  selectedIds: string[];
+  selectedGroupId: string | null;
+  showGrid: boolean;
+  fileName: string;
+  objectBoxShape: ObjectBoxShape;
+  lineStyle: FloorplanLineStyle;
+}
+
 const ZOOM_IN_FACTOR = 0.88;
 const ZOOM_OUT_FACTOR = 1.14;
 const FLOORPLAN_PNG_LIBRARY_STORAGE_KEY = "firesight-floorplan-png-library";
+const FLOORPLAN_EDITOR_STORAGE_KEY = "firesight-floorplan-editor-state";
+const DEFAULT_LINE_STROKE_WIDTH = 6;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -183,6 +213,67 @@ function placeCaretAtEnd(element: HTMLElement) {
   if (!(element instanceof HTMLTextAreaElement)) return;
   const length = element.value.length;
   element.setSelectionRange(length, length);
+}
+
+function resolveInitialFloorplanEditorState(
+  storageKey: string | null,
+  floorplanSvg: string | null | undefined,
+): FloorplanEditorInitialState {
+  let snapshot: Partial<FloorplanEditorSnapshot> | null = null;
+
+  if (typeof window !== "undefined" && storageKey) {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) snapshot = JSON.parse(raw) as Partial<FloorplanEditorSnapshot>;
+    } catch {
+      window.localStorage.removeItem(storageKey);
+    }
+  }
+
+  const restoreSvg =
+    floorplanSvg?.trim() ||
+    (snapshot && typeof snapshot.svgText === "string" && snapshot.svgText.trim() ? snapshot.svgText : "") ||
+    "";
+  const parsed = restoreSvg ? parseFloorplan(restoreSvg) : BLANK_FLOORPLAN;
+
+  return {
+    svgText: parsed.svgText,
+    layers: parsed.layers,
+    baseViewBox: parsed.baseViewBox,
+    camera:
+      snapshot?.camera &&
+      typeof snapshot.camera.x === "number" &&
+      typeof snapshot.camera.y === "number" &&
+      typeof snapshot.camera.width === "number" &&
+      typeof snapshot.camera.height === "number"
+        ? snapshot.camera
+        : parsed.baseViewBox,
+    amendments: snapshot?.amendments && typeof snapshot.amendments === "object" ? snapshot.amendments : {},
+    generatedElements: Array.isArray(snapshot?.generatedElements) ? snapshot.generatedElements : [],
+    groups: Array.isArray(snapshot?.groups) ? snapshot.groups : [],
+    selectedId: typeof snapshot?.selectedId === "string" ? snapshot.selectedId : null,
+    selectedIds: Array.isArray(snapshot?.selectedIds)
+      ? snapshot.selectedIds.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    selectedGroupId: typeof snapshot?.selectedGroupId === "string" ? snapshot.selectedGroupId : null,
+    showGrid: snapshot?.showGrid !== false,
+    fileName: typeof snapshot?.fileName === "string" ? snapshot.fileName : "",
+    objectBoxShape:
+      snapshot?.objectBoxShape === "rect" ||
+      snapshot?.objectBoxShape === "circle" ||
+      snapshot?.objectBoxShape === "ellipse" ||
+      snapshot?.objectBoxShape === "line" ||
+      snapshot?.objectBoxShape === "polygon"
+        ? snapshot.objectBoxShape
+        : "rect",
+    lineStyle:
+      snapshot?.lineStyle === "solid" ||
+      snapshot?.lineStyle === "dashed" ||
+      snapshot?.lineStyle === "dotted" ||
+      snapshot?.lineStyle === "dashDot"
+        ? snapshot.lineStyle
+        : "solid",
+  };
 }
 
 function getTextEditSnapshot(node: SVGTextElement, canvas: HTMLDivElement, value: string): TextEditState {
@@ -379,7 +470,6 @@ function createDefaultElement(
 function createLineElement(
   start: FloorplanPoint,
   end: FloorplanPoint,
-  strokeWidth: number,
   lineStyle: FloorplanLineStyle,
 ): FloorplanGeneratedElement {
   return {
@@ -387,7 +477,7 @@ function createLineElement(
     type: "line",
     label: "New line",
     stroke: "#0f172a",
-    strokeWidth,
+    strokeWidth: DEFAULT_LINE_STROKE_WIDTH,
     x: start.x,
     y: start.y,
     x2: end.x,
@@ -446,37 +536,74 @@ function getBoundsForGenerated(element: FloorplanGeneratedElement) {
   }
 }
 
+function ShapePreview({ shape }: { shape: ObjectBoxShape }) {
+  if (shape === "rect") {
+    return <span className="block h-3.5 w-5 rounded-[2px] border-2 border-current" />;
+  }
+  if (shape === "circle") {
+    return <span className="block h-4 w-4 rounded-full border-2 border-current" />;
+  }
+  if (shape === "ellipse") {
+    return <span className="block h-3.5 w-5 rounded-full border-2 border-current" />;
+  }
+  if (shape === "line") {
+    return <span className="block h-0.5 w-5 bg-current" />;
+  }
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
+      <polygon points="12,3 21,12 12,21 3,12" />
+    </svg>
+  );
+}
+
 export function FloorplanAnnexEditor({
   enabled,
   incidentNo,
   locationOfFire,
+  floorplanSvg = null,
+  persistenceKey = null,
   onOverrideChange,
   onFloorplanSvgChange,
 }: FloorplanAnnexEditorProps) {
-  const [svgText, setSvgText] = useState(BLANK_FLOORPLAN.svgText);
-  const [layers, setLayers] = useState<FloorplanLayer[]>(BLANK_FLOORPLAN.layers);
-  const [baseViewBox, setBaseViewBox] = useState<FloorplanViewBox>(BLANK_FLOORPLAN.baseViewBox);
-  const [camera, setCamera] = useState<FloorplanViewBox>(BLANK_FLOORPLAN.baseViewBox);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const [groups, setGroups] = useState<FloorplanGroup[]>([]);
-  const [amendments, setAmendments] = useState<Record<string, FloorplanAmendment>>({});
-  const [generatedElements, setGeneratedElements] = useState<FloorplanGeneratedElement[]>([]);
-  const [showGrid, setShowGrid] = useState(true);
+  const floorplanEditorStorageKey = persistenceKey
+    ? `${FLOORPLAN_EDITOR_STORAGE_KEY}:${persistenceKey}`
+    : null;
+  const [initialEditorState] = useState(() =>
+    resolveInitialFloorplanEditorState(floorplanEditorStorageKey, floorplanSvg),
+  );
+  const [svgText, setSvgText] = useState(initialEditorState.svgText);
+  const [layers, setLayers] = useState<FloorplanLayer[]>(initialEditorState.layers);
+  const [baseViewBox, setBaseViewBox] = useState<FloorplanViewBox>(initialEditorState.baseViewBox);
+  const [camera, setCamera] = useState<FloorplanViewBox>(initialEditorState.camera);
+  const [selectedId, setSelectedId] = useState<string | null>(initialEditorState.selectedId);
+  const [selectedIds, setSelectedIds] = useState<string[]>(initialEditorState.selectedIds);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(initialEditorState.selectedGroupId);
+  const [groups, setGroups] = useState<FloorplanGroup[]>(initialEditorState.groups);
+  const [amendments, setAmendments] = useState<Record<string, FloorplanAmendment>>(initialEditorState.amendments);
+  const [generatedElements, setGeneratedElements] = useState<FloorplanGeneratedElement[]>(initialEditorState.generatedElements);
+  const [showGrid, setShowGrid] = useState(initialEditorState.showGrid);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [replaceDialogOpen, setReplaceDialogOpen] = useState(false);
-  const [fileName, setFileName] = useState("");
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [fileName, setFileName] = useState(initialEditorState.fileName);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [history, setHistory] = useState<FloorplanHistoryEntry[]>([]);
   const [textEditState, setTextEditState] = useState<TextEditState | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>("select");
-  const [objectBoxShape, setObjectBoxShape] = useState<ObjectBoxShape>("rect");
-  const [lineStyle, setLineStyle] = useState<FloorplanLineStyle>("solid");
+  const [objectBoxShape, setObjectBoxShape] = useState<ObjectBoxShape>(initialEditorState.objectBoxShape);
+  const [lineStyle, setLineStyle] = useState<FloorplanLineStyle>(initialEditorState.lineStyle);
   const [lineDraft, setLineDraft] = useState<LineDraft | null>(null);
   const [pngLibrary, setPngLibrary] = useState<PngLibraryItem[]>([]);
+  const [librarySearch, setLibrarySearch] = useState("");
   const canvasRef = useRef<HTMLDivElement>(null);
   const inspectorRef = useRef<HTMLDivElement>(null);
   const textEditRef = useRef<HTMLTextAreaElement>(null);
@@ -536,7 +663,6 @@ export function FloorplanAnnexEditor({
             createLineElement(
               lineDraft.start,
               lineDraft.end,
-              Math.max(2, inferObjectBoxDefaults(baseViewBox ?? camera, svgText).strokeWidth),
               lineStyle,
             ),
           ]
@@ -664,6 +790,57 @@ export function FloorplanAnnexEditor({
   useEffect(() => {
     window.localStorage.setItem(FLOORPLAN_PNG_LIBRARY_STORAGE_KEY, JSON.stringify(pngLibrary));
   }, [pngLibrary]);
+
+  useEffect(() => {
+    if (!floorplanEditorStorageKey) return;
+
+    const snapshot: FloorplanEditorSnapshot = {
+      svgText,
+      camera,
+      amendments,
+      generatedElements,
+      groups,
+      selectedId,
+      selectedIds,
+      selectedGroupId,
+      showGrid,
+      fileName,
+      objectBoxShape,
+      lineStyle,
+    };
+
+    window.localStorage.setItem(floorplanEditorStorageKey, JSON.stringify(snapshot));
+  }, [
+    amendments,
+    camera,
+    fileName,
+    generatedElements,
+    groups,
+    lineStyle,
+    objectBoxShape,
+    selectedGroupId,
+    selectedId,
+    selectedIds,
+    showGrid,
+    svgText,
+    floorplanEditorStorageKey,
+  ]);
+
+  const normalizedLibrarySearch = librarySearch.trim().toLowerCase();
+  const filteredSharedPngLibrary = useMemo(
+    () =>
+      SHARED_FLOORPLAN_PNG_LIBRARY.filter((item) =>
+        item.name.toLowerCase().includes(normalizedLibrarySearch)
+      ),
+    [normalizedLibrarySearch]
+  );
+  const filteredPersonalPngLibrary = useMemo(
+    () =>
+      pngLibrary.filter((item) =>
+        item.name.toLowerCase().includes(normalizedLibrarySearch)
+      ),
+    [normalizedLibrarySearch, pngLibrary]
+  );
 
   useEffect(() => {
     if (!textEditState || !textEditRef.current) return;
@@ -1324,6 +1501,32 @@ export function FloorplanAnnexEditor({
     setReplaceDialogOpen(false);
   }
 
+  function clearCanvas() {
+    setSvgText(BLANK_FLOORPLAN.svgText);
+    setLayers(BLANK_FLOORPLAN.layers);
+    setBaseViewBox(BLANK_FLOORPLAN.baseViewBox);
+    setCamera(BLANK_FLOORPLAN.baseViewBox);
+    setSelectedId(null);
+    setSelectedIds([]);
+    setSelectedGroupId(null);
+    setGroups([]);
+    setAmendments({});
+    setGeneratedElements([]);
+    setFileName("");
+    setUploadError(null);
+    setInspectorOpen(false);
+    setHistory([]);
+    setTextEditState(null);
+    setLineDraft(null);
+    setDragState(null);
+    setEditorMode("select");
+    setClearDialogOpen(false);
+    requestAnimationFrame(() => {
+      fitCameraToBounds(BLANK_FLOORPLAN.baseViewBox, 1.05);
+    });
+    toast.success("Floorplan canvas cleared.");
+  }
+
   function getFloorplanSvg(): SVGSVGElement | null {
     return canvasRef.current?.querySelector("svg") ?? null;
   }
@@ -1439,9 +1642,6 @@ export function FloorplanAnnexEditor({
       amendments: nextAmendments,
       viewBox: baseViewBox,
     });
-    if (layout.unresolved) {
-      toast.warning("Some object boxes could not be fully separated.");
-    }
     return layout;
   }
 
@@ -1512,12 +1712,11 @@ export function FloorplanAnnexEditor({
       }
 
       const distance = Math.hypot(point.x - lineDraft.start.x, point.y - lineDraft.start.y);
-      if (distance < 1) return;
+        if (distance < 1) return;
 
-      captureHistory();
-      const strokeWidth = Math.max(2, inferObjectBoxDefaults(baseViewBox, svgText).strokeWidth);
-      const element = createLineElement(lineDraft.start, point, strokeWidth, lineStyle);
-      setGeneratedElements((current) => [...current, element]);
+        captureHistory();
+        const element = createLineElement(lineDraft.start, point, lineStyle);
+        setGeneratedElements((current) => [...current, element]);
       setLineDraft(null);
       setSingleSelection(element.id);
       setSelectedGroupId(null);
@@ -1542,17 +1741,15 @@ export function FloorplanAnnexEditor({
     }
 
     if (editorMode === "placeText") {
-      if (!hit || (baseViewBox && isFloorplanBackgroundElement(hit, baseViewBox))) {
-        const point = getSvgPoint(event.clientX, event.clientY);
-        if (!point || !baseViewBox) return;
-        captureHistory();
-        const element = createDefaultElement("text", point.x, point.y, baseViewBox, svgText);
-        setGeneratedElements((current) => [...current, element]);
-        setSingleSelection(element.id);
-        setSelectedGroupId(null);
-        setInspectorOpen(true);
-        return;
-      }
+      const point = getSvgPoint(event.clientX, event.clientY);
+      if (!point || !baseViewBox) return;
+      captureHistory();
+      const element = createDefaultElement("text", point.x, point.y, baseViewBox, svgText);
+      setGeneratedElements((current) => [...current, element]);
+      setSingleSelection(element.id);
+      setSelectedGroupId(null);
+      setInspectorOpen(true);
+      return;
     }
 
     if (hit) {
@@ -2113,9 +2310,6 @@ export function FloorplanAnnexEditor({
               {enabled ? "Included in report" : "Select Annex A to attach"}
             </Badge>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Draw on the canvas or import Apple RoomPlan JSON (.json) or SVG (.svg).
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <input
@@ -2144,7 +2338,7 @@ export function FloorplanAnnexEditor({
           />
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             disabled={importing}
             onClick={() => fileInputRef.current?.click()}
           >
@@ -2163,18 +2357,18 @@ export function FloorplanAnnexEditor({
           <Button
             type="button"
             variant="outline"
-            onClick={() => imageInputRef.current?.click()}
+            onClick={() => libraryImageInputRef.current?.click()}
           >
             <Upload className="mr-2 h-4 w-4" />
-            Upload PNG element
+            Upload
           </Button>
           <Button
             type="button"
             variant="outline"
-            onClick={() => libraryImageInputRef.current?.click()}
+            onClick={() => setClearDialogOpen(true)}
           >
-            <Upload className="mr-2 h-4 w-4" />
-            Add PNG to my library
+            <Trash2 className="mr-2 h-4 w-4" />
+            Clear canvas
           </Button>
         </div>
       </div>
@@ -2200,6 +2394,21 @@ export function FloorplanAnnexEditor({
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear the floorplan canvas?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the imported layout and all objects on the canvas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={clearCanvas}>Clear canvas</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {uploadError && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {uploadError}
@@ -2213,55 +2422,42 @@ export function FloorplanAnnexEditor({
               <div className="flex flex-1 flex-wrap items-center justify-between gap-3 pr-4 text-left">
                 <div>
                   <p className="font-medium text-foreground">PNG element libraries</p>
-                  <p className="text-sm text-muted-foreground">
-                    Shared PNGs are developer-managed for all users. Personal PNGs are stored in this browser only.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">{SHARED_FLOORPLAN_PNG_LIBRARY.length} shared</Badge>
-                  <Badge variant="outline">{pngLibrary.length} personal</Badge>
                 </div>
               </div>
             </AccordionTrigger>
             <AccordionContent className="pb-4">
               <div className="space-y-4">
+                <Input
+                  value={librarySearch}
+                  onChange={(event) => setLibrarySearch(event.target.value)}
+                  placeholder="Search PNG elements"
+                  className="bg-white"
+                />
+
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="text-sm font-medium text-foreground">Shared library</p>
-                    <p className="text-xs text-muted-foreground">Developer-managed only</p>
                   </div>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    Developers add shared PNGs in [src/app/constants/floorplanPngLibrary.ts](/C:/Users/lawyu/SCDF-x-DELL-FireSight-AI/src/app/constants/floorplanPngLibrary.ts) and store the PNG files under `src/assets/floorplan-library/`.
-                  </p>
-                  {SHARED_FLOORPLAN_PNG_LIBRARY.length > 0 ? (
-                    <div className="flex flex-wrap gap-3">
-                      {SHARED_FLOORPLAN_PNG_LIBRARY.map((item) => (
-                        <div
+                  {filteredSharedPngLibrary.length > 0 ? (
+                    <div className="overflow-x-auto pb-1">
+                      <div className="flex w-max gap-2">
+                      {filteredSharedPngLibrary.map((item) => (
+                        <Button
                           key={item.id}
-                          className="group flex w-[160px] flex-col rounded-xl border border-border bg-white p-3 shadow-sm"
+                          type="button"
+                          variant="outline"
+                          className="max-w-full justify-start bg-white"
+                          onClick={() => placeLibraryImage(item)}
+                          title={item.name}
                         >
-                          <button
-                            type="button"
-                            className="flex h-24 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
-                            onClick={() => placeLibraryImage(item)}
-                            title={`Place ${item.name}`}
-                          >
-                            <img src={item.dataUrl} alt={item.name} className="max-h-full max-w-full object-contain" />
-                          </button>
-                          <button
-                            type="button"
-                            className="mt-2 min-w-0 text-left text-sm font-medium text-foreground hover:text-primary"
-                            onClick={() => placeLibraryImage(item)}
-                            title={item.name}
-                          >
-                            <span className="block truncate">{item.name}</span>
-                          </button>
-                        </div>
+                          <span className="block truncate">{item.name}</span>
+                        </Button>
                       ))}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      No shared PNG elements yet. Add them to the repo so every user gets the same library.
+                      No shared PNG elements found.
                     </p>
                   )}
                 </div>
@@ -2269,49 +2465,41 @@ export function FloorplanAnnexEditor({
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="text-sm font-medium text-foreground">My library</p>
-                    <p className="text-xs text-muted-foreground">User-managed in this browser</p>
                   </div>
-                  {pngLibrary.length > 0 ? (
-                    <div className="flex flex-wrap gap-3">
-                      {pngLibrary.map((item) => (
+                  {filteredPersonalPngLibrary.length > 0 ? (
+                    <div className="overflow-x-auto pb-1">
+                      <div className="flex w-max gap-2">
+                      {filteredPersonalPngLibrary.map((item) => (
                         <div
                           key={item.id}
-                          className="group flex w-[160px] flex-col rounded-xl border border-border bg-white p-3 shadow-sm"
+                          className="flex items-center gap-2 rounded-xl border border-border bg-white p-2"
                         >
-                          <button
+                          <Button
                             type="button"
-                            className="flex h-24 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+                            variant="ghost"
+                            className="min-w-0 justify-start px-2"
                             onClick={() => placeLibraryImage(item)}
-                            title={`Place ${item.name}`}
+                            title={item.name}
                           >
-                            <img src={item.dataUrl} alt={item.name} className="max-h-full max-w-full object-contain" />
-                          </button>
-                          <div className="mt-2 flex items-start justify-between gap-2">
-                            <button
-                              type="button"
-                              className="min-w-0 text-left text-sm font-medium text-foreground hover:text-primary"
-                              onClick={() => placeLibraryImage(item)}
-                              title={item.name}
-                            >
-                              <span className="block truncate">{item.name}</span>
-                            </button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 shrink-0"
-                              onClick={() => removeLibraryImage(item.id)}
-                              title={`Remove ${item.name}`}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
+                            <span className="block truncate text-left">{item.name}</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0"
+                            onClick={() => removeLibraryImage(item.id)}
+                            title={`Remove ${item.name}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
                       ))}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      No personal PNG elements yet. Use <span className="font-medium">Add PNG to my library</span> to save some here.
+                      No personal PNG elements found.
                     </p>
                   )}
                 </div>
@@ -2323,75 +2511,11 @@ export function FloorplanAnnexEditor({
 
       <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={selectedId ?? undefined}
-              onValueChange={(value) => {
-                setSingleSelection(value);
-                setInspectorOpen(true);
-              }}
-            >
-              <SelectTrigger className="w-[260px] bg-white">
-                <SelectValue placeholder="Select layer" />
-              </SelectTrigger>
-              <SelectContent>
-                {layerOptions.map((layer) => (
-                  <SelectItem key={layer.id} value={layer.id}>
-                    {layer.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={selectedGroupId ?? "none"}
-              onValueChange={(value) => setSelectedGroupId(value === "none" ? null : value)}
-            >
-              <SelectTrigger className="w-[180px] bg-white">
-                <SelectValue placeholder="Group" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No group</SelectItem>
-                {groups.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Badge variant="outline">{amendmentCount} edits</Badge>
-            <Badge variant="outline">{selectedIds.length} selected</Badge>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                captureHistory();
-                setShowGrid((current) => !current);
-              }}
-            >
-              <Grid3X3 className="h-4 w-4" />
-              {showGrid ? "Grid off" : "Grid on"}
-            </Button>
-            <Button type="button" variant="outline" size="sm" disabled>
-              <Group className="h-4 w-4" />
-              Shift-click multi-select
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={createGroupFromSelection} disabled={selectedIds.length < 2}>
-              <Group className="h-4 w-4" />
-              Group selection
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={ungroupSelectedGroup} disabled={!selectedGroupId}>
-              <Ungroup className="h-4 w-4" />
-              Ungroup
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={undoLastChange} disabled={history.length === 0}>
-              <History className="h-4 w-4" />
-              Undo
-            </Button>
-
-            <div className="ml-auto flex flex-wrap gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={undoLastChange} disabled={history.length === 0}>
+                <History className="h-4 w-4" />
+                Undo
+              </Button>
               <Button
                 type="button"
                 variant={editorMode === "select" ? "default" : "outline"}
@@ -2401,29 +2525,30 @@ export function FloorplanAnnexEditor({
                 <MousePointer2 className="h-4 w-4" />
                 Select
               </Button>
-              <Select value={objectBoxShape} onValueChange={(value) => setObjectBoxShape(value as ObjectBoxShape)}>
-                <SelectTrigger className="w-[140px] bg-white">
-                  <SelectValue placeholder="Shape" />
-                </SelectTrigger>
-                <SelectContent>
-                  {OBJECT_BOX_SHAPE_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                variant={editorMode === "placeObjectBox" ? "default" : "outline"}
-                size="sm"
-                onClick={() =>
-                  setEditorMode((current) => (current === "placeObjectBox" ? "select" : "placeObjectBox"))
-                }
-              >
-                <Box className="h-4 w-4" />
-                Object box
-              </Button>
+              <div className="overflow-x-auto">
+                <div className="flex w-max flex-nowrap gap-2 rounded-xl border border-border bg-white p-1">
+                {OBJECT_BOX_SHAPE_OPTIONS.filter((option) => option.value !== "line").map((option) => {
+                  const isActive =
+                    editorMode === "placeObjectBox" && objectBoxShape === option.value;
+                  return (
+                    <Button
+                      key={option.value}
+                      type="button"
+                      variant={isActive ? "default" : "ghost"}
+                      size="sm"
+                      className="h-9 min-w-9 px-2"
+                      title={option.label}
+                      onClick={() => {
+                        setObjectBoxShape(option.value);
+                        setEditorMode("placeObjectBox");
+                      }}
+                      >
+                        <ShapePreview shape={option.value} />
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
               <Select value={lineStyle} onValueChange={(value) => setLineStyle(value as FloorplanLineStyle)}>
                 <SelectTrigger className="w-[150px] bg-white">
                   <SelectValue placeholder="Line style" />
@@ -2456,15 +2581,6 @@ export function FloorplanAnnexEditor({
               >
                 <Type className="h-4 w-4" />
                 Text
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => applyZoom(ZOOM_IN_FACTOR)}>
-                <ZoomIn className="h-4 w-4" />
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => applyZoom(ZOOM_OUT_FACTOR)}>
-                <ZoomOut className="h-4 w-4" />
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={resetCamera}>
-                <Search className="h-4 w-4" />
               </Button>
             </div>
           </div>
@@ -2606,34 +2722,6 @@ export function FloorplanAnnexEditor({
               </div>
             )}
 
-            {inspectorOpen && selectedLayer && (
-              <div
-                ref={inspectorRef}
-                className="absolute bottom-3 right-3 z-30 w-[min(18rem,calc(100%-1.5rem))] max-h-[min(20rem,40vh)] overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-white/96 p-3 shadow-lg backdrop-blur"
-                data-fs-wheel-scope="inspector"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <FloorplanInspectorPanel
-                  selectedLayer={selectedLayer}
-                  selectedAmendment={selectedAmendment}
-                  selectedTextValue={selectedTextValue}
-                  generatedElement={generatedElement}
-                  defaultTextFontSize={defaultTextFontSize}
-                  isShapeSelection={isShapeSelection}
-                  isRectSelection={isRectSelection}
-                  isObjectBoxSelection={isObjectBoxSelection}
-                  selectedGroup={selectedGroup}
-                  showCloseButton
-                  onClose={() => setInspectorOpen(false)}
-                  updateSelectedAmendment={updateSelectedAmendment}
-                  setGeneratedElements={setGeneratedElements}
-                  updateGeneratedElementWithoutHistory={updateGeneratedElementWithoutHistory}
-                  setSelectedGroupId={setSelectedGroupId}
-                  removeGeneratedElement={removeGeneratedElement}
-                />
-              </div>
-            )}
           </div>
         </div>
       </div>
