@@ -11,6 +11,7 @@ import {
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
+import { cn } from "./ui/utils";
 import {
   Tooltip,
   TooltipContent,
@@ -71,6 +72,7 @@ interface ReportFormFieldsProps {
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
+  floorplanPersistenceKey?: string | null;
   onFloorplanSvgChange?: (svg: string | null) => void;
   floorplanDraftState?: FloorplanDraftPayload | null;
   onFloorplanDraftStateChange?: (payload: FloorplanDraftPayload) => void;
@@ -316,14 +318,14 @@ function Field({
           value={value}
           onChange={(e) => onChange(key, e.target.value)}
           rows={3}
-          className="mt-1 border-slate-400 bg-white font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
+          className="mt-1 border-slate-200/70 bg-white/95 font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-100 focus-visible:border-slate-300 focus-visible:ring-primary/15"
         />
       ) : (
         <Input
           id={key}
           value={value}
           onChange={(e) => onChange(key, e.target.value)}
-          className="mt-1 border-slate-400 bg-white text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
+          className="mt-1 border-slate-200/70 bg-white/95 text-slate-950 shadow-sm ring-1 ring-slate-100 focus-visible:border-slate-300 focus-visible:ring-primary/15"
         />
       )}
     </div>
@@ -458,6 +460,7 @@ export function ReportFormFields({
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
   floorplanSvg = null,
+  floorplanPersistenceKey = null,
   onFloorplanSvgChange,
   floorplanDraftState = null,
   onFloorplanDraftStateChange,
@@ -620,6 +623,7 @@ export function ReportFormFields({
               photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
               photoLogPreviewLoading={photoLogPreviewLoading}
               floorplanSvg={floorplanSvg}
+              floorplanPersistenceKey={floorplanPersistenceKey}
               onFloorplanSvgChange={onFloorplanSvgChange}
               floorplanDraftState={floorplanDraftState}
               onFloorplanDraftStateChange={onFloorplanDraftStateChange}

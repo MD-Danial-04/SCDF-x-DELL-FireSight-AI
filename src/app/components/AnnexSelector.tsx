@@ -9,6 +9,12 @@ import {
   AccordionTrigger,
 } from "./ui/accordion";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import {
   ANNEX_DEFINITIONS,
   ANNEX_REFERENCE_SOURCE,
   buildAnnexAttachmentList,
@@ -49,6 +55,7 @@ interface AnnexSelectorProps {
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
+  floorplanPersistenceKey?: string | null;
   onFloorplanSvgChange?: (svg: string | null) => void;
   floorplanDraftState?: FloorplanDraftPayload | null;
   onFloorplanDraftStateChange?: (payload: FloorplanDraftPayload) => void;
@@ -112,10 +119,21 @@ export function AnnexSelector({
   annexGState = null,
   onAnnexGStateChange,
   floorplanSvg = null,
+  floorplanPersistenceKey = null,
   onFloorplanSvgChange,
 }: AnnexSelectorProps) {
   const [openEditorId, setOpenEditorId] = useState<string>("");
   const [previewsOpen, setPreviewsOpen] = useState("");
+  const [mobileFloorplanOpen, setMobileFloorplanOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobile(mediaQuery.matches);
+    sync();
+    mediaQuery.addEventListener("change", sync);
+    return () => mediaQuery.removeEventListener("change", sync);
+  }, []);
 
   const toggle = (id: string, checked: boolean) => {
     const next = checked
@@ -144,6 +162,8 @@ export function AnnexSelector({
             enabled={selectedIds.includes("A")}
             incidentNo={incidentNo}
             locationOfFire={locationOfFire}
+            floorplanSvg={floorplanSvg}
+            persistenceKey={floorplanPersistenceKey}
             onOverrideChange={onOverrideChange}
             onFloorplanSvgChange={onFloorplanSvgChange}
             initialDraftState={floorplanDraftState}
@@ -236,6 +256,7 @@ export function AnnexSelector({
     annexESelected,
     annexGSelected,
     floorplanSelected,
+    floorplanPersistenceKey,
     floorplanSvg,
     incidentNo,
     locationOfFire,
@@ -313,7 +334,14 @@ export function AnnexSelector({
             type="single"
             collapsible
             value={openEditorId}
-            onValueChange={setOpenEditorId}
+            onValueChange={(value) => {
+              if (isMobile && value === "floorplan") {
+                setMobileFloorplanOpen(true);
+                setOpenEditorId("");
+                return;
+              }
+              setOpenEditorId(value);
+            }}
             className="w-full"
           >
             {editorCards.map((card) => (
@@ -349,6 +377,18 @@ export function AnnexSelector({
             ))}
           </Accordion>
         </div>
+      )}
+      {isMobile && (
+        <Dialog open={mobileFloorplanOpen} onOpenChange={setMobileFloorplanOpen}>
+          <DialogContent className="top-0 left-0 h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 p-0 sm:max-w-none">
+            <DialogHeader className="border-b border-border px-4 py-3 text-left">
+              <DialogTitle>Floorplan editor</DialogTitle>
+            </DialogHeader>
+            <div className="h-[calc(100dvh-4rem)] overflow-y-auto p-3">
+              {editorCards.find((card) => card.id === "floorplan")?.body}
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
       {onOverrideChange && selectedIds.length > 0 && (
         <div className="rounded-xl border border-border bg-white p-4">
