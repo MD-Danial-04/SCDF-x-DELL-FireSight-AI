@@ -57,10 +57,18 @@ interface AnnexGBurnChartEditorProps {
   locationOfFire?: string;
   nameOfVictim?: string;
   nricFinNumber?: string;
+  persistenceKey?: string | null;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
   initialState?: AnnexGEditorState | null;
   onStateChange?: (state: AnnexGEditorState) => void;
 }
+
+interface AnnexGBurnChartSnapshot {
+  fields: AnnexGBurnChartFields;
+  strokes: Stroke[];
+}
+
+const ANNEX_G_BURN_CHART_STORAGE_KEY = "firesight-annex-g-burn-chart-state";
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -149,6 +157,13 @@ function buildCompositeCanvas(
   fields: AnnexGBurnChartFields,
   strokes: Stroke[],
 ) {
+  const paintLayer = document.createElement("canvas");
+  paintLayer.width = ANNEX_G_TEMPLATE_WIDTH;
+  paintLayer.height = ANNEX_G_TEMPLATE_HEIGHT;
+  const paintCtx = paintLayer.getContext("2d");
+  if (!paintCtx) return null;
+  drawStrokes(paintCtx, strokes, paintLayer.width, paintLayer.height);
+
   const composite = document.createElement("canvas");
   composite.width = ANNEX_G_TEMPLATE_WIDTH;
   composite.height = ANNEX_G_TEMPLATE_HEIGHT;
@@ -157,7 +172,7 @@ function buildCompositeCanvas(
 
   ctx.drawImage(baseTemplate, 0, 0);
   drawAnnexGFieldValues(ctx, composite.width, composite.height, fields);
-  drawStrokes(ctx, strokes, composite.width, composite.height);
+  ctx.drawImage(paintLayer, 0, 0);
 
   return composite;
 }
@@ -168,19 +183,54 @@ export function AnnexGBurnChartEditor({
   locationOfFire = "",
   nameOfVictim = "",
   nricFinNumber = "",
+  persistenceKey = null,
   onOverrideChange,
   initialState = null,
   onStateChange,
 }: AnnexGBurnChartEditorProps) {
   const sourceUrl = getDefaultPagePreviewUrl(ANNEX_G_PAGE_INDEX);
+  const burnChartStorageKey = persistenceKey
+    ? `${ANNEX_G_BURN_CHART_STORAGE_KEY}:${persistenceKey}`
+    : null;
+  const defaultFields = useMemo<AnnexGBurnChartFields>(
+    () => ({
+      incidentNo,
+      locationOfFire,
+      nameOfVictim,
+      nricFinNumber,
+    }),
+    [incidentNo, locationOfFire, nameOfVictim, nricFinNumber],
+  );
   const [tool, setTool] = useState<ToolMode>("paint");
-  const [strokes, setStrokes] = useState<Stroke[]>(() => initialState?.strokes ?? []);
+  const [strokes, setStrokes] = useState<Stroke[]>(() => {
+    if (typeof window === "undefined" || !burnChartStorageKey) return [];
+    try {
+      const raw = window.localStorage.getItem(burnChartStorageKey);
+      if (!raw) return [];
+      const snapshot = JSON.parse(raw) as Partial<AnnexGBurnChartSnapshot>;
+      return Array.isArray(snapshot.strokes) ? snapshot.strokes : [];
+    } catch {
+      window.localStorage.removeItem(burnChartStorageKey);
+      return [];
+    }
+  });
   const hydratedRef = useRef(false);
-  const [fields, setFields] = useState<AnnexGBurnChartFields>({
-    incidentNo,
-    locationOfFire,
-    nameOfVictim,
-    nricFinNumber,
+  const [fields, setFields] = useState<AnnexGBurnChartFields>(() => {
+    if (typeof window === "undefined" || !burnChartStorageKey) return defaultFields;
+    try {
+      const raw = window.localStorage.getItem(burnChartStorageKey);
+      if (!raw) return defaultFields;
+      const snapshot = JSON.parse(raw) as Partial<AnnexGBurnChartSnapshot>;
+      return {
+        incidentNo: snapshot.fields?.incidentNo ?? defaultFields.incidentNo,
+        locationOfFire: snapshot.fields?.locationOfFire ?? defaultFields.locationOfFire,
+        nameOfVictim: snapshot.fields?.nameOfVictim ?? defaultFields.nameOfVictim,
+        nricFinNumber: snapshot.fields?.nricFinNumber ?? defaultFields.nricFinNumber,
+      };
+    } catch {
+      window.localStorage.removeItem(burnChartStorageKey);
+      return defaultFields;
+    }
   });
   const [baseTemplateUrl, setBaseTemplateUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -198,13 +248,45 @@ export function AnnexGBurnChartEditor({
   strokesRef.current = strokes;
 
   useEffect(() => {
-    setFields({
-      incidentNo,
-      locationOfFire,
-      nameOfVictim,
-      nricFinNumber,
-    });
-  }, [incidentNo, locationOfFire, nameOfVictim, nricFinNumber]);
+    if (!burnChartStorageKey) {
+      setFields(defaultFields);
+      setStrokes([]);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(burnChartStorageKey);
+      if (!raw) {
+        setFields(defaultFields);
+        setStrokes([]);
+        return;
+      }
+
+      const snapshot = JSON.parse(raw) as Partial<AnnexGBurnChartSnapshot>;
+      setFields({
+        incidentNo: snapshot.fields?.incidentNo ?? defaultFields.incidentNo,
+        locationOfFire: snapshot.fields?.locationOfFire ?? defaultFields.locationOfFire,
+        nameOfVictim: snapshot.fields?.nameOfVictim ?? defaultFields.nameOfVictim,
+        nricFinNumber: snapshot.fields?.nricFinNumber ?? defaultFields.nricFinNumber,
+      });
+      setStrokes(Array.isArray(snapshot.strokes) ? snapshot.strokes : []);
+    } catch {
+      window.localStorage.removeItem(burnChartStorageKey);
+      setFields(defaultFields);
+      setStrokes([]);
+    }
+  }, [burnChartStorageKey, defaultFields]);
+
+  useEffect(() => {
+    if (!burnChartStorageKey) return;
+    window.localStorage.setItem(
+      burnChartStorageKey,
+      JSON.stringify({
+        fields,
+        strokes,
+      } satisfies AnnexGBurnChartSnapshot),
+    );
+  }, [burnChartStorageKey, fields, strokes]);
 
   useEffect(() => {
     if (hydratedRef.current || !initialState) return;

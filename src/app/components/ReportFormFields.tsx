@@ -23,6 +23,7 @@ import {
   getAllSectionFields,
   getDefaultOpenSections,
   type ReportFormFieldConfig,
+  type ReportFormSectionConfig,
 } from "../constants/reportFormSections";
 import { TenantSectionEditor } from "./TenantSectionEditor";
 import {
@@ -53,6 +54,7 @@ interface ReportFormFieldsProps {
   extractedKeys: Set<string>;
   onChange: (key: FireReportFieldKey, value: string) => void;
   visibleSectionIds?: string[];
+  sectionConfigs?: ReportFormSectionConfig[];
   displayMode?: "accordion" | "tabs";
   annexPreviewUrls?: Record<number, string>;
   annexHeaderPreviewUrls?: Record<number, string>;
@@ -441,6 +443,7 @@ export function ReportFormFields({
   extractedKeys,
   onChange,
   visibleSectionIds,
+  sectionConfigs = REPORT_FORM_SECTIONS,
   displayMode = "accordion",
   annexPreviewUrls = {},
   annexHeaderPreviewUrls = {},
@@ -476,13 +479,13 @@ export function ReportFormFields({
   isGeneratingAllStatements = false,
 }: ReportFormFieldsProps) {
   const countAutoFilled = (sectionId: string) => {
-    const section = REPORT_FORM_SECTIONS.find((item) => item.id === sectionId);
+    const section = sectionConfigs.find((item) => item.id === sectionId);
     if (!section) return 0;
     return getAllSectionFields(section).filter((field) => extractedKeys.has(field.key)).length;
   };
 
   const getSectionStatus = (sectionId: string): CompletionStatus => {
-    const section = REPORT_FORM_SECTIONS.find((item) => item.id === sectionId);
+    const section = sectionConfigs.find((item) => item.id === sectionId);
     if (!section) return "not-edited";
 
     if (sectionId === "8") {
@@ -538,8 +541,8 @@ export function ReportFormFields({
   };
 
   const visibleSections = visibleSectionIds
-    ? REPORT_FORM_SECTIONS.filter((section) => visibleSectionIds.includes(section.id))
-    : REPORT_FORM_SECTIONS;
+    ? sectionConfigs.filter((section) => visibleSectionIds.includes(section.id))
+    : sectionConfigs;
 
   // The interview editor is surfaced as its own nav sub-item under section 5
   // (tabs mode only); accordion mode keeps it inline within section 5.

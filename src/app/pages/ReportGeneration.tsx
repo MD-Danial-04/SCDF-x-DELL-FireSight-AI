@@ -41,6 +41,7 @@ import {
   scheduleDocxPreviewFit,
 } from "../lib/fitDocxPreviewToViewport";
 import { ReportFormFields } from "../components/ReportFormFields";
+import { PRR_FORM_SECTIONS } from "../constants/reportFormSections";
 import { generateAnnexDBlobs, generateAnnexFBlobs } from "../lib/photoLogAnnexes";
 import {
   createPhotoCopy,
@@ -67,6 +68,7 @@ import type { AnnexGEditorState } from "../components/AnnexGBurnChartEditor";
 
 type Step = "review" | "edit";
 type ReportView = "fir" | "prr";
+type PrrScreen = "form" | "preview";
 
 /** Static annex template pages (A/B/C/E/G) that receive header value overlays. */
 const STATIC_HEADER_PAGE_INDICES = [0, 1, 2, 4, 8];
@@ -91,6 +93,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const [generatingStatementId, setGeneratingStatementId] = useState<string | null>(null);
   const [isGeneratingAllStatements, setIsGeneratingAllStatements] = useState(false);
   const [docBlob, setDocBlob] = useState<Blob | null>(null);
+  const [prrDocBlob, setPrrDocBlob] = useState<Blob | null>(null);
+  const [prrScreen, setPrrScreen] = useState<PrrScreen>("form");
   const [annexImageOverrides, setAnnexImageOverrides] = useState<Map<number, Blob>>(
     () => new Map()
   );
@@ -650,6 +654,29 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const previewScalerRef = useRef<HTMLDivElement>(null);
   const hasShownStopMessageToastRef = useRef(false);
+  const pinchStartDistanceRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef(1);
+  const panTouchIdRef = useRef<number | null>(null);
+  const panStartXRef = useRef(0);
+  const panStartYRef = useRef(0);
+  const panStartScrollLeftRef = useRef(0);
+  const panStartScrollTopRef = useRef(0);
+  const [previewZoom, setPreviewZoom] = useState(1);
+
+  const getDefaultPreviewZoom = useCallback(() => {
+    if (typeof window === "undefined") return 1;
+    return window.innerWidth < 640 ? 2.4 : 1;
+  }, []);
+
+  const clampPreviewZoom = useCallback((value: number) => {
+    return Math.min(3, Math.max(1, value));
+  }, []);
+
+  const getTouchDistance = useCallback((touches: TouchList) => {
+    if (touches.length < 2) return null;
+    const [first, second] = [touches[0], touches[1]];
+    return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+  }, []);
 
   const getPreviewElements = useCallback(() => {
     const viewport = previewViewportRef.current;
@@ -662,8 +689,72 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const schedulePreviewFit = useCallback(() => {
     const elements = getPreviewElements();
     if (!elements) return;
-    scheduleDocxPreviewFit(elements);
-  }, [getPreviewElements]);
+    scheduleDocxPreviewFit(elements, previewZoom);
+  }, [getPreviewElements, previewZoom]);
+
+  const handlePreviewTouchStart = useCallback((event: TouchEvent) => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    if (event.touches.length >= 2) {
+      const distance = getTouchDistance(event.touches);
+      if (!distance) return;
+      pinchStartDistanceRef.current = distance;
+      pinchStartZoomRef.current = previewZoom;
+      panTouchIdRef.current = null;
+      return;
+    }
+
+    const touch = event.touches[0];
+    if (!touch) return;
+    panTouchIdRef.current = touch.identifier;
+    panStartXRef.current = touch.clientX;
+    panStartYRef.current = touch.clientY;
+    panStartScrollLeftRef.current = viewport.scrollLeft;
+    panStartScrollTopRef.current = viewport.scrollTop;
+  }, [getTouchDistance, previewZoom]);
+
+  const handlePreviewTouchMove = useCallback((event: TouchEvent) => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    if (event.touches.length >= 2 && pinchStartDistanceRef.current != null) {
+      const nextDistance = getTouchDistance(event.touches);
+      if (!nextDistance) return;
+      event.preventDefault();
+      const scale = nextDistance / pinchStartDistanceRef.current;
+      setPreviewZoom(clampPreviewZoom(pinchStartZoomRef.current * scale));
+      return;
+    }
+
+    if (event.touches.length !== 1 || panTouchIdRef.current == null) return;
+    const touch = Array.from(event.touches).find((entry) => entry.identifier === panTouchIdRef.current)
+      ?? event.touches[0];
+    if (!touch) return;
+    event.preventDefault();
+    viewport.scrollLeft = panStartScrollLeftRef.current - (touch.clientX - panStartXRef.current);
+    viewport.scrollTop = panStartScrollTopRef.current - (touch.clientY - panStartYRef.current);
+  }, [clampPreviewZoom, getTouchDistance]);
+
+  const handlePreviewTouchEnd = useCallback((event: TouchEvent) => {
+    if (event.touches.length < 2) {
+      pinchStartDistanceRef.current = null;
+    }
+    if (event.touches.length === 0) {
+      panTouchIdRef.current = null;
+      return;
+    }
+    if (event.touches.length === 1) {
+      const remainingTouch = event.touches[0];
+      const viewport = previewViewportRef.current;
+      if (!viewport) return;
+      panTouchIdRef.current = remainingTouch.identifier;
+      panStartXRef.current = remainingTouch.clientX;
+      panStartYRef.current = remainingTouch.clientY;
+      panStartScrollLeftRef.current = viewport.scrollLeft;
+      panStartScrollTopRef.current = viewport.scrollTop;
+    }
+  }, []);
 
   const renderPreview = useCallback(async (blob: Blob) => {
     setPreviewError(null);
@@ -686,6 +777,11 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         useBase64URL: true,
       });
       schedulePreviewFit();
+      const viewport = previewViewportRef.current;
+      if (viewport) {
+        viewport.scrollLeft = 0;
+        viewport.scrollTop = 0;
+      }
       setPreviewVersion((v) => v + 1);
       return true;
     } catch (err) {
@@ -704,11 +800,58 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   }, [step, docBlob, renderPreview]);
 
   useEffect(() => {
+    if (reportView !== "prr" || prrScreen !== "preview" || !prrDocBlob) return;
+    void renderPreview(prrDocBlob);
+  }, [reportView, prrScreen, prrDocBlob, renderPreview]);
+
+  useEffect(() => {
     if (previewVersion === 0) return;
     const elements = getPreviewElements();
     if (!elements) return;
-    return observeDocxPreviewFit(elements);
-  }, [getPreviewElements, previewVersion]);
+    return observeDocxPreviewFit(elements, previewZoom);
+  }, [getPreviewElements, previewVersion, previewZoom]);
+
+  useEffect(() => {
+    setPreviewZoom(getDefaultPreviewZoom());
+  }, [docBlob, prrDocBlob, step, reportView, prrScreen, getDefaultPreviewZoom]);
+
+  useEffect(() => {
+    if (previewVersion === 0) return;
+    schedulePreviewFit();
+  }, [previewVersion, previewZoom, schedulePreviewFit]);
+
+  useEffect(() => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollLeft = 0;
+  }, [prrScreen, reportView]);
+
+  useEffect(() => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    const onTouchStart = (event: Event) => {
+      handlePreviewTouchStart(event as TouchEvent);
+    };
+    const onTouchMove = (event: Event) => {
+      handlePreviewTouchMove(event as TouchEvent);
+    };
+    const onTouchEnd = (event: Event) => {
+      handlePreviewTouchEnd(event as TouchEvent);
+    };
+
+    viewport.addEventListener("touchstart", onTouchStart, { passive: true });
+    viewport.addEventListener("touchmove", onTouchMove, { passive: false });
+    viewport.addEventListener("touchend", onTouchEnd, { passive: true });
+    viewport.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      viewport.removeEventListener("touchstart", onTouchStart);
+      viewport.removeEventListener("touchmove", onTouchMove);
+      viewport.removeEventListener("touchend", onTouchEnd);
+      viewport.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [handlePreviewTouchEnd, handlePreviewTouchMove, handlePreviewTouchStart, prrScreen, reportView, step, previewVersion]);
 
   const handleGenerate = async () => {
     const selected = parseSelectedAnnexes(reportFields.selectedAnnexes);
@@ -782,6 +925,21 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     } catch (err) {
       console.error(err);
       toast.error("Failed to generate PRR. Check template placeholders.");
+    } finally {
+      setIsGeneratingPrr(false);
+    }
+  };
+
+  const handlePreviewPrr = async () => {
+    setIsGeneratingPrr(true);
+    try {
+      const blob = await generatePrrDocx(reportFields);
+      setPrrScreen("preview");
+      setPrrDocBlob(blob);
+      toast.success("PRR preview updated");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to preview PRR. Check template placeholders.");
     } finally {
       setIsGeneratingPrr(false);
     }
@@ -1081,7 +1239,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
           <Card className="flex flex-col rounded-xl shadow-sm xl:sticky xl:top-20 xl:self-start">
             <CardHeader>
               <CardTitle>Document preview</CardTitle>
-              <CardDescription>Scroll to review pages — scaled to panel width</CardDescription>
             </CardHeader>
             <CardContent>
               {previewError && (
@@ -1094,9 +1251,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               )}
               <div
                 ref={previewViewportRef}
-                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-3 h-[min(480px,50vh)] xl:h-[min(calc(100vh-7rem),720px)]"
+                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-1 sm:p-3 h-[min(480px,50vh)] xl:h-[min(calc(100vh-7rem),720px)]"
               >
-                <div ref={previewScalerRef} className="docx-preview-scaler mx-auto">
+                <div ref={previewScalerRef} className="docx-preview-scaler sm:mx-auto">
                   <div ref={previewRef} className="docx-preview-host bg-white" />
                 </div>
               </div>
@@ -1105,7 +1262,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         </div>
       )}
 
-      {reportView === "prr" && (
+      {reportView === "prr" && prrScreen === "form" && (
         <Card className="rounded-xl shadow-sm">
           <CardHeader>
             <CardTitle>PRR information</CardTitle>
@@ -1118,20 +1275,80 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               fields={reportFields}
               extractedKeys={extractedKeys}
               onChange={updateField}
-              visibleSectionIds={[...PRR_SECTION_IDS]}
+              sectionConfigs={PRR_FORM_SECTIONS}
+              visibleSectionIds={[...PRR_SECTION_IDS, "9"]}
             />
-            <div className="flex flex-wrap gap-3 pt-2">
+            <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap">
               <Button
                 type="button"
                 variant="outline"
-                onClick={handlePrevious}
+                onClick={handlePreviewPrr}
+                disabled={isGeneratingPrr}
+                className="w-full sm:w-auto"
               >
-                Back to Incident
+                {isGeneratingPrr ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Preview PRR
               </Button>
               <Button
                 type="button"
                 onClick={handleGeneratePrr}
                 disabled={isGeneratingPrr}
+                className="w-full sm:w-auto"
+              >
+                {isGeneratingPrr ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                Generate PRR
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {reportView === "prr" && prrScreen === "preview" && (
+        <Card className="rounded-xl shadow-sm">
+          <CardHeader>
+            <CardTitle>PRR preview</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {previewError && (
+              <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {previewError}
+              </p>
+            )}
+            {!previewError && !prrDocBlob && (
+              <p className="mb-3 text-sm text-muted-foreground">Generate a PRR preview to review the document here.</p>
+            )}
+            {!previewError && prrDocBlob && (
+              <div
+                ref={previewViewportRef}
+                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-1 sm:p-3 h-[60dvh] sm:h-[70vh]"
+              >
+                <div ref={previewScalerRef} className="docx-preview-scaler sm:mx-auto">
+                  <div ref={previewRef} className="docx-preview-host bg-white" />
+                </div>
+              </div>
+            )}
+            <div className="flex flex-col gap-3 pt-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPrrScreen("form")}
+                className="w-full sm:w-auto"
+              >
+                Back to PRR information
+              </Button>
+              <Button
+                type="button"
+                onClick={handleGeneratePrr}
+                disabled={isGeneratingPrr}
+                className="w-full sm:w-auto"
               >
                 {isGeneratingPrr ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

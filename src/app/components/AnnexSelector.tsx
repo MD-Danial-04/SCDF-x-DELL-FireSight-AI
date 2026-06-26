@@ -14,14 +14,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import { cn } from "./ui/utils";
 import {
   ANNEX_DEFINITIONS,
   ANNEX_REFERENCE_SOURCE,
   buildAnnexAttachmentList,
-  getAnnexById,
   sortAnnexIds,
 } from "../constants/annexDefinitions";
-import { AnnexPageEditor } from "./AnnexPageEditor";
 import { FloorplanAnnexEditor } from "./FloorplanAnnexEditor";
 import { AnnexEEditor } from "./AnnexEEditor";
 import { AnnexGBurnChartEditor, type AnnexGEditorState } from "./AnnexGBurnChartEditor";
@@ -123,7 +122,6 @@ export function AnnexSelector({
   onFloorplanSvgChange,
 }: AnnexSelectorProps) {
   const [openEditorId, setOpenEditorId] = useState<string>("");
-  const [previewsOpen, setPreviewsOpen] = useState("");
   const [mobileFloorplanOpen, setMobileFloorplanOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -139,6 +137,13 @@ export function AnnexSelector({
     const next = checked
       ? sortAnnexIds([...selectedIds, id])
       : selectedIds.filter((x) => x !== id);
+    onChange(next, buildAnnexAttachmentList(next));
+  };
+
+  const allAnnexesSelected = selectedIds.length === ANNEX_DEFINITIONS.length;
+
+  const toggleAllAnnexes = (checked: boolean) => {
+    const next = checked ? sortAnnexIds(ANNEX_DEFINITIONS.map((annex) => annex.id)) : [];
     onChange(next, buildAnnexAttachmentList(next));
   };
 
@@ -192,6 +197,7 @@ export function AnnexSelector({
         body: (
           <PhotoLogEditor
             enabled
+            persistenceKey={floorplanPersistenceKey}
             photos={photos}
             previewUrls={photoPreviewUrls}
             photoAnalysisContext={photoAnalysisContext}
@@ -243,6 +249,7 @@ export function AnnexSelector({
             locationOfFire={locationOfFire}
             nameOfVictim={nameOfVictim}
             nricFinNumber={nricFinNumber}
+            persistenceKey={floorplanPersistenceKey}
             onOverrideChange={onOverrideChange}
             initialState={annexGState}
             onStateChange={onAnnexGStateChange}
@@ -302,6 +309,16 @@ export function AnnexSelector({
       </div>
 
       <div className="rounded-xl border border-border bg-white p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <Label className="block text-sm font-medium">Include annexes (A-G)</Label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <Checkbox
+              checked={allAnnexesSelected}
+              onCheckedChange={(checked) => toggleAllAnnexes(checked === true)}
+            />
+            <span>Select all</span>
+          </label>
+        </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {ANNEX_DEFINITIONS.map((annex) => (
             <label
@@ -372,7 +389,20 @@ export function AnnexSelector({
                     </div>
                   </div>
                 </AccordionTrigger>
-                <AccordionContent forceMount className="pt-1 pb-2">{card.body}</AccordionContent>
+                <AccordionContent
+                  forceMount={card.id === "photo-log" || card.id === "annex-g" ? true : undefined}
+                  className="pt-1 pb-2"
+                >
+                  <div
+                    className={cn(
+                      (card.id === "photo-log" || card.id === "annex-g") &&
+                        openEditorId !== card.id &&
+                        "hidden",
+                    )}
+                  >
+                    {card.body}
+                  </div>
+                </AccordionContent>
               </AccordionItem>
             ))}
           </Accordion>
@@ -389,38 +419,6 @@ export function AnnexSelector({
             </div>
           </DialogContent>
         </Dialog>
-      )}
-      {onOverrideChange && selectedIds.length > 0 && (
-        <div className="rounded-xl border border-border bg-white p-4">
-          <Accordion
-            type="single"
-            collapsible
-            value={previewsOpen}
-            onValueChange={setPreviewsOpen}
-            className="w-full"
-          >
-            <AccordionItem value="generated-previews" className="border-b-0">
-              <AccordionTrigger className="py-2 hover:no-underline">
-                <div className="text-left">
-                  <p className="text-sm font-medium text-foreground">Generated annex previews</p>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Review the final page images that will be appended to the report.
-                  </p>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pt-2 pb-0">
-                <AnnexPageEditor
-                  selectedIds={selectedIds}
-                  overrides={overrides}
-                  onOverrideChange={onOverrideChange}
-                  headerPreviewUrls={headerPreviewUrls}
-                  photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
-                  photoLogPreviewLoading={photoLogPreviewLoading}
-                />
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </div>
       )}
     </div>
   );
