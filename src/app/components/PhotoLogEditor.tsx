@@ -22,6 +22,7 @@ import {
   type PhotoAnalysisReportContext,
 } from "../lib/buildPhotoAnalysisContext";
 import { usePhotoAnalysis } from "../hooks/usePhotoAnalysis";
+import { AiProcessingDialog } from "./AiProcessingDialog";
 import { isCoordinatorConfigured } from "../types/inference";
 import {
   getSectionLinkTooltip,
@@ -260,6 +261,11 @@ export function PhotoLogEditor({
       onPaste={handlePaste}
       tabIndex={0}
     >
+      <AiProcessingDialog
+        open={isAnalyzing}
+        kind="photo-analysis"
+        progress={progress ?? undefined}
+      />
       <div>
         <p className="text-sm font-medium">Photo log (Annex D &amp; F)</p>
         <p className="text-xs text-gray-500 mt-1">

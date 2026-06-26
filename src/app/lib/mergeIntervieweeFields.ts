@@ -31,17 +31,22 @@ export interface MergeIntervieweeFieldsResult {
 
 export function mergeIntervieweeFields(
   interviewee: Interviewee,
-  extracted: InterviewDetailsResult | null | undefined
+  extracted: InterviewDetailsResult | null | undefined,
+  allowedKeys?: Iterable<IntervieweeFieldKey>
 ): MergeIntervieweeFieldsResult {
   if (!extracted?.fields) {
     return { interviewee, extractedKeys: new Set() };
   }
 
+  const allowList = allowedKeys ? new Set(allowedKeys) : null;
   let changed = false;
   const next: Interviewee = { ...interviewee };
   const extractedKeys = new Set<IntervieweeFieldKey>();
 
   for (const key of INTERVIEW_DETAIL_FIELD_KEYS) {
+    if (allowList && !allowList.has(key)) {
+      continue;
+    }
     const currentValue = `${next[key] ?? ""}`.trim();
     const incomingValue = `${extracted.fields[key] ?? ""}`.trim();
     if (currentValue || !incomingValue) {

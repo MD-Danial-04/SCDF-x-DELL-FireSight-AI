@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Outlet, NavLink, useLocation } from "react-router";
-import { LayoutDashboard, FileText, FileImage, FolderOpen, Flame, Menu } from "lucide-react";
+import { LayoutDashboard, FileText, FileImage, FolderOpen, Flame, Menu, Settings } from "lucide-react";
 import { cn } from "./ui/utils";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet";
+import { DevSettingsDialog } from "./DevSettingsDialog";
 
 type NavItem = {
   to: string;
@@ -107,6 +108,7 @@ function SidebarBrand() {
 export function Layout() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [devSettingsOpen, setDevSettingsOpen] = useState(false);
   const meta =
     routeMeta[location.pathname] ??
     (["/incident", "/report", "/slides"].includes(location.pathname)
@@ -148,6 +150,15 @@ export function Layout() {
               {meta.description}
             </p>
           </div>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Developer settings"
+            onClick={() => setDevSettingsOpen(true)}
+          >
+            <Settings className="h-5 w-5" />
+          </Button>
         </header>
 
         <main className="flex-1">
@@ -160,6 +171,8 @@ export function Layout() {
           © 2026 FireSight AI — For official use only
         </footer>
       </div>
+
+      <DevSettingsDialog open={devSettingsOpen} onOpenChange={setDevSettingsOpen} />
     </div>
   );
 }

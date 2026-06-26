@@ -25,6 +25,7 @@ function getRouteSessionValue(state: unknown): ReportSession {
     fieldNotes: session.fieldNotes ?? "",
     premisesOwner: session.premisesOwner,
     premisesUen: session.premisesUen,
+    resumeDraftIncidentNo: session.resumeDraftIncidentNo,
   };
 }
 

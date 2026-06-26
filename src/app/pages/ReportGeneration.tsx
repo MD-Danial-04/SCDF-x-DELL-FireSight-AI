@@ -2,17 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { FileText, Download, Loader2, RefreshCw } from "lucide-react";
+import { FileText, Download, Loader2, RefreshCw, Save } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBanner } from "../components/StatusBanner";
+import { ExtractionLoadingScreen } from "../components/ExtractionLoadingScreen";
+import { remainingMinDelayMs, randomDemoDelayMs } from "../lib/loadingTiming";
 import { Badge } from "../components/ui/badge";
 import { getIncidentCategoryLabel } from "../constants/incidentTemplates";
 import { useReportSession } from "../context/ReportSessionContext";
 import { createEmptyReportFields, type FireReportData } from "../types/fireReport";
 import { extractReportFields, mergeReportFields } from "../lib/extractReportFields";
-import { applyPhotoSectionRef } from "../lib/applyPhotoSectionRef";
+import {
+  migrateLegacyPhotoRefs,
+  resolvePhotoRefText,
+} from "../lib/applyPhotoSectionRef";
 import type { PhotoAnalysisPartialEntry } from "../lib/buildPhotoAnalysisContext";
 import { useExtractionJob } from "../hooks/useExtractionJob";
 import { isInferenceConfigured } from "../types/inference";
@@ -40,15 +45,25 @@ import { generateAnnexDBlobs, generateAnnexFBlobs } from "../lib/photoLogAnnexes
 import {
   createPhotoCopy,
   createPhotoLogEntry,
-  getPhotoLogDisplayInfo,
   type PhotoLogAnnexPreviewUrls,
   type PhotoLogEntry,
 } from "../types/photoLog";
 import {
   PHOTO_REF_LABELS,
+  SUGGESTED_PHOTO_SECTIONS,
   SUGGESTED_SECTION_TO_PHOTO_REF,
   type SuggestedPhotoSection,
 } from "../types/photoAnalysis";
+import {
+  getIncidentDraft,
+  upsertIncidentDraft,
+  INCIDENT_DRAFT_PAYLOAD_VERSION,
+  type IncidentDraftPayload,
+} from "../lib/incidentDrafts";
+import { loadPhotos, savePhotos } from "../lib/photoDraftStore";
+import type { FloorplanDraftPayload } from "../lib/floorplanDrafts";
+import type { AnnexEMarker } from "../lib/annexEMarkers";
+import type { AnnexGEditorState } from "../components/AnnexGBurnChartEditor";
 
 type Step = "review" | "edit";
 type ReportView = "fir" | "prr";
@@ -63,12 +78,14 @@ interface ReportGenerationProps {
 
 export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const navigate = useNavigate();
-  const { incidentType, stopMessage, fieldNotes, transcriptionJobId } = useReportSession();
-  const { runExtraction, isExtracting, error: extractionError } = useExtractionJob();
+  const { incidentType, stopMessage, fieldNotes, transcriptionJobId, resumeDraftIncidentNo } =
+    useReportSession();
+  const { runExtraction, error: extractionError } = useExtractionJob();
   const [step, setStep] = useState<Step>("review");
   const [reportView, setReportView] = useState<ReportView>("fir");
   const [reportFields, setReportFields] = useState<FireReportData>(() => createEmptyReportFields());
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
+  const [phase, setPhase] = useState<"loading" | "ready">("loading");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingPrr, setIsGeneratingPrr] = useState(false);
   const [generatingStatementId, setGeneratingStatementId] = useState<string | null>(null);
@@ -85,6 +102,11 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     useState<PhotoLogAnnexPreviewUrls>({ D: [], F: [] });
   const [photoLogPreviewLoading, setPhotoLogPreviewLoading] = useState(false);
   const [floorplanSvg, setFloorplanSvg] = useState<string | null>(null);
+  const [floorplanDraftState, setFloorplanDraftState] = useState<FloorplanDraftPayload | null>(null);
+  const [annexEMarkers, setAnnexEMarkers] = useState<AnnexEMarker[] | null>(null);
+  const [annexGState, setAnnexGState] = useState<AnnexGEditorState | null>(null);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const resumeHandledRef = useRef(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewVersion, setPreviewVersion] = useState(0);
 
@@ -135,6 +157,18 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
           }
         }
         return next;
+      });
+
+      setReportFields((fields) => {
+        if (!fields.photoRefLinks) return fields;
+        let changed = false;
+        const nextLinks: typeof fields.photoRefLinks = {};
+        for (const [section, ids] of Object.entries(fields.photoRefLinks)) {
+          const filtered = (ids ?? []).filter((pid) => !removedIds.has(pid));
+          if (filtered.length !== (ids ?? []).length) changed = true;
+          nextLinks[section as SuggestedPhotoSection] = filtered;
+        }
+        return changed ? { ...fields, photoRefLinks: nextLinks } : fields;
       });
 
       return prev.filter((p) => !removedIds.has(p.id));
@@ -210,24 +244,70 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         return;
       }
 
-      const displayInfo = getPhotoLogDisplayInfo(photos).find(
-        (info) => info.entry.id === photoId,
-      );
-      const photoNumber = displayInfo?.number;
-      if (!photoNumber) {
-        toast.error("Could not resolve photo number");
-        return;
-      }
+      let alreadyLinked = false;
+      setReportFields((prev) => {
+        const existing = prev.photoRefLinks?.[section] ?? [];
+        if (existing.includes(photoId)) {
+          alreadyLinked = true;
+          return prev;
+        }
+        return {
+          ...prev,
+          photoRefLinks: { ...prev.photoRefLinks, [section]: [...existing, photoId] },
+        };
+      });
 
-      const fieldKey = SUGGESTED_SECTION_TO_PHOTO_REF[section];
-      setReportFields((prev) => ({
-        ...prev,
-        [fieldKey]: applyPhotoSectionRef(prev[fieldKey], section, photoNumber),
-      }));
-      toast.success(`Linked to ${PHOTO_REF_LABELS[section]}`);
+      if (alreadyLinked) {
+        toast.info(`Already linked to ${PHOTO_REF_LABELS[section]}`);
+      } else {
+        toast.success(`Linked to ${PHOTO_REF_LABELS[section]}`);
+      }
     },
     [photos],
   );
+
+  const handlePhotoRefLinksChange = useCallback(
+    (section: SuggestedPhotoSection, photoIds: string[]) => {
+      setReportFields((prev) => ({
+        ...prev,
+        photoRefLinks: { ...prev.photoRefLinks, [section]: photoIds },
+      }));
+    },
+    [],
+  );
+
+  const handlePhotoRefNoteChange = useCallback(
+    (section: SuggestedPhotoSection, note: string) => {
+      setReportFields((prev) => ({
+        ...prev,
+        photoRefNotes: { ...prev.photoRefNotes, [section]: note },
+      }));
+    },
+    [],
+  );
+
+  // Keep the derived *PhotoRef string fields in sync with the structured links
+  // and current photo order, so reordering/deleting photos updates references.
+  useEffect(() => {
+    setReportFields((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const section of SUGGESTED_PHOTO_SECTIONS) {
+        const fieldKey = SUGGESTED_SECTION_TO_PHOTO_REF[section];
+        const resolved = resolvePhotoRefText(
+          section,
+          prev.photoRefLinks?.[section],
+          photos,
+          prev.photoRefNotes?.[section],
+        );
+        if (next[fieldKey] !== resolved) {
+          (next as Record<string, unknown>)[fieldKey] = resolved;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [photos, reportFields.photoRefLinks, reportFields.photoRefNotes]);
 
   const selectedAnnexes = useMemo(
     () => parseSelectedAnnexes(reportFields.selectedAnnexes),
@@ -377,7 +457,18 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   ]);
 
   useEffect(() => {
+    // When resuming a saved draft, skip extraction; the resume effect seeds state.
+    if (resumeDraftIncidentNo) return;
+
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const startedAt = Date.now();
+
+    const finish = (delayMs: number) => {
+      timer = setTimeout(() => {
+        if (!cancelled) setPhase("ready");
+      }, delayMs);
+    };
 
     const applyFallback = () => {
       const extracted = extractReportFields(stopMessage, incidentType?.name);
@@ -392,10 +483,17 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       }
     };
 
+    // Demo / unconfigured: no live extraction, play a random 1-3s fake load.
     if (!transcriptionJobId || !isInferenceConfigured() || !stopMessage.trim()) {
-      applyFallback();
+      const delay = randomDemoDelayMs();
+      timer = setTimeout(() => {
+        if (cancelled) return;
+        applyFallback();
+        setPhase("ready");
+      }, delay);
       return () => {
         cancelled = true;
+        if (timer) clearTimeout(timer);
       };
     }
 
@@ -419,12 +517,83 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       })
       .catch(() => {
         applyFallback();
+      })
+      .finally(() => {
+        finish(remainingMinDelayMs(startedAt));
       });
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [incidentType?.name, runExtraction, stopMessage, transcriptionJobId]);
+  }, [incidentType?.name, runExtraction, stopMessage, transcriptionJobId, resumeDraftIncidentNo]);
+
+  useEffect(() => {
+    if (!resumeDraftIncidentNo || resumeHandledRef.current) return;
+    resumeHandledRef.current = true;
+
+    let cancelled = false;
+    const createdUrls: string[] = [];
+
+    void (async () => {
+      try {
+        const draft = await getIncidentDraft(resumeDraftIncidentNo);
+        if (cancelled) return;
+        if (!draft) {
+          toast.error("Saved draft not found.");
+          return;
+        }
+
+        const payload = draft.payload;
+        setReportFields(payload.reportFields);
+        setExtractedKeys(new Set());
+        setFloorplanSvg(payload.floorplanSvg ?? null);
+        setFloorplanDraftState(payload.floorplanDraftState ?? null);
+        setAnnexEMarkers(payload.annexEMarkers ?? null);
+        setAnnexGState(payload.annexGState ?? null);
+
+        const restoredPhotos = await loadPhotos(resumeDraftIncidentNo);
+        if (cancelled) return;
+        if (restoredPhotos.length > 0) {
+          setPhotos(restoredPhotos);
+          const urls: Record<string, string> = {};
+          for (const photo of restoredPhotos) {
+            const url = URL.createObjectURL(photo.blob);
+            urls[photo.id] = url;
+            createdUrls.push(url);
+          }
+          setPhotoPreviewUrls(urls);
+          toast.success("Draft resumed (photos restored from this device)");
+        } else {
+          toast.success("Draft resumed");
+        }
+
+        // Migrate legacy free-text photo refs (drafts saved before structured
+        // linking) into photoRefLinks/notes, without clobbering existing links.
+        const hasLinks = Object.keys(payload.reportFields.photoRefLinks ?? {}).length > 0;
+        if (!hasLinks) {
+          const migrated = migrateLegacyPhotoRefs(payload.reportFields, restoredPhotos);
+          setReportFields((prev) => ({
+            ...prev,
+            photoRefLinks: { ...migrated.links, ...prev.photoRefLinks },
+            photoRefNotes: { ...migrated.notes, ...prev.photoRefNotes },
+          }));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+          toast.error(err instanceof Error ? err.message : "Failed to load draft.");
+        }
+      } finally {
+        if (!cancelled) setPhase("ready");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      for (const url of createdUrls) URL.revokeObjectURL(url);
+    };
+  }, [resumeDraftIncidentNo]);
 
   const updateField = useCallback((key: keyof FireReportData, value: string) => {
     setReportFields((prev) => ({ ...prev, [key]: value }));
@@ -433,6 +602,45 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const updateInterviewees = useCallback((interviewees: Interviewee[]) => {
     setReportFields((prev) => ({ ...prev, interviewees }));
   }, []);
+
+  const handleFloorplanDraftStateChange = useCallback((payload: FloorplanDraftPayload) => {
+    setFloorplanDraftState(payload);
+  }, []);
+
+  const handleAnnexEMarkersChange = useCallback((markers: AnnexEMarker[]) => {
+    setAnnexEMarkers(markers);
+  }, []);
+
+  const handleAnnexGStateChange = useCallback((state: AnnexGEditorState) => {
+    setAnnexGState(state);
+  }, []);
+
+  const handleSaveDraft = useCallback(async () => {
+    const incidentNo = reportFields.incidentNo?.trim();
+    if (!incidentNo) {
+      toast.warning("Set an incident number before saving a draft.");
+      return;
+    }
+    setIsSavingDraft(true);
+    try {
+      const payload: IncidentDraftPayload = {
+        version: INCIDENT_DRAFT_PAYLOAD_VERSION,
+        reportFields,
+        floorplanSvg,
+        floorplanDraftState,
+        annexEMarkers: annexEMarkers ?? [],
+        annexGState,
+      };
+      await upsertIncidentDraft(incidentNo, reportFields.locationOfFire || null, payload);
+      await savePhotos(incidentNo, photos);
+      toast.success("Draft saved");
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to save draft");
+    } finally {
+      setIsSavingDraft(false);
+    }
+  }, [annexEMarkers, annexGState, floorplanDraftState, floorplanSvg, photos, reportFields]);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
@@ -653,6 +861,10 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       ? "Review extracted fields, generate the Word document, then edit and download."
       : "Review the PRR-only sections, then generate the Preliminary Report Response document.";
 
+  if (phase === "loading") {
+    return <ExtractionLoadingScreen variant="report" stopMessagePreview={stopPreview} />;
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -670,15 +882,22 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 </Badge>
               </>
             ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleSaveDraft()}
+              disabled={isSavingDraft}
+            >
+              {isSavingDraft ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Save draft
+            </Button>
           </div>
         }
       />
-
-      {isExtracting ? (
-        <StatusBanner variant="info" title="Extracting report fields">
-          <p>Running NLP extraction on your edited transcript...</p>
-        </StatusBanner>
-      ) : null}
 
       {extractionError ? (
         <StatusBanner variant="warning" title="Using local fallback extraction">
@@ -746,10 +965,18 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               photoAnalysisContext={photoAnalysisContext}
               onPhotosAnalyzed={handlePhotosAnalyzed}
               onApplyPhotoSection={handleApplyPhotoSection}
+              onPhotoRefLinksChange={handlePhotoRefLinksChange}
+              onPhotoRefNoteChange={handlePhotoRefNoteChange}
               photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
               photoLogPreviewLoading={photoLogPreviewLoading}
               floorplanSvg={floorplanSvg}
               onFloorplanSvgChange={setFloorplanSvg}
+              floorplanDraftState={floorplanDraftState}
+              onFloorplanDraftStateChange={handleFloorplanDraftStateChange}
+              annexEMarkers={annexEMarkers}
+              onAnnexEMarkersChange={handleAnnexEMarkersChange}
+              annexGState={annexGState}
+              onAnnexGStateChange={handleAnnexGStateChange}
               onIntervieweesChange={updateInterviewees}
               onGenerateStatement={handleGenerateStatement}
               onGenerateAllStatements={handleGenerateAllStatements}
@@ -800,6 +1027,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 photoAnalysisContext={photoAnalysisContext}
                 onPhotosAnalyzed={handlePhotosAnalyzed}
                 onApplyPhotoSection={handleApplyPhotoSection}
+                onPhotoRefLinksChange={handlePhotoRefLinksChange}
+                onPhotoRefNoteChange={handlePhotoRefNoteChange}
                 photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
                 photoLogPreviewLoading={photoLogPreviewLoading}
                 floorplanSvg={floorplanSvg}

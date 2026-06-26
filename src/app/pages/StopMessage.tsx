@@ -35,6 +35,8 @@ import {
 import { useRecordingTimer } from "../hooks/useRecordingTimer";
 import { useMediaRecorder } from "../hooks/useMediaRecorder";
 import { useTranscriptionJob } from "../hooks/useTranscriptionJob";
+import { AiProcessingDialog } from "../components/AiProcessingDialog";
+import { AudioWaveform } from "../components/AudioWaveform";
 import { isInferenceConfigured } from "../types/inference";
 
 const FAM_DEMO_SELECT_ID = "demo-fam";
@@ -59,6 +61,7 @@ export function StopMessage() {
   const { isRecording, recordingTime, start, stop, formatTime } = useRecordingTimer();
   const {
     isRecording: isMediaRecording,
+    stream: mediaStream,
     start: startMediaRecording,
     stop: stopMediaRecording,
   } = useMediaRecorder();
@@ -309,6 +312,7 @@ export function StopMessage() {
 
   return (
     <div className="space-y-8">
+      <AiProcessingDialog open={isProcessing} kind="transcription" />
       <PageHeader
         title={mode === "late" ? "Late activation / response slides" : "Incident report / slides"}
         description={
@@ -410,7 +414,21 @@ export function StopMessage() {
                     className="font-mono text-sm bg-muted/50"
                   />
 
-                  <div className="border-t pt-4 flex items-center justify-center gap-3">
+                  <div className="border-t pt-4 space-y-3">
+                    {isActivelyRecording && (
+                      <div className="flex items-center justify-center gap-3">
+                        <span className="relative flex h-2.5 w-2.5 shrink-0">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
+                        </span>
+                        <AudioWaveform
+                          active={isActivelyRecording}
+                          stream={useLiveInference ? mediaStream : null}
+                          className="h-9 w-full max-w-xs"
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center justify-center gap-3">
                     {isActivelyRecording && (
                       <span className="text-sm font-mono text-primary tabular-nums">
                         {formatTime(recordingTime)}
@@ -440,6 +458,7 @@ export function StopMessage() {
                         </>
                       )}
                     </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

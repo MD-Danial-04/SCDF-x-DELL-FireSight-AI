@@ -1,5 +1,12 @@
 import { defaultCaseId } from "../lib/caseId";
 import { createEmptyInterviewee, type Interviewee } from "./interviewee";
+import type { SuggestedPhotoSection } from "./photoAnalysis";
+
+/** Ordered list of linked photo ids per photo-ref section (source of truth). */
+export type PhotoRefLinks = Partial<Record<SuggestedPhotoSection, string[]>>;
+
+/** Optional free-text lead-in per photo-ref section (e.g. "See", "See Annex A and"). */
+export type PhotoRefNotes = Partial<Record<SuggestedPhotoSection, string>>;
 
 export interface FireReportData {
   // 1 GENERAL INFORMATION
@@ -51,6 +58,10 @@ export interface FireReportData {
   evidentiaryFactors: string;
   evidentiaryPhotoRef: string;
   interviewees: Interviewee[];
+
+  // Photo reference linking (source of truth for the *PhotoRef strings above)
+  photoRefLinks: PhotoRefLinks;
+  photoRefNotes: PhotoRefNotes;
 
   // 6 INJURY
   injuryName: string;
@@ -122,6 +133,8 @@ export function createEmptyReportFields(): FireReportData {
     evidentiaryFactors: "",
     evidentiaryPhotoRef: "See Photo X",
     interviewees: [createEmptyInterviewee()],
+    photoRefLinks: {},
+    photoRefNotes: {},
     injuryName: "Nil",
     injuryPin: "Nil",
     injuryAddress: "Nil",

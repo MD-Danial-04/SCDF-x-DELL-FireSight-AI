@@ -65,6 +65,7 @@
     "pdfjs-dist": "^6.0.227",
     "pizzip": "^3.2.0",
     "pptxgenjs": "^4.0.1",
+    "qrcode.react": "^4.2.0",
     "react-day-picker": "8.10.1",
     "react-dnd": "16.0.1",
     "react-dnd-html5-backend": "16.0.1",
