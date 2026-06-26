@@ -24,9 +24,11 @@ import {
 import { AnnexPageEditor } from "./AnnexPageEditor";
 import { FloorplanAnnexEditor } from "./FloorplanAnnexEditor";
 import { AnnexEEditor } from "./AnnexEEditor";
-import { AnnexGBurnChartEditor } from "./AnnexGBurnChartEditor";
+import { AnnexGBurnChartEditor, type AnnexGEditorState } from "./AnnexGBurnChartEditor";
 import { PhotoLogEditor } from "./PhotoLogEditor";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
+import type { FloorplanDraftPayload } from "../lib/floorplanDrafts";
+import type { AnnexEMarker } from "../lib/annexEMarkers";
 import type { PhotoAnalysisPartialEntry, PhotoAnalysisReportContext } from "../lib/buildPhotoAnalysisContext";
 import type { SuggestedPhotoSection } from "../types/photoAnalysis";
 
@@ -55,6 +57,12 @@ interface AnnexSelectorProps {
   floorplanSvg?: string | null;
   floorplanPersistenceKey?: string | null;
   onFloorplanSvgChange?: (svg: string | null) => void;
+  floorplanDraftState?: FloorplanDraftPayload | null;
+  onFloorplanDraftStateChange?: (payload: FloorplanDraftPayload) => void;
+  annexEMarkers?: AnnexEMarker[] | null;
+  onAnnexEMarkersChange?: (markers: AnnexEMarker[]) => void;
+  annexGState?: AnnexGEditorState | null;
+  onAnnexGStateChange?: (state: AnnexGEditorState) => void;
 }
 
 interface EditorCardDefinition {
@@ -104,6 +112,12 @@ export function AnnexSelector({
   onApplyPhotoSection,
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
+  floorplanDraftState = null,
+  onFloorplanDraftStateChange,
+  annexEMarkers = null,
+  onAnnexEMarkersChange,
+  annexGState = null,
+  onAnnexGStateChange,
   floorplanSvg = null,
   floorplanPersistenceKey = null,
   onFloorplanSvgChange,
@@ -152,6 +166,8 @@ export function AnnexSelector({
             persistenceKey={floorplanPersistenceKey}
             onOverrideChange={onOverrideChange}
             onFloorplanSvgChange={onFloorplanSvgChange}
+            initialDraftState={floorplanDraftState}
+            onDraftStateChange={onFloorplanDraftStateChange}
           />
         ),
       });
@@ -206,6 +222,8 @@ export function AnnexSelector({
             incidentNo={incidentNo}
             locationOfFire={locationOfFire}
             onOverrideChange={onOverrideChange}
+            initialMarkers={annexEMarkers}
+            onMarkersChange={onAnnexEMarkersChange}
           />
         ),
       });
@@ -226,6 +244,8 @@ export function AnnexSelector({
             nameOfVictim={nameOfVictim}
             nricFinNumber={nricFinNumber}
             onOverrideChange={onOverrideChange}
+            initialState={annexGState}
+            onStateChange={onAnnexGStateChange}
           />
         ),
       });
@@ -251,6 +271,12 @@ export function AnnexSelector({
     onRemovePhoto,
     onReorderPhoto,
     onFloorplanSvgChange,
+    floorplanDraftState,
+    onFloorplanDraftStateChange,
+    annexEMarkers,
+    onAnnexEMarkersChange,
+    annexGState,
+    onAnnexGStateChange,
     overrides,
     photoAnalysisContext,
     photoLogSelected,
@@ -276,7 +302,6 @@ export function AnnexSelector({
       </div>
 
       <div className="rounded-xl border border-border bg-white p-4">
-        <Label className="mb-3 block text-sm font-medium">Include annexes (A-G)</Label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {ANNEX_DEFINITIONS.map((annex) => (
             <label

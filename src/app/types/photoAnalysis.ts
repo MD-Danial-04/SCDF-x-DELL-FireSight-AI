@@ -27,6 +27,16 @@ export const SUGGESTED_SECTION_TO_PHOTO_REF: Record<
   evidentiary: "evidentiaryPhotoRef",
 };
 
+/** Reverse of SUGGESTED_SECTION_TO_PHOTO_REF: ref field key -> section. */
+export const PHOTO_REF_FIELD_TO_SECTION: Partial<
+  Record<FireReportFieldKey, SuggestedPhotoSection>
+> = Object.fromEntries(
+  (Object.entries(SUGGESTED_SECTION_TO_PHOTO_REF) as [
+    SuggestedPhotoSection,
+    FireReportFieldKey,
+  ][]).map(([section, fieldKey]) => [fieldKey, section]),
+);
+
 export const PHOTO_REF_LABELS: Record<SuggestedPhotoSection, string> = {
   incident: "Incident photos",
   damages: "Damages",
@@ -61,6 +71,15 @@ export const DEFAULT_PHOTO_REF_PLACEHOLDERS: Record<SuggestedPhotoSection, strin
   area_of_origin: "See Photo X",
   burn_patterns: "See Photo X",
   evidentiary: "See Photo X",
+};
+
+/** Default free-text lead-in for each *PhotoRef field when photos are linked. */
+export const DEFAULT_PHOTO_REF_NOTES: Record<SuggestedPhotoSection, string> = {
+  incident: "See Annex A and",
+  damages: "See",
+  area_of_origin: "See",
+  burn_patterns: "See",
+  evidentiary: "See",
 };
 
 /** Minimum model confidence required to surface a section suggestion in the UI. */

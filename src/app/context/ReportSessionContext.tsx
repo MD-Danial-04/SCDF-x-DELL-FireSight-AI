@@ -8,6 +8,8 @@ export interface ReportSession {
   premisesOwner?: string;
   premisesUen?: string;
   transcriptionJobId?: string;
+  /** When set, ReportGeneration resumes this incident's saved draft instead of running extraction. */
+  resumeDraftIncidentNo?: string;
 }
 
 const ReportSessionContext = createContext<ReportSession | null>(null);

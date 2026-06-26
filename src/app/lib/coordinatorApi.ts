@@ -6,6 +6,20 @@ const coordinatorUrl = () =>
 
 const webApiKey = () => import.meta.env.VITE_WEB_API_KEY as string | undefined;
 
+/**
+ * Map a recording blob's MIME type to a file extension the transcription
+ * backend recognises. Safari records MP4/AAC; Chrome/Firefox record WebM.
+ */
+function audioExtensionForType(type: string): string {
+  const t = (type || "").toLowerCase();
+  if (t.includes("wav")) return "wav";
+  if (t.includes("ogg")) return "ogg";
+  if (t.includes("mp4")) return "mp4";
+  if (t.includes("aac") || t.includes("m4a")) return "m4a";
+  if (t.includes("mpeg") || t.includes("mpga") || t.includes("mp3")) return "mp3";
+  return "webm";
+}
+
 export async function createInferenceJob(
   file: Blob,
   messageType: MessageType,
@@ -18,9 +32,8 @@ export async function createInferenceJob(
     throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
   }
 
-  const extension = file.type.includes("wav") ? "wav" : "webm";
   const formData = new FormData();
-  formData.append("file", file, `recording.${extension}`);
+  formData.append("file", file, `recording.${audioExtensionForType(file.type)}`);
   formData.append("message_type", messageType);
   if (incidentTypeName) {
     formData.append("incident_type_name", incidentTypeName);

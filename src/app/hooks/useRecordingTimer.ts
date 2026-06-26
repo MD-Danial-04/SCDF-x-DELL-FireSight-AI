@@ -8,6 +8,7 @@ export function formatRecordingTime(seconds: number): string {
 
 export function useRecordingTimer() {
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -20,20 +21,38 @@ export function useRecordingTimer() {
 
   useEffect(() => () => clearTimer(), [clearTimer]);
 
-  const start = useCallback(() => {
-    clearTimer();
-    setIsRecording(true);
-    setRecordingTime(0);
+  const tick = useCallback(() => {
+    if (timerRef.current) return;
     timerRef.current = setInterval(() => {
       setRecordingTime((prev) => prev + 1);
     }, 1000);
-  }, [clearTimer]);
+  }, []);
+
+  const start = useCallback(() => {
+    clearTimer();
+    setIsRecording(true);
+    setIsPaused(false);
+    setRecordingTime(0);
+    tick();
+  }, [clearTimer, tick]);
 
   const stop = useCallback(() => {
     clearTimer();
     setIsRecording(false);
+    setIsPaused(false);
     setRecordingTime(0);
   }, [clearTimer]);
+
+  // Pause/resume keep the elapsed time; only the ticking interval is toggled.
+  const pause = useCallback(() => {
+    clearTimer();
+    setIsPaused(true);
+  }, [clearTimer]);
+
+  const resume = useCallback(() => {
+    setIsPaused(false);
+    tick();
+  }, [tick]);
 
   const toggle = useCallback(() => {
     if (isRecording) stop();
@@ -42,9 +61,12 @@ export function useRecordingTimer() {
 
   return {
     isRecording,
+    isPaused,
     recordingTime,
     start,
     stop,
+    pause,
+    resume,
     toggle,
     formatTime: formatRecordingTime,
   };

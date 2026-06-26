@@ -31,11 +31,17 @@ interface Point {
   y: number;
 }
 
-interface Stroke {
+export interface Stroke {
   id: string;
   mode: ToolMode;
   points: Point[];
   size: number;
+}
+
+/** Serializable Annex G editor state for incident drafts. */
+export interface AnnexGEditorState {
+  strokes: Stroke[];
+  fields: AnnexGBurnChartFields;
 }
 
 interface FitRect {
@@ -52,6 +58,8 @@ interface AnnexGBurnChartEditorProps {
   nameOfVictim?: string;
   nricFinNumber?: string;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
+  initialState?: AnnexGEditorState | null;
+  onStateChange?: (state: AnnexGEditorState) => void;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -161,10 +169,13 @@ export function AnnexGBurnChartEditor({
   nameOfVictim = "",
   nricFinNumber = "",
   onOverrideChange,
+  initialState = null,
+  onStateChange,
 }: AnnexGBurnChartEditorProps) {
   const sourceUrl = getDefaultPagePreviewUrl(ANNEX_G_PAGE_INDEX);
   const [tool, setTool] = useState<ToolMode>("paint");
-  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const [strokes, setStrokes] = useState<Stroke[]>(() => initialState?.strokes ?? []);
+  const hydratedRef = useRef(false);
   const [fields, setFields] = useState<AnnexGBurnChartFields>({
     incidentNo,
     locationOfFire,
@@ -194,6 +205,16 @@ export function AnnexGBurnChartEditor({
       nricFinNumber,
     });
   }, [incidentNo, locationOfFire, nameOfVictim, nricFinNumber]);
+
+  useEffect(() => {
+    if (hydratedRef.current || !initialState) return;
+    setStrokes(initialState.strokes ?? []);
+    hydratedRef.current = true;
+  }, [initialState]);
+
+  useEffect(() => {
+    onStateChange?.({ strokes, fields });
+  }, [strokes, fields, onStateChange]);
 
   useEffect(() => {
     if (!sourceUrl) {

@@ -5,13 +5,10 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "./ui/accordion";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { InterviewRecordingCard } from "./InterviewRecordingCard";
+import { AiProcessingDialog } from "./AiProcessingDialog";
+import { SingpassRetrieveButton } from "./SingpassRetrieveButton";
 import {
   TENANT_CONTACT_FIELDS,
   TENANT_PERSONAL_FIELDS,
@@ -23,11 +20,16 @@ import {
   mergeTenantFields,
   type MergeTenantFieldsResult,
 } from "../lib/mergeTenantFields";
+import { mapPersonToTenant } from "../lib/singpass/mapMyInfoPerson";
 import type { FireReportData, FireReportFieldKey } from "../types/fireReport";
 import { EXTRACTABLE_KEYS } from "../types/fireReport";
 import { isCoordinatorConfigured } from "../types/inference";
+import { TENANT_MYINFO_SCOPES, type MyInfoPerson } from "../types/myinfo";
 
-const DEFAULT_OPEN_SECTIONS = ["personal"];
+const TENANT_FIELDS: ReportFormFieldConfig[] = [
+  ...TENANT_PERSONAL_FIELDS,
+  ...TENANT_CONTACT_FIELDS,
+];
 
 interface TenantSectionEditorProps {
   fields: FireReportData;
@@ -188,81 +190,99 @@ export function TenantSectionEditor({
     );
   };
 
+  const handleSingpassRetrieved = (person: MyInfoPerson) => {
+    const merged = mapPersonToTenant(person, fields);
+    if (applyMerge(merged)) {
+      toast.success(
+        `Tenant details retrieved from Singpass (${merged.updates.length} field${
+          merged.updates.length === 1 ? "" : "s"
+        })`
+      );
+    } else {
+      toast.info("No new tenant details to fill from Singpass");
+    }
+  };
+
   return (
-    <Accordion type="multiple" defaultValue={DEFAULT_OPEN_SECTIONS} className="w-full">
-      <AccordionItem value="personal">
-        <AccordionTrigger className="text-xs font-medium text-gray-500 uppercase tracking-wide hover:no-underline">
-          Personal details
-        </AccordionTrigger>
-        <AccordionContent>
-          <TenantFieldGrid
-            fieldConfigs={TENANT_PERSONAL_FIELDS}
-            fields={fields}
-            extractedKeys={combinedExtractedKeys}
-            onChange={onChange}
-          />
-        </AccordionContent>
-      </AccordionItem>
+    <>
+      <AiProcessingDialog open={isExtracting} kind="extraction" />
+      <div className="space-y-4">
+        <Tabs defaultValue="singpass" className="gap-3">
+          <TabsList className="w-full">
+            <TabsTrigger value="singpass">Singpass</TabsTrigger>
+            <TabsTrigger value="interview">Interview recording</TabsTrigger>
+          </TabsList>
 
-      <AccordionItem value="contact">
-        <AccordionTrigger className="text-xs font-medium text-gray-500 uppercase tracking-wide hover:no-underline">
-          Contact numbers
-        </AccordionTrigger>
-        <AccordionContent>
-          <TenantFieldGrid
-            fieldConfigs={TENANT_CONTACT_FIELDS}
-            fields={fields}
-            extractedKeys={combinedExtractedKeys}
-            onChange={onChange}
-          />
-        </AccordionContent>
-      </AccordionItem>
-
-      <AccordionItem value="interview">
-        <AccordionTrigger className="text-xs font-medium text-gray-500 uppercase tracking-wide hover:no-underline">
-          Record interview
-        </AccordionTrigger>
-        <AccordionContent>
-          <InterviewRecordingCard
-            description="Record the tenant interview, then empty tenant fields above are auto-filled from the transcript"
-            interviewLanguage="en"
-            onInterviewLanguageChange={() => {}}
-            showLanguageSelect={false}
-            appliedToastMessage="Transcript captured - extracting tenant details"
-            onTranscriptsComplete={applyTranscript}
-          />
-
-          <div className="mt-4">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="tenantInterviewTranscript">Transcript</Label>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={reExtract}
-                disabled={!fields.tenantInterviewTranscript.trim() || isExtracting}
-              >
-                {isExtracting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
-                )}
-                Extract details from transcript
-              </Button>
+          <TabsContent value="singpass">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">
+                  Retrieve tenant particulars with Singpass
+                </p>
+                <p className="text-xs text-slate-500">
+                  The tenant scans the QR code to share their Myinfo data, which
+                  fills the empty tenant fields below.
+                </p>
+              </div>
+              <SingpassRetrieveButton
+                purpose="Your Myinfo data will be used to fill the tenant particulars in this fire report."
+                scopes={TENANT_MYINFO_SCOPES}
+                onRetrieved={handleSingpassRetrieved}
+              />
             </div>
-            <Textarea
-              id="tenantInterviewTranscript"
-              value={fields.tenantInterviewTranscript}
-              onChange={(e) =>
-                onChange("tenantInterviewTranscript", e.target.value)
-              }
-              rows={6}
-              placeholder="The tenant interview transcript appears here after recording, and can be edited..."
-              className="mt-1 border-slate-400 bg-white font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
+          </TabsContent>
+
+          <TabsContent value="interview" className="space-y-4">
+            <InterviewRecordingCard
+              description="Record the tenant interview — empty tenant fields below are auto-filled from the transcript"
+              interviewLanguage="en"
+              onInterviewLanguageChange={() => {}}
+              showLanguageSelect={false}
+              appliedToastMessage="Transcript captured - extracting tenant details"
+              onTranscriptsComplete={applyTranscript}
             />
-          </div>
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
+
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="tenantInterviewTranscript">Transcript</Label>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={reExtract}
+                  disabled={
+                    !fields.tenantInterviewTranscript.trim() || isExtracting
+                  }
+                >
+                  {isExtracting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Extract details from transcript
+                </Button>
+              </div>
+              <Textarea
+                id="tenantInterviewTranscript"
+                value={fields.tenantInterviewTranscript}
+                onChange={(e) =>
+                  onChange("tenantInterviewTranscript", e.target.value)
+                }
+                rows={6}
+                placeholder="The tenant interview transcript appears here after recording, and can be edited..."
+                className="mt-1 border-slate-400 bg-white font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        <TenantFieldGrid
+          fieldConfigs={TENANT_FIELDS}
+          fields={fields}
+          extractedKeys={combinedExtractedKeys}
+          onChange={onChange}
+        />
+      </div>
+    </>
   );
 }

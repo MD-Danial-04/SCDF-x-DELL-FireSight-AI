@@ -24,6 +24,8 @@ import {
 } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBanner } from "../components/StatusBanner";
+import { ExtractionLoadingScreen } from "../components/ExtractionLoadingScreen";
+import { remainingMinDelayMs, randomDemoDelayMs } from "../lib/loadingTiming";
 import { SlidesFormFields } from "../components/SlidesFormFields";
 import { ActivationSlidesPreview } from "../components/ActivationSlidesPreview";
 import { useOptionalReportSession } from "../context/ReportSessionContext";
@@ -74,10 +76,11 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
   const transcriptionJobId = session?.transcriptionJobId;
   const demoPremisesOwner = session?.premisesOwner ?? "";
   const demoPremisesUen = session?.premisesUen ?? "";
-  const { runExtraction, isExtracting, error: extractionError } = useExtractionJob();
+  const { runExtraction, error: extractionError } = useExtractionJob();
 
   const [slideData, setSlideData] = useState<ActivationSlideData>(() => createEmptySlideData());
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
+  const [phase, setPhase] = useState<"loading" | "ready">("loading");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generatedSlides, setGeneratedSlides] = useState(false);
@@ -95,6 +98,14 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const startedAt = Date.now();
+
+    const finish = (delayMs: number) => {
+      timer = setTimeout(() => {
+        if (!cancelled) setPhase("ready");
+      }, delayMs);
+    };
 
     const applyFallback = () => {
       const extracted = extractSlideFields(
@@ -118,10 +129,17 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
       }
     };
 
+    // Demo / unconfigured: no live extraction, play a random 1-3s fake load.
     if (!transcriptionJobId || !isInferenceConfigured() || !stopMessage.trim()) {
-      applyFallback();
+      const delay = randomDemoDelayMs();
+      timer = setTimeout(() => {
+        if (cancelled) return;
+        applyFallback();
+        setPhase("ready");
+      }, delay);
       return () => {
         cancelled = true;
+        if (timer) clearTimeout(timer);
       };
     }
 
@@ -149,10 +167,14 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
       })
       .catch(() => {
         applyFallback();
+      })
+      .finally(() => {
+        finish(remainingMinDelayMs(startedAt));
       });
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [
     demoPremisesOwner,
@@ -462,6 +484,10 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
     </Card>
   );
 
+  if (phase === "loading") {
+    return <ExtractionLoadingScreen variant="slides" stopMessagePreview={stopPreview} />;
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -506,11 +532,6 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
         </StatusBanner>
       )}
 
-      {isExtracting ? (
-        <StatusBanner variant="info" title="Extracting slide fields">
-          <p>Running NLP extraction on your edited transcript...</p>
-        </StatusBanner>
-      ) : null}
       {extractionError ? (
         <StatusBanner variant="warning" title="Using local fallback extraction">
           <p>{extractionError}</p>
