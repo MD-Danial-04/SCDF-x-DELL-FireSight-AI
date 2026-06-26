@@ -127,7 +127,6 @@ export const REPORT_FORM_SECTIONS: ReportFormSectionConfig[] = [
     id: "8",
     title: "8 ATTACHMENTS",
     fields: [
-      { key: "annexAttachmentList", label: "Annex attachment list (in report body)", multiline: true },
       { key: "annexLayoutPlan", label: "Annex A – Layout Plan (label)" },
       { key: "annexPhotographs", label: "Annex B – Photographs (label)" },
     ],
@@ -141,6 +140,48 @@ export const REPORT_FORM_SECTIONS: ReportFormSectionConfig[] = [
       { key: "approvedBy", label: "Approved by (Commander)" },
       { key: "acceptedBy", label: "Report Accepted by (FIU)" },
       { key: "reportDate", label: "Date" },
+    ],
+  },
+];
+
+export const PRR_FORM_SECTIONS: ReportFormSectionConfig[] = [
+  {
+    id: "1",
+    title: "GENERAL INFORMATION",
+    defaultOpen: true,
+    fields: [
+      { key: "incidentNo", label: "Incident No." },
+      { key: "locationOfFire", label: "Location of Fire", extractable: true },
+      { key: "dateOfFire", label: "Date of Fire" },
+      { key: "timeOfCall", label: "Time of Call" },
+      { key: "station", label: "Station" },
+      { key: "coverage", label: "Coverage" },
+    ],
+  },
+  {
+    id: "2",
+    title: "INCIDENT INFORMATION",
+    fields: [
+      { key: "fireInvolved", label: "Fire Involved", extractable: true },
+      { key: "methodOfExtinguishment", label: "Method of Extinguishment", extractable: true, multiline: true },
+      { key: "damagesSustained", label: "Damages Sustained", extractable: true },
+      { key: "probableCause", label: "Probable Cause of Fire", extractable: true, multiline: true },
+    ],
+  },
+  {
+    id: "6",
+    title: "INFORMATION ON INJURY",
+    fields: [
+      { key: "injuryName", label: "Name of the person injured" },
+      { key: "injuryPin", label: "PIN/FIN" },
+      { key: "injuryType", label: "Type of Injury sustained" },
+    ],
+  },
+  {
+    id: "9",
+    title: "SIGN-OFF",
+    fields: [
+      { key: "preparedBy", label: "Report Prepared by" },
     ],
   },
 ];

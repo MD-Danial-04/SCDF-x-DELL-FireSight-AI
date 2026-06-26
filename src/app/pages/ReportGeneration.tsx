@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { renderAsync } from "docx-preview";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -36,6 +36,7 @@ import {
   scheduleDocxPreviewFit,
 } from "../lib/fitDocxPreviewToViewport";
 import { ReportFormFields } from "../components/ReportFormFields";
+import { PRR_FORM_SECTIONS } from "../constants/reportFormSections";
 import { generateAnnexDBlobs, generateAnnexFBlobs } from "../lib/photoLogAnnexes";
 import {
   createPhotoCopy,
@@ -52,6 +53,7 @@ import {
 
 type Step = "review" | "edit";
 type ReportView = "fir" | "prr";
+type PrrScreen = "form" | "preview";
 
 /** Static annex template pages (A/B/C/E/G) that receive header value overlays. */
 const STATIC_HEADER_PAGE_INDICES = [0, 1, 2, 4, 8];
@@ -74,6 +76,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const [generatingStatementId, setGeneratingStatementId] = useState<string | null>(null);
   const [isGeneratingAllStatements, setIsGeneratingAllStatements] = useState(false);
   const [docBlob, setDocBlob] = useState<Blob | null>(null);
+  const [prrDocBlob, setPrrDocBlob] = useState<Blob | null>(null);
+  const [prrScreen, setPrrScreen] = useState<PrrScreen>("form");
   const [annexImageOverrides, setAnnexImageOverrides] = useState<Map<number, Blob>>(
     () => new Map()
   );
@@ -442,6 +446,24 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const previewScalerRef = useRef<HTMLDivElement>(null);
   const hasShownStopMessageToastRef = useRef(false);
+  const pinchStartDistanceRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef(1);
+  const [previewZoom, setPreviewZoom] = useState(1);
+
+  const getDefaultPreviewZoom = useCallback(() => {
+    if (typeof window === "undefined") return 1;
+    return window.innerWidth < 640 ? 1.8 : 1;
+  }, []);
+
+  const clampPreviewZoom = useCallback((value: number) => {
+    return Math.min(3, Math.max(1, value));
+  }, []);
+
+  const getTouchDistance = useCallback((touches: TouchList) => {
+    if (touches.length < 2) return null;
+    const [first, second] = [touches[0], touches[1]];
+    return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+  }, []);
 
   const getPreviewElements = useCallback(() => {
     const viewport = previewViewportRef.current;
@@ -454,8 +476,32 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const schedulePreviewFit = useCallback(() => {
     const elements = getPreviewElements();
     if (!elements) return;
-    scheduleDocxPreviewFit(elements);
-  }, [getPreviewElements]);
+    scheduleDocxPreviewFit(elements, previewZoom, () => {
+      elements.viewport.scrollLeft = 0;
+    });
+  }, [getPreviewElements, previewZoom]);
+
+  const handlePreviewTouchStart = useCallback((event: TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length < 2) return;
+    const distance = getTouchDistance(event.touches);
+    if (!distance) return;
+    pinchStartDistanceRef.current = distance;
+    pinchStartZoomRef.current = previewZoom;
+  }, [getTouchDistance, previewZoom]);
+
+  const handlePreviewTouchMove = useCallback((event: TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length < 2 || pinchStartDistanceRef.current == null) return;
+    const nextDistance = getTouchDistance(event.touches);
+    if (!nextDistance) return;
+    event.preventDefault();
+    const scale = nextDistance / pinchStartDistanceRef.current;
+    setPreviewZoom(clampPreviewZoom(pinchStartZoomRef.current * scale));
+  }, [clampPreviewZoom, getTouchDistance]);
+
+  const handlePreviewTouchEnd = useCallback((event: TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length >= 2) return;
+    pinchStartDistanceRef.current = null;
+  }, []);
 
   const renderPreview = useCallback(async (blob: Blob) => {
     setPreviewError(null);
@@ -478,6 +524,11 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         useBase64URL: true,
       });
       schedulePreviewFit();
+      const viewport = previewViewportRef.current;
+      if (viewport) {
+        viewport.scrollLeft = 0;
+        viewport.scrollTop = 0;
+      }
       setPreviewVersion((v) => v + 1);
       return true;
     } catch (err) {
@@ -496,11 +547,31 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   }, [step, docBlob, renderPreview]);
 
   useEffect(() => {
+    if (reportView !== "prr" || prrScreen !== "preview" || !prrDocBlob) return;
+    void renderPreview(prrDocBlob);
+  }, [reportView, prrScreen, prrDocBlob, renderPreview]);
+
+  useEffect(() => {
     if (previewVersion === 0) return;
     const elements = getPreviewElements();
     if (!elements) return;
-    return observeDocxPreviewFit(elements);
-  }, [getPreviewElements, previewVersion]);
+    return observeDocxPreviewFit(elements, previewZoom);
+  }, [getPreviewElements, previewVersion, previewZoom]);
+
+  useEffect(() => {
+    setPreviewZoom(getDefaultPreviewZoom());
+  }, [docBlob, prrDocBlob, step, reportView, prrScreen, getDefaultPreviewZoom]);
+
+  useEffect(() => {
+    if (previewVersion === 0) return;
+    schedulePreviewFit();
+  }, [previewVersion, previewZoom, schedulePreviewFit]);
+
+  useEffect(() => {
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollLeft = 0;
+  }, [prrScreen, reportView]);
 
   const handleGenerate = async () => {
     const selected = parseSelectedAnnexes(reportFields.selectedAnnexes);
@@ -574,6 +645,21 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     } catch (err) {
       console.error(err);
       toast.error("Failed to generate PRR. Check template placeholders.");
+    } finally {
+      setIsGeneratingPrr(false);
+    }
+  };
+
+  const handlePreviewPrr = async () => {
+    setIsGeneratingPrr(true);
+    try {
+      const blob = await generatePrrDocx(reportFields);
+      setPrrScreen("preview");
+      setPrrDocBlob(blob);
+      toast.success("PRR preview updated");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to preview PRR. Check template placeholders.");
     } finally {
       setIsGeneratingPrr(false);
     }
@@ -837,7 +923,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
           <Card className="flex flex-col rounded-xl shadow-sm xl:sticky xl:top-20 xl:self-start">
             <CardHeader>
               <CardTitle>Document preview</CardTitle>
-              <CardDescription>Scroll to review pages — scaled to panel width</CardDescription>
             </CardHeader>
             <CardContent>
               {previewError && (
@@ -850,9 +935,13 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               )}
               <div
                 ref={previewViewportRef}
-                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-3 h-[min(480px,50vh)] xl:h-[min(calc(100vh-7rem),720px)]"
+                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-1 sm:p-3 h-[min(480px,50vh)] xl:h-[min(calc(100vh-7rem),720px)]"
+                onTouchStart={handlePreviewTouchStart}
+                onTouchMove={handlePreviewTouchMove}
+                onTouchEnd={handlePreviewTouchEnd}
+                onTouchCancel={handlePreviewTouchEnd}
               >
-                <div ref={previewScalerRef} className="docx-preview-scaler mx-auto">
+                <div ref={previewScalerRef} className="docx-preview-scaler">
                   <div ref={previewRef} className="docx-preview-host bg-white" />
                 </div>
               </div>
@@ -861,7 +950,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         </div>
       )}
 
-      {reportView === "prr" && (
+      {reportView === "prr" && prrScreen === "form" && (
         <Card className="rounded-xl shadow-sm">
           <CardHeader>
             <CardTitle>PRR information</CardTitle>
@@ -874,20 +963,84 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               fields={reportFields}
               extractedKeys={extractedKeys}
               onChange={updateField}
-              visibleSectionIds={[...PRR_SECTION_IDS]}
+              sectionConfigs={PRR_FORM_SECTIONS}
+              visibleSectionIds={[...PRR_SECTION_IDS, "9"]}
             />
-            <div className="flex flex-wrap gap-3 pt-2">
+            <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap">
               <Button
                 type="button"
                 variant="outline"
-                onClick={handlePrevious}
+                onClick={handlePreviewPrr}
+                disabled={isGeneratingPrr}
+                className="w-full sm:w-auto"
               >
-                Back to Incident
+                {isGeneratingPrr ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Preview PRR
               </Button>
               <Button
                 type="button"
                 onClick={handleGeneratePrr}
                 disabled={isGeneratingPrr}
+                className="w-full sm:w-auto"
+              >
+                {isGeneratingPrr ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                Generate PRR
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {reportView === "prr" && prrScreen === "preview" && (
+        <Card className="rounded-xl shadow-sm">
+          <CardHeader>
+            <CardTitle>PRR preview</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {previewError && (
+              <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {previewError}
+              </p>
+            )}
+            {!previewError && !prrDocBlob && (
+              <p className="mb-3 text-sm text-muted-foreground">Generate a PRR preview to review the document here.</p>
+            )}
+            {!previewError && prrDocBlob && (
+              <div
+                ref={previewViewportRef}
+                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-1 sm:p-3 h-[70vh] sm:h-[70vh]"
+                onTouchStart={handlePreviewTouchStart}
+                onTouchMove={handlePreviewTouchMove}
+                onTouchEnd={handlePreviewTouchEnd}
+                onTouchCancel={handlePreviewTouchEnd}
+              >
+                <div ref={previewScalerRef} className="docx-preview-scaler">
+                  <div ref={previewRef} className="docx-preview-host bg-white" />
+                </div>
+              </div>
+            )}
+            <div className="flex flex-col gap-3 pt-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPrrScreen("form")}
+                className="w-full sm:w-auto"
+              >
+                Back to PRR information
+              </Button>
+              <Button
+                type="button"
+                onClick={handleGeneratePrr}
+                disabled={isGeneratingPrr}
+                className="w-full sm:w-auto"
               >
                 {isGeneratingPrr ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
