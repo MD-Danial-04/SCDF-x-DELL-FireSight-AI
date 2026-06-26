@@ -24,7 +24,7 @@ export type JobStatus =
   | "analyze_pending"
   | "completed"
   | "failed";
-export type MessageType = "stop_message" | "field_notes";
+export type MessageType = "stop_message" | "field_notes" | "interview";
 export type JobKind =
   | "audio_inference"
   | "interview_analysis"
@@ -44,6 +44,34 @@ export interface InferenceResult {
   source: "fake" | "ollama" | "nim" | "regex_fallback";
 }
 
+export type InterviewExtractableField =
+  | "name"
+  | "nameChinese"
+  | "designation"
+  | "nric"
+  | "passportNo"
+  | "nationality"
+  | "sex"
+  | "age"
+  | "dateAndPlaceOfBirth"
+  | "maritalStatus"
+  | "numberOfChildren"
+  | "citizenshipCertNo"
+  | "vehicleNo"
+  | "address"
+  | "placeOfEmployment"
+  | "contactHome"
+  | "contactMobile"
+  | "contactOffice"
+  | "interviewTakenPlace"
+  | "interpretedBy";
+
+export interface InterviewDetailsResult {
+  fields: Partial<Record<InterviewExtractableField, string>>;
+  confidence: Partial<Record<InterviewExtractableField, number>>;
+  source: "fake" | "ollama" | "nim" | "regex_fallback";
+}
+
 export interface InferenceJob {
   id: string;
   status: JobStatus;
@@ -55,6 +83,7 @@ export interface InferenceJob {
   transcript_original?: string | null;
   transcript_english?: string | null;
   result?: InferenceResult | null;
+  interview_details_result?: InterviewDetailsResult | null;
   analysis_result?: AnalyzeInterviewResponse | null;
   photo_path?: string | null;
   photo_context?: AnalyzePhotoContext | null;

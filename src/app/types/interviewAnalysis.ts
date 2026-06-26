@@ -10,6 +10,7 @@ export interface InterviewQuestionInput {
 export interface QuestionCoverage {
   id: string;
   status: QuestionCoverageStatus;
+  answer: string;
   evidence: string;
   confidence: number;
 }

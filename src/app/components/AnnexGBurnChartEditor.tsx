@@ -31,11 +31,17 @@ interface Point {
   y: number;
 }
 
-interface Stroke {
+export interface Stroke {
   id: string;
   mode: ToolMode;
   points: Point[];
   size: number;
+}
+
+/** Serializable Annex G editor state for incident drafts. */
+export interface AnnexGEditorState {
+  strokes: Stroke[];
+  fields: AnnexGBurnChartFields;
 }
 
 interface FitRect {
@@ -53,6 +59,8 @@ interface AnnexGBurnChartEditorProps {
   nricFinNumber?: string;
   persistenceKey?: string | null;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
+  initialState?: AnnexGEditorState | null;
+  onStateChange?: (state: AnnexGEditorState) => void;
 }
 
 interface AnnexGBurnChartSnapshot {
@@ -177,6 +185,8 @@ export function AnnexGBurnChartEditor({
   nricFinNumber = "",
   persistenceKey = null,
   onOverrideChange,
+  initialState = null,
+  onStateChange,
 }: AnnexGBurnChartEditorProps) {
   const sourceUrl = getDefaultPagePreviewUrl(ANNEX_G_PAGE_INDEX);
   const burnChartStorageKey = persistenceKey
@@ -204,6 +214,7 @@ export function AnnexGBurnChartEditor({
       return [];
     }
   });
+  const hydratedRef = useRef(false);
   const [fields, setFields] = useState<AnnexGBurnChartFields>(() => {
     if (typeof window === "undefined" || !burnChartStorageKey) return defaultFields;
     try {
@@ -276,6 +287,16 @@ export function AnnexGBurnChartEditor({
       } satisfies AnnexGBurnChartSnapshot),
     );
   }, [burnChartStorageKey, fields, strokes]);
+
+  useEffect(() => {
+    if (hydratedRef.current || !initialState) return;
+    setStrokes(initialState.strokes ?? []);
+    hydratedRef.current = true;
+  }, [initialState]);
+
+  useEffect(() => {
+    onStateChange?.({ strokes, fields });
+  }, [strokes, fields, onStateChange]);
 
   useEffect(() => {
     if (!sourceUrl) {

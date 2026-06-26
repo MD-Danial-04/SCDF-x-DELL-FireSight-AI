@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import {
+  Box,
+  FileStack,
+  FolderOpen,
+  Grid3X3,
+  Group,
   History,
   Loader2,
   Map,
   MousePointer2,
   RotateCw,
+  Save,
+  Search,
   Slash,
   Trash2,
   Type,
@@ -30,7 +37,16 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { cn } from "./ui/utils";
 import {
@@ -60,6 +76,17 @@ import {
 } from "../lib/floorplanEditor";
 import { convertRoomPlanFile } from "../lib/importRoomPlanFloorplan";
 import { svgStringToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
+import {
+  createDraft,
+  deleteDraft,
+  getDraft,
+  listDrafts,
+  updateDraft,
+  FLOORPLAN_DRAFT_PAYLOAD_VERSION,
+  type FloorplanDraftPayload,
+  type FloorplanDraftSummary,
+} from "../lib/floorplanDrafts";
+import { FloorplanInspectorPanel } from "./FloorplanInspectorPanel";
 import { clientToSvg, computeSvgViewportMapping } from "../lib/svgViewport";
 import { SHARED_FLOORPLAN_PNG_LIBRARY } from "../constants/floorplanPngLibrary";
 
@@ -123,6 +150,8 @@ interface FloorplanAnnexEditorProps {
   persistenceKey?: string | null;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
   onFloorplanSvgChange?: (svg: string | null) => void;
+  initialDraftState?: FloorplanDraftPayload | null;
+  onDraftStateChange?: (payload: FloorplanDraftPayload) => void;
 }
 
 interface FloorplanGroup {
@@ -571,6 +600,8 @@ export function FloorplanAnnexEditor({
   persistenceKey = null,
   onOverrideChange,
   onFloorplanSvgChange,
+  initialDraftState = null,
+  onDraftStateChange,
 }: FloorplanAnnexEditorProps) {
   const floorplanEditorStorageKey = persistenceKey
     ? `${FLOORPLAN_EDITOR_STORAGE_KEY}:${persistenceKey}`
@@ -603,6 +634,18 @@ export function FloorplanAnnexEditor({
   const [lineStyle, setLineStyle] = useState<FloorplanLineStyle>(initialEditorState.lineStyle);
   const [lineDraft, setLineDraft] = useState<LineDraft | null>(null);
   const [pngLibrary, setPngLibrary] = useState<PngLibraryItem[]>([]);
+  const [draftsDialogOpen, setDraftsDialogOpen] = useState(false);
+  const [drafts, setDrafts] = useState<FloorplanDraftSummary[]>([]);
+  const [draftsLoading, setDraftsLoading] = useState(false);
+  const [draftsError, setDraftsError] = useState<string | null>(null);
+  const [draftNameInput, setDraftNameInput] = useState("");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [loadedDraftId, setLoadedDraftId] = useState<string | null>(null);
+  const [loadedDraftName, setLoadedDraftName] = useState<string | null>(null);
+  const [pendingLoadDraftId, setPendingLoadDraftId] = useState<string | null>(null);
+  const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
+  const floorplanHydratedRef = useRef(false);
+  const floorplanEmitReadyRef = useRef(false);
   const [librarySearch, setLibrarySearch] = useState("");
   const canvasRef = useRef<HTMLDivElement>(null);
   const inspectorRef = useRef<HTMLDivElement>(null);
@@ -612,6 +655,9 @@ export function FloorplanAnnexEditor({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const libraryImageInputRef = useRef<HTMLInputElement>(null);
   const pendingFileRef = useRef<File | null>(null);
+
+  const trimmedIncidentNo = incidentNo?.trim() ?? "";
+  const draftsEnabled = trimmedIncidentNo.length > 0;
 
   const layerOptions = useMemo(
     () => [
@@ -790,6 +836,23 @@ export function FloorplanAnnexEditor({
   useEffect(() => {
     window.localStorage.setItem(FLOORPLAN_PNG_LIBRARY_STORAGE_KEY, JSON.stringify(pngLibrary));
   }, [pngLibrary]);
+
+  useEffect(() => {
+    if (floorplanHydratedRef.current || !initialDraftState) return;
+    floorplanHydratedRef.current = true;
+    applyDraft(initialDraftState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDraftState]);
+
+  useEffect(() => {
+    if (!onDraftStateChange) return;
+    if (!floorplanEmitReadyRef.current) {
+      floorplanEmitReadyRef.current = true;
+      return;
+    }
+    onDraftStateChange(buildDraftPayload());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [svgText, amendments, generatedElements, groups, baseViewBox, fileName, onDraftStateChange]);
 
   useEffect(() => {
     if (!floorplanEditorStorageKey) return;
@@ -1165,6 +1228,183 @@ export function FloorplanAnnexEditor({
     requestAnimationFrame(() => {
       fitCameraToBounds(parsed.baseViewBox, 1.05);
     });
+  }
+
+  function buildDraftPayload(): FloorplanDraftPayload {
+    return {
+      version: FLOORPLAN_DRAFT_PAYLOAD_VERSION,
+      svgText,
+      baseViewBox,
+      amendments,
+      generatedElements,
+      groups,
+      fileName,
+    };
+  }
+
+  function applyDraft(payload: FloorplanDraftPayload) {
+    const parsed = parseFloorplan(payload.svgText);
+    const viewBox = parsed.baseViewBox ?? payload.baseViewBox;
+    setSvgText(parsed.svgText);
+    setLayers(parsed.layers);
+    setBaseViewBox(viewBox);
+    setCamera(viewBox);
+    setAmendments(payload.amendments ?? {});
+    setGeneratedElements(payload.generatedElements ?? []);
+    setGroups(payload.groups ?? []);
+    setSelectedGroupId(null);
+    setSingleSelection(null);
+    setInspectorOpen(false);
+    setHistory([]);
+    setFileName(payload.fileName ?? "");
+    setUploadError(null);
+    requestAnimationFrame(() => {
+      fitCameraToBounds(viewBox, 1.05);
+    });
+  }
+
+  async function generateDraftThumbnail(): Promise<string | null> {
+    if (!exportSvg) return null;
+    try {
+      const blob = new Blob([exportSvg], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob);
+      try {
+        const dataUrl = await new Promise<string | null>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const maxDimension = 240;
+            const ratio = img.width > 0 && img.height > 0 ? img.width / img.height : 1;
+            const width = ratio >= 1 ? maxDimension : Math.round(maxDimension * ratio);
+            const height = ratio >= 1 ? Math.round(maxDimension / ratio) : maxDimension;
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, width);
+            canvas.height = Math.max(1, height);
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              resolve(null);
+              return;
+            }
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/jpeg", 0.7));
+          };
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+        return dataUrl;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  async function refreshDrafts() {
+    if (!draftsEnabled) {
+      setDrafts([]);
+      return;
+    }
+    setDraftsLoading(true);
+    setDraftsError(null);
+    try {
+      const list = await listDrafts(trimmedIncidentNo);
+      setDrafts(list);
+    } catch (error) {
+      setDraftsError(error instanceof Error ? error.message : "Unable to load drafts.");
+    } finally {
+      setDraftsLoading(false);
+    }
+  }
+
+  function handleOpenDraftsDialog() {
+    setDraftsDialogOpen(true);
+    void refreshDrafts();
+  }
+
+  async function handleSaveNewDraft() {
+    if (!draftsEnabled || savingDraft) return;
+    const name = draftNameInput.trim();
+    if (!name) {
+      toast.warning("Enter a name for the draft.");
+      return;
+    }
+    setSavingDraft(true);
+    try {
+      const payload = buildDraftPayload();
+      const thumbnail = await generateDraftThumbnail();
+      const created = await createDraft(trimmedIncidentNo, name, payload, thumbnail);
+      setLoadedDraftId(created.id);
+      setLoadedDraftName(created.name);
+      setDraftNameInput("");
+      toast.success(`Saved draft "${created.name}".`);
+      await refreshDrafts();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to save draft.");
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  async function handleOverwriteDraft() {
+    if (!loadedDraftId || savingDraft) return;
+    setSavingDraft(true);
+    try {
+      const payload = buildDraftPayload();
+      const thumbnail = await generateDraftThumbnail();
+      const updated = await updateDraft(loadedDraftId, payload, { thumbnail });
+      setLoadedDraftName(updated.name);
+      toast.success(`Updated draft "${updated.name}".`);
+      await refreshDrafts();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update draft.");
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  async function performLoadDraft(id: string) {
+    try {
+      const draft = await getDraft(id);
+      applyDraft(draft.payload);
+      setLoadedDraftId(draft.id);
+      setLoadedDraftName(draft.name);
+      setDraftsDialogOpen(false);
+      toast.success(`Loaded draft "${draft.name}".`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to load draft.");
+    }
+  }
+
+  function handleRequestLoadDraft(id: string) {
+    setPendingLoadDraftId(id);
+  }
+
+  async function handleConfirmLoadDraft() {
+    const id = pendingLoadDraftId;
+    setPendingLoadDraftId(null);
+    if (id) await performLoadDraft(id);
+  }
+
+  async function performDeleteDraft(id: string) {
+    try {
+      await deleteDraft(id);
+      if (loadedDraftId === id) {
+        setLoadedDraftId(null);
+        setLoadedDraftName(null);
+      }
+      toast.success("Draft deleted.");
+      await refreshDrafts();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete draft.");
+    }
+  }
+
+  async function handleConfirmDeleteDraft() {
+    const id = pendingDeleteDraftId;
+    setPendingDeleteDraftId(null);
+    if (id) await performDeleteDraft(id);
   }
 
   function isJsonFile(file: File) {
@@ -2370,6 +2610,25 @@ export function FloorplanAnnexEditor({
             <Trash2 className="mr-2 h-4 w-4" />
             Clear canvas
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleOpenDraftsDialog}
+            disabled={!draftsEnabled}
+            title={
+              draftsEnabled
+                ? "Save or load floorplan drafts for this incident"
+                : "Set an incident number to use drafts"
+            }
+          >
+            <FileStack className="mr-2 h-4 w-4" />
+            Drafts
+            {loadedDraftName ? (
+              <Badge variant="secondary" className="ml-2 max-w-[140px] truncate">
+                {loadedDraftName}
+              </Badge>
+            ) : null}
+          </Button>
         </div>
       </div>
 
@@ -2390,6 +2649,185 @@ export function FloorplanAnnexEditor({
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleCancelReplace}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmReplace}>Replace</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={draftsDialogOpen} onOpenChange={setDraftsDialogOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Floorplan drafts</DialogTitle>
+            <DialogDescription>
+              Drafts for incident <span className="font-medium text-foreground">{trimmedIncidentNo || "—"}</span>.
+              {loadedDraftName ? ` Currently editing "${loadedDraftName}".` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2 rounded-lg border border-border bg-slate-50/70 p-3">
+              <Label htmlFor="floorplan-draft-name" className="text-sm font-medium">
+                Save current canvas as a new draft
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="floorplan-draft-name"
+                  value={draftNameInput}
+                  placeholder="Draft name"
+                  disabled={savingDraft}
+                  onChange={(event) => setDraftNameInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleSaveNewDraft();
+                    }
+                  }}
+                />
+                <Button type="button" onClick={() => void handleSaveNewDraft()} disabled={savingDraft}>
+                  {savingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save as new
+                </Button>
+              </div>
+              {loadedDraftId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => void handleOverwriteDraft()}
+                  disabled={savingDraft}
+                >
+                  {savingDraft ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Overwrite "{loadedDraftName}"
+                </Button>
+              ) : null}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-foreground">Saved drafts</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void refreshDrafts()}
+                  disabled={draftsLoading}
+                >
+                  {draftsLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Refresh
+                </Button>
+              </div>
+
+              {draftsError ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {draftsError}
+                </p>
+              ) : null}
+
+              {draftsLoading && drafts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Loading drafts…</p>
+              ) : drafts.length === 0 && !draftsError ? (
+                <p className="text-sm text-muted-foreground">
+                  No drafts saved for this incident yet.
+                </p>
+              ) : (
+                <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+                  {drafts.map((draft) => (
+                    <div
+                      key={draft.id}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg border border-border bg-white p-2",
+                        draft.id === loadedDraftId ? "border-primary/50 ring-1 ring-primary/30" : "",
+                      )}
+                    >
+                      <div className="flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                        {draft.thumbnail ? (
+                          <img src={draft.thumbnail} alt={draft.name} className="max-h-full max-w-full object-contain" />
+                        ) : (
+                          <Map className="h-5 w-5 text-slate-300" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground" title={draft.name}>
+                          {draft.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Updated {new Date(draft.updatedAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRequestLoadDraft(draft.id)}
+                      >
+                        <FolderOpen className="mr-2 h-4 w-4" />
+                        Load
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-red-600 hover:text-red-700"
+                        onClick={() => setPendingDeleteDraftId(draft.id)}
+                        title={`Delete ${draft.name}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDraftsDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={pendingLoadDraftId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingLoadDraftId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Load this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Unsaved edits on the current canvas will be lost. Load the selected draft anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleConfirmLoadDraft()}>Load draft</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingDeleteDraftId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteDraftId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the draft. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => void handleConfirmDeleteDraft()}
+            >
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

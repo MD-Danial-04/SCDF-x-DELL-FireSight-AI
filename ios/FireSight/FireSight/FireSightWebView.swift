@@ -16,6 +16,7 @@ struct FireSightWebView: UIViewRepresentable {
         let containerView = FireSightWebContainerView()
         containerView.coordinator = context.coordinator
         containerView.webView.navigationDelegate = context.coordinator
+        containerView.webView.uiDelegate = context.coordinator
         containerView.load(urlString: urlString)
         containerView.applyLauncherPosition(
             isTrailing: launcherIsTrailing,
@@ -29,6 +30,7 @@ struct FireSightWebView: UIViewRepresentable {
         context.coordinator.parent = self
         uiView.coordinator = context.coordinator
         uiView.webView.navigationDelegate = context.coordinator
+        uiView.webView.uiDelegate = context.coordinator
         uiView.load(urlString: urlString)
         uiView.applyLauncherPosition(
             isTrailing: launcherIsTrailing,
@@ -37,7 +39,7 @@ struct FireSightWebView: UIViewRepresentable {
         )
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var parent: FireSightWebView
 
         init(parent: FireSightWebView) {
@@ -46,6 +48,19 @@ struct FireSightWebView: UIViewRepresentable {
 
         func openRoomScan() {
             parent.onOpenRoomScan()
+        }
+
+        // Allow the embedded web app to capture mic/camera (e.g. recording stop
+        // messages and interviews). iOS still shows the system permission prompt
+        // the first time, gated by the usage strings in Info.
+        func webView(
+            _ webView: WKWebView,
+            requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+            initiatedByFrame frame: WKFrameInfo,
+            type: WKMediaCaptureType,
+            decisionHandler: @escaping (WKPermissionDecision) -> Void
+        ) {
+            decisionHandler(.grant)
         }
 
         func persistLauncherPosition(isTrailing: Bool, verticalProgress: Double) {

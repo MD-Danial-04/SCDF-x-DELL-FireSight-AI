@@ -67,6 +67,8 @@ interface AnnexEEditorProps {
   incidentNo?: string;
   locationOfFire?: string;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
+  initialMarkers?: AnnexEMarker[] | null;
+  onMarkersChange?: (markers: AnnexEMarker[]) => void;
 }
 
 type DragMode =
@@ -329,8 +331,14 @@ export function AnnexEEditor({
   incidentNo,
   locationOfFire,
   onOverrideChange,
+  initialMarkers = null,
+  onMarkersChange,
 }: AnnexEEditorProps) {
   const [markers, setMarkers] = useState<AnnexEMarker[]>([]);
+  const initialMarkersRef = useRef(initialMarkers);
+  initialMarkersRef.current = initialMarkers;
+  const markersHydratedRef = useRef(false);
+  const markersEmitReadyRef = useRef(false);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [selectionFocus, setSelectionFocus] = useState<SelectionFocus>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>("select");
@@ -513,12 +521,21 @@ export function AnnexEEditor({
     try {
       const raw = window.localStorage.getItem(markersStorageKey);
       if (!raw) {
+        const seed = initialMarkersRef.current;
+        if (!markersHydratedRef.current && Array.isArray(seed) && seed.length > 0) {
+          markersHydratedRef.current = true;
+          setMarkers(seed.filter(isValidMarker));
+          setSelectedMarkerId(null);
+          setSelectionFocus(null);
+          return;
+        }
         setMarkers([]);
         setSelectedMarkerId(null);
         setSelectionFocus(null);
         return;
       }
 
+      markersHydratedRef.current = true;
       const parsed = JSON.parse(raw);
       const nextMarkers = Array.isArray(parsed) ? parsed.filter(isValidMarker) : [];
       setMarkers(nextMarkers);
@@ -537,6 +554,14 @@ export function AnnexEEditor({
     if (typeof window === "undefined" || !floorplanSvg) return;
     window.localStorage.setItem(markersStorageKey, JSON.stringify(markers));
   }, [floorplanSvg, markers, markersStorageKey]);
+
+  useEffect(() => {
+    if (!markersEmitReadyRef.current) {
+      markersEmitReadyRef.current = true;
+      return;
+    }
+    onMarkersChange?.(markers);
+  }, [markers, onMarkersChange]);
 
   useEffect(() => {
     if (!enabled || !floorplanSvg || !viewBox) {

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { createEmptyReportFields } from "../types/fireReport";
 import { createEmptyInterviewee } from "../types/interviewee";
 import {
+  INTERVIEWEE_SIGNATURE_MARKER,
   getStatementFilename,
   mapIntervieweeToStatement,
 } from "./generateStatementDocx";
@@ -30,6 +31,7 @@ describe("mapIntervieweeToStatement", () => {
     interviewee.address = "Blk 1 Example Street";
     interviewee.contactMobile = "91234567";
     interviewee.contactHome = "67890123";
+    interviewee.contactOffice = "61234567";
     interviewee.facts = "Upon arrival, white smoke was seen.";
     interviewee.recordedStartTime = "10:00";
     interviewee.recordedEndTime = "10:30";
@@ -41,6 +43,7 @@ describe("mapIntervieweeToStatement", () => {
     expect(mapped.incidentNo).toBe("/20260608/1495");
     expect(mapped.occupation).toBe("Tenant");
     expect(mapped.nric).toBe("S1234567A");
+    expect(mapped.contactOffice).toBe("61234567");
     expect(mapped.recordedTime).toBe("Start: 10:00 End: 10:30");
     expect(mapped.recordedDate).toBe("08 June 2026");
     expect(mapped.interviewTakenPlace).toBe("");
@@ -65,6 +68,32 @@ describe("getStatementFilename", () => {
     expect(getStatementFilename("/20260608/1495", "John Tan")).toBe(
       "/20260608/1495_Statement_John_Tan.docx"
     );
+  });
+});
+
+describe("Statement template field mapping", () => {
+  it("maps every placeholder present in statement-form.docx", () => {
+    const zip = new PizZip(fs.readFileSync(templatePath));
+    const documentXml = zip.file("word/document.xml")?.asText() ?? "";
+    const placeholders = new Set(
+      Array.from(documentXml.matchAll(/\{([^}]+)\}/g)).map((match) =>
+        match[1].trim()
+      )
+    );
+
+    expect(placeholders.size).toBeGreaterThan(0);
+
+    const mapped = mapIntervieweeToStatement(
+      createEmptyInterviewee(),
+      createEmptyReportFields()
+    );
+    const mappedKeys = new Set(Object.keys(mapped));
+
+    const unmapped = Array.from(placeholders).filter(
+      (key) => key !== INTERVIEWEE_SIGNATURE_MARKER && !mappedKeys.has(key)
+    );
+
+    expect(unmapped).toEqual([]);
   });
 });
 

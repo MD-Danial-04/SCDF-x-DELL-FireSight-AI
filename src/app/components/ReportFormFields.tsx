@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AnnexSelector, parseSelectedAnnexes } from "./AnnexSelector";
 import { IntervieweeListEditor } from "./IntervieweeListEditor";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 import {
   Accordion,
   AccordionContent,
@@ -14,22 +13,41 @@ import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { cn } from "./ui/utils";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./ui/tooltip";
+import { Check, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
   REPORT_FORM_SECTIONS,
   getAllSectionFields,
   getDefaultOpenSections,
   type ReportFormFieldConfig,
   type ReportFormSectionConfig,
 } from "../constants/reportFormSections";
+import { TenantSectionEditor } from "./TenantSectionEditor";
 import {
   buildAnnexAttachmentList,
   getAnnexById,
 } from "../constants/annexDefinitions";
 import type { PhotoAnalysisPartialEntry, PhotoAnalysisReportContext } from "../lib/buildPhotoAnalysisContext";
-import type { SuggestedPhotoSection } from "../types/photoAnalysis";
+import {
+  PHOTO_REF_FIELD_TO_SECTION,
+  type SuggestedPhotoSection,
+} from "../types/photoAnalysis";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
-import type { FireReportData, FireReportFieldKey } from "../types/fireReport";
+import type {
+  FireReportData,
+  FireReportFieldKey,
+  PhotoRefLinks,
+  PhotoRefNotes,
+} from "../types/fireReport";
 import { EXTRACTABLE_KEYS } from "../types/fireReport";
+import { PhotoRefChips } from "./PhotoRefChips";
 import type { Interviewee } from "../types/interviewee";
+import type { FloorplanDraftPayload } from "../lib/floorplanDrafts";
+import type { AnnexEMarker } from "../lib/annexEMarkers";
+import type { AnnexGEditorState } from "./AnnexGBurnChartEditor";
 
 interface ReportFormFieldsProps {
   fields: FireReportData;
@@ -51,19 +69,32 @@ interface ReportFormFieldsProps {
   photoAnalysisContext?: PhotoAnalysisReportContext;
   onPhotosAnalyzed?: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
   onApplyPhotoSection?: (photoId: string, section: SuggestedPhotoSection) => void;
+  onPhotoRefLinksChange?: (section: SuggestedPhotoSection, photoIds: string[]) => void;
+  onPhotoRefNoteChange?: (section: SuggestedPhotoSection, note: string) => void;
   photoLogAnnexPreviewUrls?: PhotoLogAnnexPreviewUrls;
   photoLogPreviewLoading?: boolean;
   floorplanSvg?: string | null;
   floorplanPersistenceKey?: string | null;
   onFloorplanSvgChange?: (svg: string | null) => void;
+  floorplanDraftState?: FloorplanDraftPayload | null;
+  onFloorplanDraftStateChange?: (payload: FloorplanDraftPayload) => void;
+  annexEMarkers?: AnnexEMarker[] | null;
+  onAnnexEMarkersChange?: (markers: AnnexEMarker[]) => void;
+  annexGState?: AnnexGEditorState | null;
+  onAnnexGStateChange?: (state: AnnexGEditorState) => void;
   onIntervieweesChange?: (interviewees: Interviewee[]) => void;
   onGenerateStatement?: (intervieweeId: string) => void;
   onGenerateAllStatements?: () => void;
+  onPreviewStatement?: (intervieweeId: string) => Promise<Blob>;
   generatingStatementId?: string | null;
   isGeneratingAllStatements?: boolean;
 }
 
 type CompletionStatus = "not-edited" | "partial" | "complete";
+
+/** Nav id for the interview sub-section pulled out of report section 5. */
+const INTERVIEW_NAV_ID = "5-interview";
+const INTERVIEW_NAV_LABEL = "Interview / Interviewees";
 
 function getCompletionStatusFromValues(values: string[]): CompletionStatus {
   const filledCount = values.filter((value) => value.trim().length > 0).length;
@@ -99,21 +130,63 @@ function getCompletionStatusMeta(status: CompletionStatus) {
   }
 }
 
-function getSectionStatusBorderClass(status: CompletionStatus, isActive: boolean) {
+function parseSectionTitle(title: string): { number: string; label: string } {
+  const match = title.match(/^(\d+)\s+(.*)$/);
+  if (match) {
+    return { number: match[1], label: match[2] };
+  }
+  return { number: "", label: title };
+}
+
+function getStatusBadgeColors(status: CompletionStatus, isActive: boolean) {
+  if (isActive) {
+    return "border-transparent bg-red-600 text-white";
+  }
   switch (status) {
     case "complete":
-      return isActive
-        ? "border-emerald-400 bg-emerald-50 text-emerald-950 hover:bg-emerald-50"
-        : "border-emerald-200 bg-white hover:bg-emerald-50/40";
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "partial":
-      return isActive
-        ? "border-amber-400 bg-amber-50 text-amber-950 hover:bg-amber-50"
-        : "border-amber-200 bg-white hover:bg-amber-50/40";
+      return "border-amber-200 bg-amber-50 text-amber-700";
     default:
-      return isActive
-        ? "border-slate-400 bg-slate-50 text-slate-950 hover:bg-slate-50"
-        : "border-slate-200 bg-white hover:bg-slate-50/40";
+      return "border-slate-200 bg-slate-100 text-slate-500";
   }
+}
+
+function SectionStatusIndicator({
+  status,
+  autoCount,
+}: {
+  status: CompletionStatus;
+  autoCount: number;
+}) {
+  const { label } = getCompletionStatusMeta(status);
+
+  let indicator: ReactNode;
+  if (status === "complete") {
+    indicator = (
+      <span className="flex size-4 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+        <Check className="size-3" strokeWidth={3} />
+      </span>
+    );
+  } else if (status === "partial") {
+    indicator = <span className="size-2.5 rounded-full bg-amber-400" />;
+  } else {
+    indicator = <span className="size-2.5 rounded-full border border-slate-300" />;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex shrink-0 items-center justify-center" aria-label={label}>
+          {indicator}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        <span>{label}</span>
+        {autoCount > 0 && <span> · {autoCount} auto-filled</span>}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function getFieldConfigsStatus(
@@ -195,18 +268,43 @@ function getAttachmentsEditorStatus({
   return "partial";
 }
 
+interface PhotoRefContext {
+  photos: PhotoLogEntry[];
+  photoPreviewUrls: Record<string, string>;
+  links: PhotoRefLinks;
+  notes: PhotoRefNotes;
+  onLinksChange: (section: SuggestedPhotoSection, photoIds: string[]) => void;
+  onNoteChange: (section: SuggestedPhotoSection, note: string) => void;
+}
+
 function Field({
   config,
   value,
   onChange,
   extracted,
+  photoRefContext,
 }: {
   config: ReportFormFieldConfig;
   value: string;
   onChange: (key: FireReportFieldKey, value: string) => void;
   extracted?: boolean;
+  photoRefContext?: PhotoRefContext;
 }) {
   const { key, label, multiline } = config;
+
+  const photoRefSection = PHOTO_REF_FIELD_TO_SECTION[key];
+  if (photoRefSection && photoRefContext) {
+    return (
+      <PhotoRefChips
+        section={photoRefSection}
+        label={label}
+        photos={photoRefContext.photos}
+        photoPreviewUrls={photoRefContext.photoPreviewUrls}
+        linkedIds={photoRefContext.links[photoRefSection] ?? []}
+        onLinksChange={(ids) => photoRefContext.onLinksChange(photoRefSection, ids)}
+      />
+    );
+  }
 
   return (
     <div>
@@ -241,28 +339,34 @@ function FieldsGrid({
   fields,
   extractedKeys,
   onChange,
+  photoRefContext,
 }: {
   fieldConfigs: ReportFormFieldConfig[];
   fields: FireReportData;
   extractedKeys: Set<string>;
   onChange: (key: FireReportFieldKey, value: string) => void;
+  photoRefContext?: PhotoRefContext;
 }) {
   const isExtracted = (config: ReportFormFieldConfig) =>
     (config.extractable || EXTRACTABLE_KEYS.includes(config.key)) &&
     extractedKeys.has(config.key);
+
+  const isPhotoRef = (config: ReportFormFieldConfig) =>
+    Boolean(photoRefContext && PHOTO_REF_FIELD_TO_SECTION[config.key]);
 
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       {fieldConfigs.map((config) => (
         <div
           key={config.key}
-          className={config.multiline ? "md:col-span-2" : undefined}
+          className={config.multiline || isPhotoRef(config) ? "md:col-span-2" : undefined}
         >
           <Field
             config={config}
-            value={fields[config.key]}
+            value={String(fields[config.key] ?? "")}
             onChange={onChange}
             extracted={isExtracted(config)}
+            photoRefContext={photoRefContext}
           />
         </div>
       ))}
@@ -277,6 +381,7 @@ function SubsectionFields({
   fields,
   extractedKeys,
   onChange,
+  photoRefContext,
 }: {
   sectionId: string;
   subsectionTitle: string;
@@ -284,6 +389,7 @@ function SubsectionFields({
   fields: FireReportData;
   extractedKeys: Set<string>;
   onChange: (key: FireReportFieldKey, value: string) => void;
+  photoRefContext?: PhotoRefContext;
 }) {
   const statusMeta = getCompletionStatusMeta(getFieldConfigsStatus(fieldConfigs, fields));
 
@@ -293,6 +399,7 @@ function SubsectionFields({
       fields={fields}
       extractedKeys={extractedKeys}
       onChange={onChange}
+      photoRefContext={photoRefContext}
     />
   );
 
@@ -351,14 +458,23 @@ export function ReportFormFields({
   photoAnalysisContext = {},
   onPhotosAnalyzed,
   onApplyPhotoSection,
+  onPhotoRefLinksChange,
+  onPhotoRefNoteChange,
   photoLogAnnexPreviewUrls = { D: [], F: [] },
   photoLogPreviewLoading = false,
   floorplanSvg = null,
   floorplanPersistenceKey = null,
   onFloorplanSvgChange,
+  floorplanDraftState = null,
+  onFloorplanDraftStateChange,
+  annexEMarkers = null,
+  onAnnexEMarkersChange,
+  annexGState = null,
+  onAnnexGStateChange,
   onIntervieweesChange,
   onGenerateStatement,
   onGenerateAllStatements,
+  onPreviewStatement,
   generatingStatementId,
   isGeneratingAllStatements = false,
 }: ReportFormFieldsProps) {
@@ -407,12 +523,7 @@ export function ReportFormFields({
       ? [getFieldConfigsStatus(directFieldConfigs, fields)]
       : [];
 
-    const intervieweeStatuses =
-      section.id === "5" && onIntervieweesChange
-        ? [getIntervieweesStatus(fields.interviewees)]
-        : [];
-
-    const statuses = [...directStatuses, ...subsectionStatuses, ...intervieweeStatuses];
+    const statuses = [...directStatuses, ...subsectionStatuses];
 
     if (statuses.length === 0) {
       return "not-edited";
@@ -433,21 +544,61 @@ export function ReportFormFields({
     ? sectionConfigs.filter((section) => visibleSectionIds.includes(section.id))
     : sectionConfigs;
 
+  // The interview editor is surfaced as its own nav sub-item under section 5
+  // (tabs mode only); accordion mode keeps it inline within section 5.
+  const showInterviewNav =
+    displayMode === "tabs" &&
+    Boolean(onIntervieweesChange) &&
+    visibleSections.some((section) => section.id === "5");
+
+  const intervieweeStatus = getIntervieweesStatus(fields.interviewees);
+
   const [activeSectionId, setActiveSectionId] = useState<string>(visibleSections[0]?.id ?? "");
+  const [navCollapsed, setNavCollapsed] = useState(false);
 
   useEffect(() => {
-    if (!visibleSections.some((section) => section.id === activeSectionId)) {
+    const validIds = visibleSections.map((section) => section.id);
+    if (showInterviewNav) validIds.push(INTERVIEW_NAV_ID);
+    if (!validIds.includes(activeSectionId)) {
       setActiveSectionId(visibleSections[0]?.id ?? "");
     }
-  }, [activeSectionId, visibleSections]);
+  }, [activeSectionId, visibleSections, showInterviewNav]);
+
+  const photoRefContext: PhotoRefContext | undefined =
+    onPhotoRefLinksChange && onPhotoRefNoteChange
+      ? {
+          photos,
+          photoPreviewUrls,
+          links: fields.photoRefLinks ?? {},
+          notes: fields.photoRefNotes ?? {},
+          onLinksChange: onPhotoRefLinksChange,
+          onNoteChange: onPhotoRefNoteChange,
+        }
+      : undefined;
+
+  function renderInterviewEditor() {
+    if (!onIntervieweesChange) return null;
+    return (
+      <div className="pb-4 pt-2">
+        <IntervieweeListEditor
+          interviewees={fields.interviewees}
+          onChange={onIntervieweesChange}
+          investigatorNameRank={fields.investigatorNameRank}
+          onGenerateStatement={onGenerateStatement}
+          onGenerateAllStatements={onGenerateAllStatements}
+          onPreviewStatement={onPreviewStatement}
+          generatingStatementId={generatingStatementId}
+          isGeneratingAll={isGeneratingAllStatements}
+        />
+      </div>
+    );
+  }
 
   function renderSectionBody(sectionId: string) {
     const section = visibleSections.find((item) => item.id === sectionId);
     if (!section) return null;
 
-    const intervieweeStatusMeta = getCompletionStatusMeta(
-      getIntervieweesStatus(fields.interviewees)
-    );
+    const intervieweeStatusMeta = getCompletionStatusMeta(intervieweeStatus);
 
     return (
       <div className="pb-4 pt-2">
@@ -477,6 +628,12 @@ export function ReportFormFields({
               floorplanSvg={floorplanSvg}
               floorplanPersistenceKey={floorplanPersistenceKey}
               onFloorplanSvgChange={onFloorplanSvgChange}
+              floorplanDraftState={floorplanDraftState}
+              onFloorplanDraftStateChange={onFloorplanDraftStateChange}
+              annexEMarkers={annexEMarkers}
+              onAnnexEMarkersChange={onAnnexEMarkersChange}
+              annexGState={annexGState}
+              onAnnexGStateChange={onAnnexGStateChange}
               onChange={(ids, attachmentList) => {
                 onChange("selectedAnnexes", ids.join(","));
                 onChange("annexAttachmentList", attachmentList);
@@ -489,20 +646,33 @@ export function ReportFormFields({
           </div>
         )}
 
-        {section.fields && (
-          <FieldsGrid
-            fieldConfigs={
-              section.id === "8"
-                ? section.fields.filter(
-                    (field) =>
-                      field.key !== "annexReferenceSource" && field.key !== "selectedAnnexes"
-                  )
-                : section.fields
-            }
+        {section.id === "3" ? (
+          <TenantSectionEditor
             fields={fields}
             extractedKeys={extractedKeys}
             onChange={onChange}
           />
+        ) : (
+          section.fields && (
+            <FieldsGrid
+              fieldConfigs={
+                section.id === "8"
+                  ? section.fields.filter(
+                      (field) =>
+                        field.key !== "annexReferenceSource" &&
+                        field.key !== "selectedAnnexes" &&
+                        field.key !== "annexAttachmentList" &&
+                        field.key !== "annexLayoutPlan" &&
+                        field.key !== "annexPhotographs"
+                    )
+                  : section.fields
+              }
+              fields={fields}
+              extractedKeys={extractedKeys}
+              onChange={onChange}
+              photoRefContext={photoRefContext}
+            />
+          )
         )}
 
         {section.subsections?.map((subsection) => (
@@ -514,10 +684,11 @@ export function ReportFormFields({
             fields={fields}
             extractedKeys={extractedKeys}
             onChange={onChange}
+            photoRefContext={photoRefContext}
           />
         ))}
 
-        {section.id === "5" && onIntervieweesChange && (
+        {section.id === "5" && onIntervieweesChange && displayMode === "accordion" && (
           <Accordion type="single" collapsible className="mt-4 rounded-lg border bg-white">
             <AccordionItem value="5-e-interviewees" className="border-b-0">
               <AccordionTrigger className="px-4 py-3 text-left text-sm font-semibold hover:no-underline">
@@ -535,6 +706,7 @@ export function ReportFormFields({
                   investigatorNameRank={fields.investigatorNameRank}
                   onGenerateStatement={onGenerateStatement}
                   onGenerateAllStatements={onGenerateAllStatements}
+                  onPreviewStatement={onPreviewStatement}
                   generatingStatementId={generatingStatementId}
                   isGeneratingAll={isGeneratingAllStatements}
                 />
@@ -547,45 +719,145 @@ export function ReportFormFields({
   }
 
   if (displayMode === "tabs") {
+    const interviewComplete = showInterviewNav && intervieweeStatus === "complete";
+    const totalCount = visibleSections.length + (showInterviewNav ? 1 : 0);
+    const completedCount =
+      visibleSections.filter(
+        (section) => getSectionStatus(section.id) === "complete"
+      ).length + (interviewComplete ? 1 : 0);
+    const interviewActive = activeSectionId === INTERVIEW_NAV_ID;
+
     return (
-      <div className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          {visibleSections.map((section) => {
-            const autoCount = countAutoFilled(section.id);
-            const isActive = section.id === activeSectionId;
-            const statusMeta = getCompletionStatusMeta(getSectionStatus(section.id));
+      <div className="flex flex-col gap-6 md:flex-row">
+        <nav className={`shrink-0 ${navCollapsed ? "md:w-14" : "md:w-64"}`}>
+          <div
+            className={`mb-2 flex items-center gap-2 ${
+              navCollapsed ? "justify-center" : "justify-between px-1"
+            }`}
+          >
+            {!navCollapsed && (
+              <p className="text-xs font-medium text-muted-foreground">
+                {completedCount} of {totalCount} completed
+              </p>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setNavCollapsed((prev) => !prev)}
+                  aria-label={navCollapsed ? "Expand sections" : "Minimize sections"}
+                  aria-expanded={!navCollapsed}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  {navCollapsed ? (
+                    <PanelLeftOpen className="size-4" />
+                  ) : (
+                    <PanelLeftClose className="size-4" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <span>{navCollapsed ? "Expand sections" : "Minimize sections"}</span>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <ul className="space-y-1">
+            {visibleSections.map((section) => {
+              const autoCount = countAutoFilled(section.id);
+              const isActive = section.id === activeSectionId;
+              const status = getSectionStatus(section.id);
+              const { number, label } = parseSectionTitle(section.title);
 
-            return (
-              <Button
-                key={section.id}
-                type="button"
-                variant="outline"
-                className={cn(
-                  "h-auto min-h-10 max-w-full items-start px-3 py-2 text-left whitespace-normal border-2 shadow-none",
-                  getSectionStatusBorderClass(getSectionStatus(section.id), isActive)
-                )}
-                onClick={() => setActiveSectionId(section.id)}
-              >
-                <span className="flex flex-col items-start gap-1">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs sm:text-sm">{section.title}</span>
-                    {autoCount > 0 && (
-                      <Badge
-                        variant="secondary"
-                        className="border-emerald-200 bg-emerald-50 text-emerald-800"
-                      >
-                        {autoCount} auto-filled
-                      </Badge>
-                    )}
+              const sectionButton = (
+                <button
+                  type="button"
+                  onClick={() => setActiveSectionId(section.id)}
+                  aria-current={isActive ? "true" : undefined}
+                  className={`group flex w-full items-center gap-3 rounded-lg border-l-2 py-2 text-left transition-colors ${
+                    navCollapsed ? "justify-center px-2" : "px-3"
+                  } ${
+                    isActive
+                      ? "border-red-600 bg-red-50 font-semibold text-red-900"
+                      : "border-transparent text-foreground hover:bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${getStatusBadgeColors(
+                      status,
+                      isActive
+                    )}`}
+                  >
+                    {number}
                   </span>
-                </span>
-              </Button>
-            );
-          })}
-        </div>
+                  {!navCollapsed && (
+                    <>
+                      <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+                      <SectionStatusIndicator status={status} autoCount={autoCount} />
+                    </>
+                  )}
+                </button>
+              );
 
-        <div className="rounded-xl border bg-background px-4 py-3">
-          {renderSectionBody(activeSectionId)}
+              return (
+                <li key={section.id}>
+                  {navCollapsed ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>{sectionButton}</TooltipTrigger>
+                      <TooltipContent side="right">
+                        <span>{label}</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    sectionButton
+                  )}
+
+                  {section.id === "5" && showInterviewNav && (
+                    navCollapsed ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => setActiveSectionId(INTERVIEW_NAV_ID)}
+                            aria-current={interviewActive ? "true" : undefined}
+                            className={`group mt-1 flex w-full items-center justify-center rounded-lg border-l-2 px-2 py-2 text-left transition-colors ${
+                              interviewActive
+                                ? "border-red-600 bg-red-50 font-semibold text-red-900"
+                                : "border-transparent text-foreground hover:bg-muted"
+                            }`}
+                          >
+                            <SectionStatusIndicator status={intervieweeStatus} autoCount={0} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <span>{INTERVIEW_NAV_LABEL}</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setActiveSectionId(INTERVIEW_NAV_ID)}
+                        aria-current={interviewActive ? "true" : undefined}
+                        className={`group mt-1 flex w-full items-center gap-3 rounded-lg border-l-2 py-2 pl-9 pr-3 text-left transition-colors ${
+                          interviewActive
+                            ? "border-red-600 bg-red-50 font-semibold text-red-900"
+                            : "border-transparent text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {INTERVIEW_NAV_LABEL}
+                        </span>
+                        <SectionStatusIndicator status={intervieweeStatus} autoCount={0} />
+                      </button>
+                    )
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        <div className="min-w-0 flex-1 rounded-xl border bg-background px-4 py-3">
+          {interviewActive ? renderInterviewEditor() : renderSectionBody(activeSectionId)}
         </div>
       </div>
     );
