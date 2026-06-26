@@ -437,6 +437,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const previewRef = useRef<HTMLDivElement>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const previewScalerRef = useRef<HTMLDivElement>(null);
+  const hasShownStopMessageToastRef = useRef(false);
 
   const getPreviewElements = useCallback(() => {
     const viewport = previewViewportRef.current;
@@ -642,6 +643,16 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     return fieldNotes.length > 80 ? `${fieldNotes.slice(0, 80)}…` : fieldNotes;
   }, [fieldNotes]);
 
+  useEffect(() => {
+    if (hasShownStopMessageToastRef.current) return;
+    hasShownStopMessageToastRef.current = true;
+
+    toast.success("Stop message captured", {
+      duration: 5000,
+      description: "The stop message has been recorded.",
+    });
+  }, []);
+
   const handlePrevious = () => {
     if (onBack) onBack();
     else navigate("/incident");
@@ -703,7 +714,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         </Button>
       </div>
 
-      <StatusBanner variant="success" title="Stop message captured">
+      {false && <StatusBanner variant="success" title="Stop message captured">
         {stopMessage ? (
           <p className="font-mono text-xs sm:text-sm break-words">{stopPreview}</p>
         ) : (
@@ -717,7 +728,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
             <p className="font-mono text-xs mt-1 opacity-80">{fieldNotesPreview}</p>
           </div>
         )}
-      </StatusBanner>
+      </StatusBanner>}
 
       {reportView === "fir" && step === "review" && (
         <Card className="rounded-xl shadow-sm">
