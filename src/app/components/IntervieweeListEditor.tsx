@@ -131,6 +131,31 @@ function getIntervieweeSectionStatusMeta(status: IntervieweeSectionStatus) {
   }
 }
 
+function getIntervieweeOverallStatus(
+  interviewee: Interviewee
+): IntervieweeSectionStatus {
+  const values = [
+    ...PERSONAL_FIELDS.map((field) => String(interviewee[field.key] ?? "")),
+    ...CONTACT_FIELDS.map((field) => String(interviewee[field.key] ?? "")),
+    ...RECORDING_FIELDS.map((field) => String(interviewee[field.key] ?? "")),
+    interviewee.factsOriginal,
+    interviewee.facts,
+    interviewee.signatureDataUrl,
+  ];
+
+  const filledCount = values.filter((value) => value.trim().length > 0).length;
+
+  if (filledCount === 0) {
+    return "not-edited";
+  }
+
+  if (filledCount === values.length) {
+    return "complete";
+  }
+
+  return "partial";
+}
+
 function IntervieweeFieldGrid({
   fields,
   interviewee,
@@ -519,6 +544,9 @@ export function IntervieweeListEditor({
             interviewee,
             RECORDING_FIELDS
           );
+          const intervieweeStatus = getIntervieweeOverallStatus(interviewee);
+          const intervieweeStatusMeta =
+            getIntervieweeSectionStatusMeta(intervieweeStatus);
 
           return (
             <Accordion
@@ -529,10 +557,18 @@ export function IntervieweeListEditor({
             >
               <AccordionItem value={interviewee.id} className="border-b-0">
                 <AccordionTrigger className="px-4 py-3 text-left hover:no-underline">
-                  <span className="text-sm font-semibold text-gray-800">
-                    Interviewee {index + 1}
-                    {interviewee.name ? ` - ${interviewee.name}` : ""}
-                  </span>
+                  <div className="flex w-full items-center justify-between gap-3 pr-2">
+                    <span className="text-sm font-semibold text-gray-800">
+                      Interviewee {index + 1}
+                      {interviewee.name ? ` - ${interviewee.name}` : ""}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={intervieweeStatusMeta.className}
+                    >
+                      {intervieweeStatusMeta.label}
+                    </Badge>
+                  </div>
                 </AccordionTrigger>
 
                 <AccordionContent className="space-y-4 px-4 pb-4 pt-1">

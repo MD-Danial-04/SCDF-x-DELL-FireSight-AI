@@ -12,6 +12,7 @@ import {
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
+import { cn } from "./ui/utils";
 import {
   REPORT_FORM_SECTIONS,
   getAllSectionFields,
@@ -92,6 +93,23 @@ function getCompletionStatusMeta(status: CompletionStatus) {
         label: "Not edited",
         className: "border-slate-200 bg-slate-100 text-slate-600",
       };
+  }
+}
+
+function getSectionStatusBorderClass(status: CompletionStatus, isActive: boolean) {
+  switch (status) {
+    case "complete":
+      return isActive
+        ? "border-emerald-400 bg-emerald-50 text-emerald-950 hover:bg-emerald-50"
+        : "border-emerald-200 bg-white hover:bg-emerald-50/40";
+    case "partial":
+      return isActive
+        ? "border-amber-400 bg-amber-50 text-amber-950 hover:bg-amber-50"
+        : "border-amber-200 bg-white hover:bg-amber-50/40";
+    default:
+      return isActive
+        ? "border-slate-400 bg-slate-50 text-slate-950 hover:bg-slate-50"
+        : "border-slate-200 bg-white hover:bg-slate-50/40";
   }
 }
 
@@ -201,14 +219,14 @@ function Field({
           value={value}
           onChange={(e) => onChange(key, e.target.value)}
           rows={3}
-          className="mt-1 border-slate-400 bg-white font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
+          className="mt-1 border-slate-200/70 bg-white/95 font-mono text-sm text-slate-950 shadow-sm ring-1 ring-slate-100 focus-visible:border-slate-300 focus-visible:ring-primary/15"
         />
       ) : (
         <Input
           id={key}
           value={value}
           onChange={(e) => onChange(key, e.target.value)}
-          className="mt-1 border-slate-400 bg-white text-slate-950 shadow-sm ring-1 ring-slate-200 focus-visible:border-red-400 focus-visible:ring-red-200"
+          className="mt-1 border-slate-200/70 bg-white/95 text-slate-950 shadow-sm ring-1 ring-slate-100 focus-visible:border-slate-300 focus-visible:ring-primary/15"
         />
       )}
     </div>
@@ -535,23 +553,25 @@ export function ReportFormFields({
               <Button
                 key={section.id}
                 type="button"
-                variant={isActive ? "default" : "outline"}
-                className="h-auto min-h-10 max-w-full items-start px-3 py-2 text-left whitespace-normal"
+                variant="outline"
+                className={cn(
+                  "h-auto min-h-10 max-w-full items-start px-3 py-2 text-left whitespace-normal border-2 shadow-none",
+                  getSectionStatusBorderClass(getSectionStatus(section.id), isActive)
+                )}
                 onClick={() => setActiveSectionId(section.id)}
               >
                 <span className="flex flex-col items-start gap-1">
-                  <span className="text-xs sm:text-sm">{section.title}</span>
-                  <Badge variant="outline" className={statusMeta.className}>
-                    {statusMeta.label}
-                  </Badge>
-                  {autoCount > 0 && (
-                    <Badge
-                      variant="secondary"
-                      className="border-emerald-200 bg-emerald-50 text-emerald-800"
-                    >
-                      {autoCount} auto-filled
-                    </Badge>
-                  )}
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs sm:text-sm">{section.title}</span>
+                    {autoCount > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="border-emerald-200 bg-emerald-50 text-emerald-800"
+                      >
+                        {autoCount} auto-filled
+                      </Badge>
+                    )}
+                  </span>
                 </span>
               </Button>
             );
