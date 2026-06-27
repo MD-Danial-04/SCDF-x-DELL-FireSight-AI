@@ -11,27 +11,27 @@ export interface AnnexDefinition {
 export const ANNEX_DEFINITIONS: AnnexDefinition[] = [
   {
     id: "A",
-    title: "Annex A – Layout Plan of the Affected Area",
+    title: "Annex A – Location Plan",
     pageIndices: [0],
   },
   {
     id: "B",
-    title: "Annex B – Photographs",
+    title: "Annex B – Site Plan",
     pageIndices: [1],
   },
   {
     id: "C",
-    title: "Annex C – Sketch",
+    title: "Annex C – Layout Plan of the Affected Area",
     pageIndices: [2],
   },
   {
     id: "D",
-    title: "Annex D – Table of Photo-log",
+    title: "Annex D – Table of Photo Log",
     pageIndices: [3],
   },
   {
     id: "E",
-    title: "Annex E – Photo-log Direction Plan",
+    title: "Annex E – Photo Log",
     pageIndices: [4],
   },
   {

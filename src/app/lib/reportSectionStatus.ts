@@ -146,7 +146,15 @@ export function getAttachmentsEditorStatus({
 }): CompletionStatus {
   const editorRequirements: boolean[] = [];
 
-  if (selectedAnnexes.includes("A") || selectedAnnexes.includes("E")) {
+  if (selectedAnnexes.includes("A")) {
+    editorRequirements.push(Boolean(annexPreviewUrls[0]));
+  }
+
+  if (selectedAnnexes.includes("B")) {
+    editorRequirements.push(Boolean(annexPreviewUrls[1]));
+  }
+
+  if (selectedAnnexes.includes("C") || selectedAnnexes.includes("E")) {
     editorRequirements.push(Boolean(floorplanSvg?.trim()));
   }
 

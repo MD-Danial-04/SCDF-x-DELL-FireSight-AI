@@ -83,17 +83,11 @@ export const INTERVIEW_SECTIONS: InterviewSection[] = [
   },
   {
     id: "personal",
-    label: "Personal details",
-    description: "Fill the interviewee's personal particulars from the transcript.",
+    label: "Personal details & contact",
+    description:
+      "Fill the interviewee's personal particulars and contact numbers from the transcript.",
     kind: "profile",
-    fields: PERSONAL_FIELDS,
-  },
-  {
-    id: "contact",
-    label: "Contact numbers",
-    description: "Fill the interviewee's contact numbers from the transcript.",
-    kind: "profile",
-    fields: CONTACT_FIELDS,
+    fields: [...PERSONAL_FIELDS, ...CONTACT_FIELDS],
   },
 ];
 

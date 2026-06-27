@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
 import {
   Select,
   SelectContent,
@@ -14,7 +12,6 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { Mic, MicOff, FileText, FileImage, Loader2, RotateCcw } from "lucide-react";
-import { useLocation } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "../components/PageHeader";
 import { StepIndicator } from "../components/StepIndicator";
@@ -52,9 +49,6 @@ function scrollPageToTop() {
 }
 
 export function StopMessage() {
-  const { pathname } = useLocation();
-  const mode = pathname.startsWith("/late-activation") ? "late" : "incident";
-
   const [selectedSelectValue, setSelectedSelectValue] = useState("");
   const [isDemoSelection, setIsDemoSelection] = useState(false);
   const [selectedIncidentType, setSelectedIncidentType] = useState<IncidentType | null>(null);
@@ -339,17 +333,11 @@ export function StopMessage() {
     <div className="space-y-8">
       <AiProcessingDialog open={isProcessing} kind="transcription" />
       <PageHeader
-        title={mode === "late" ? "Late activation / response slides" : "Incident report / slides"}
-        description={
-          mode === "late"
-            ? "Generate late activation and response slides for briefings."
-            : "Select incident type, capture your stop message, then generate a report or slides."
-        }
+        title="Incident report / slides"
+        description="Select incident type, capture your stop message, then generate a report or slides."
       />
 
-      {mode === "incident" && (
-        <>
-          <StepIndicator
+      <StepIndicator
             currentIndex={workflowStep}
             steps={[
               { label: "Select type", description: "Choose incident template" },
@@ -543,40 +531,6 @@ export function StopMessage() {
               </CardContent>
             </Card>
           )}
-        </>
-      )}
-
-      {mode === "late" && (
-        <Card className="rounded-xl shadow-sm">
-          <CardHeader>
-            <CardTitle>Late activation / response slides</CardTitle>
-            <CardDescription>Enter information for late activation and response slides</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="activation-title">Activation Title</Label>
-              <Input
-                id="activation-title"
-                placeholder="e.g., Night Shift Briefing - 20 May 2026"
-                className="mt-1 text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="activation-description">Description</Label>
-              <Textarea
-                id="activation-description"
-                placeholder="Enter briefing details..."
-                rows={6}
-                className="mt-1 text-sm"
-              />
-            </div>
-            <Button onClick={handleGenerateSlides} variant="slides">
-              <FileImage className="mr-2 h-4 w-4" />
-              Generate Slides
-            </Button>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

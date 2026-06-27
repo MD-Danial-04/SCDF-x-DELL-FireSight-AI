@@ -12,7 +12,6 @@ import { toast } from "sonner";
 import { SignaturePad } from "./SignaturePad";
 import { StatementFormPreviewDialog } from "./StatementFormPreviewDialog";
 import { TranscriptPageEditor } from "./TranscriptPageEditor";
-import type { InterviewPhase } from "./InterviewStepper";
 import { AiProcessingDialog } from "./AiProcessingDialog";
 import {
   Accordion,
@@ -36,6 +35,7 @@ import {
 } from "../constants/interviewSections";
 import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
 import { useExtractionJob } from "../hooks/useExtractionJob";
+import type { GuidedInterviewResult } from "../hooks/useGuidedInterview";
 import { extractInterviewFields } from "../lib/extractInterviewFields";
 import { mergeIntervieweeFields } from "../lib/mergeIntervieweeFields";
 import { personToInterviewDetails } from "../lib/singpass/mapMyInfoPerson";
@@ -46,6 +46,7 @@ import {
   createEmptyInterviewee,
   ensureTranscriptPages,
   hasAllFixedTranscriptPages,
+  hasLegacyContactPage,
   INTERVIEW_LANGUAGE_SPOKEN_LABELS,
   type Interviewee,
   type IntervieweeFieldKey,
@@ -132,9 +133,6 @@ export function IntervieweeListEditor({
   const [activePageIndex, setActivePageIndex] = useState<Record<string, number>>(
     {}
   );
-  const [statementPhase, setStatementPhase] = useState<
-    Record<string, InterviewPhase>
-  >({});
 
   const setActivePage = (intervieweeId: string, pageIndex: number) => {
     setActivePageIndex((prev) => ({ ...prev, [intervieweeId]: pageIndex }));
@@ -174,14 +172,16 @@ export function IntervieweeListEditor({
     );
   };
 
-  // Migrate older interviewees that predate transcript pages, and backfill the
-  // fixed pages (personal, contact, statement) for any resumed draft missing them.
+  // Migrate older interviewees that predate transcript pages, backfill the
+  // fixed pages (personal, statement) for any resumed draft missing them, and
+  // collapse legacy "contact" pages into the personal page.
   useEffect(() => {
     const needsMigration = interviewees.some(
       (item) =>
         !item.transcriptPages ||
         item.transcriptPages.length === 0 ||
-        !hasAllFixedTranscriptPages(item)
+        !hasAllFixedTranscriptPages(item) ||
+        hasLegacyContactPage(item)
     );
     if (needsMigration) {
       onChange(interviewees.map(ensureTranscriptPages));
@@ -355,6 +355,36 @@ export function IntervieweeListEditor({
     await extractPage(intervieweeId, pageId, mergedEnglish, page.sectionId, jobId);
   };
 
+  const handleGuidedComplete = (
+    intervieweeId: string,
+    pageId: string,
+    result: GuidedInterviewResult
+  ) => {
+    // The guided view rebuilds the full transcript from per-question answers,
+    // so replace (not append) the page transcript and store the question map.
+    patchPage(intervieweeId, pageId, (current) => ({
+      ...current,
+      transcriptOriginal: result.transcriptOriginal,
+      transcriptEnglish: result.transcriptEnglish,
+      questionResponses: result.questionResponses,
+      askedQuestionIds: result.askedQuestionIds,
+    }));
+    patchInterviewee(intervieweeId, (current) => ({
+      ...current,
+      recordedDate: current.recordedDate || todayDateString(),
+    }));
+    if (result.analysis) {
+      setAnalysisResults((prev) => ({ ...prev, [pageId]: result.analysis! }));
+    } else {
+      setAnalysisResults((prev) => {
+        const next = { ...prev };
+        delete next[pageId];
+        return next;
+      });
+    }
+    toast.success("Guided interview saved to the statement");
+  };
+
   const handleAnalyze = (intervieweeId: string, pageId: string) => {
     const interviewee = intervieweesRef.current.find(
       (item) => item.id === intervieweeId
@@ -409,20 +439,6 @@ export function IntervieweeListEditor({
     );
   };
 
-  const toggleAsked = (
-    intervieweeId: string,
-    pageId: string,
-    questionId: string
-  ) => {
-    patchPage(intervieweeId, pageId, (page) => {
-      const current = page.askedQuestionIds ?? [];
-      const next = current.includes(questionId)
-        ? current.filter((id) => id !== questionId)
-        : [...current, questionId];
-      return { ...page, askedQuestionIds: next };
-    });
-  };
-
   const addFollowUpToFacts = (
     intervieweeId: string,
     pageId: string,
@@ -463,6 +479,15 @@ export function IntervieweeListEditor({
             !!activePage &&
             getInterviewSection(activePage.sectionId).kind ===
               "leading-questions";
+          const statementHasContent =
+            isStatementActive &&
+            (activePage.transcriptEnglish.trim().length > 0 ||
+              (activePage.questionResponses?.some(
+                (response) =>
+                  response.transcriptEnglish.trim() ||
+                  response.transcriptOriginal.trim()
+              ) ??
+                false));
 
           return (
             <Accordion
@@ -495,7 +520,7 @@ export function IntervieweeListEditor({
                   </div>
 
                   <div className="space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4">
                       <div>
                         <p className="text-sm font-semibold text-gray-800">
                           Sections
@@ -504,17 +529,19 @@ export function IntervieweeListEditor({
                           Pick which interview section to fill.
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex w-full gap-2">
                         {pages.map((page, pageIndex) => (
                           <Button
                             key={page.id}
                             type="button"
                             size="sm"
                             variant={pageIndex === activeIdx ? "default" : "outline"}
-                            className="shrink-0"
+                            className="min-w-0 flex-1"
                             onClick={() => setActivePage(interviewee.id, pageIndex)}
                           >
-                            {pageIndex + 1}. {getInterviewSection(page.sectionId).label}
+                            <span className="truncate">
+                              {pageIndex + 1}. {getInterviewSection(page.sectionId).label}
+                            </span>
                           </Button>
                         ))}
                       </div>
@@ -598,14 +625,11 @@ export function IntervieweeListEditor({
                             person
                           )
                         }
-                        onToggleAsked={(questionId) =>
-                          toggleAsked(interviewee.id, activePage.id, questionId)
-                        }
-                        onPhaseChange={(phase) =>
-                          setStatementPhase((prev) =>
-                            prev[activePage.id] === phase
-                              ? prev
-                              : { ...prev, [activePage.id]: phase }
+                        onGuidedComplete={(result) =>
+                          handleGuidedComplete(
+                            interviewee.id,
+                            activePage.id,
+                            result
                           )
                         }
                       />
@@ -642,8 +666,7 @@ export function IntervieweeListEditor({
                     </div>
                   </div>
 
-                  {isStatementActive &&
-                    statementPhase[activePage.id] === "review" && (
+                  {statementHasContent && (
                     <>
                   <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
                     <div>

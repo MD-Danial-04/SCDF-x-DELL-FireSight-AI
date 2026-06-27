@@ -226,6 +226,21 @@ for (const [from, to] of labelInserts) {
   xml = xml.split(from).join(to);
 }
 
+// Remove the legacy per-annex attachment row ("a) Annex A", "b) Annex B"); it
+// duplicates the full {annexAttachmentList} list rendered just above it.
+{
+  const layoutIdx = xml.indexOf("{annexLayoutPlan}");
+  const photoIdx = xml.indexOf("{annexPhotographs}");
+  if (layoutIdx !== -1 && photoIdx !== -1) {
+    const trStart = xml.lastIndexOf("<w:tr", Math.min(layoutIdx, photoIdx));
+    const trEnd =
+      xml.indexOf("</w:tr>", Math.max(layoutIdx, photoIdx)) + "</w:tr>".length;
+    if (trStart !== -1 && trEnd > "</w:tr>".length - 1) {
+      xml = xml.slice(0, trStart) + xml.slice(trEnd);
+    }
+  }
+}
+
 // Fire Involved
 xml = xml.replace(
   /<w:t>Fire Involved<\/w:t>\s*<w:t>:<\/w:t>/,

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { FileText, Download, Loader2, RefreshCw } from "lucide-react";
+import { FileText, Download, Loader2, RefreshCw, X, Eye } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { StatusBanner } from "../components/StatusBanner";
@@ -11,6 +11,7 @@ import { remainingMinDelayMs, randomDemoDelayMs } from "../lib/loadingTiming";
 import { useReportSession } from "../context/ReportSessionContext";
 import { createEmptyReportFields, type FireReportData } from "../types/fireReport";
 import { extractReportFields, mergeReportFields } from "../lib/extractReportFields";
+import { getOfficerProfile, getOfficerStation } from "../lib/userSettings";
 import {
   migrateLegacyPhotoRefs,
   resolvePhotoRefText,
@@ -49,6 +50,7 @@ import {
   type PhotoLogEntry,
 } from "../types/photoLog";
 import {
+  PHOTO_REF_FIELD_TO_SECTION,
   PHOTO_REF_LABELS,
   SUGGESTED_PHOTO_SECTIONS,
   SUGGESTED_SECTION_TO_PHOTO_REF,
@@ -71,20 +73,58 @@ type ReportView = "fir" | "prr";
 const STATIC_HEADER_PAGE_INDICES = [0, 1, 2, 4, 8];
 const PRR_SECTION_IDS = ["1", "2", "6"] as const;
 
+/** Default preview zoom: render the fitted page ~1.4x larger for readability
+ * (the page scrolls horizontally when it exceeds the viewport width). */
+const DEFAULT_PREVIEW_ZOOM = 1.4;
+
+/** PRR sections derived from the full report config, with photo-reference fields removed. */
+const PRR_SECTION_CONFIGS = REPORT_FORM_SECTIONS
+  .filter((section) =>
+    PRR_SECTION_IDS.includes(section.id as (typeof PRR_SECTION_IDS)[number])
+  )
+  .map((section) => ({
+    ...section,
+    fields: section.fields?.filter((field) => !PHOTO_REF_FIELD_TO_SECTION[field.key]),
+  }));
+
+/**
+ * Prefills the author fields from the saved officer profile, but only when they
+ * are still blank so extracted values and resumed drafts are never overwritten.
+ */
+function applyOfficerProfile(fields: FireReportData): FireReportData {
+  const profile = getOfficerProfile().trim();
+  const station = getOfficerStation().trim();
+  if (!profile && !station) return fields;
+
+  const next = { ...fields };
+  if (profile && !next.investigatorNameRank.trim()) next.investigatorNameRank = profile;
+  if (profile && !next.preparedBy.trim()) next.preparedBy = profile;
+  if (station && !next.station.trim()) next.station = station;
+  return next;
+}
+
 interface ReportGenerationProps {
   onBack?: () => void;
 }
 
 export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const navigate = useNavigate();
-  const { incidentType, stopMessage, fieldNotes, transcriptionJobId, resumeDraftIncidentNo } =
-    useReportSession();
+  const {
+    incidentType,
+    stopMessage,
+    fieldNotes,
+    transcriptionJobId,
+    resumeDraftIncidentNo,
+    initialSectionId,
+  } = useReportSession();
   const { runExtraction, error: extractionError } = useExtractionJob();
   const [reportView, setReportView] = useState<ReportView>("fir");
   const [activeSectionId, setActiveSectionId] = useState<string>(
-    REPORT_FORM_SECTIONS[0]?.id ?? "1"
+    initialSectionId ?? REPORT_FORM_SECTIONS[0]?.id ?? "1"
   );
-  const [reportFields, setReportFields] = useState<FireReportData>(() => createEmptyReportFields());
+  const [reportFields, setReportFields] = useState<FireReportData>(() =>
+    applyOfficerProfile(createEmptyReportFields())
+  );
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<"loading" | "ready">("loading");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -200,14 +240,13 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     });
   }, []);
 
-  const handleReorderPhoto = useCallback((id: string, direction: "up" | "down") => {
+  const handleReorderPhotos = useCallback((orderedIds: string[]) => {
     setPhotos((prev) => {
-      const index = prev.findIndex((p) => p.id === id);
-      if (index === -1) return prev;
-      const target = direction === "up" ? index - 1 : index + 1;
-      if (target < 0 || target >= prev.length) return prev;
-      const next = [...prev];
-      [next[index], next[target]] = [next[target], next[index]];
+      const byId = new Map(prev.map((photo) => [photo.id, photo]));
+      const next = orderedIds
+        .map((id) => byId.get(id))
+        .filter((photo): photo is PhotoLogEntry => photo !== undefined);
+      if (next.length !== prev.length) return prev;
       return next;
     });
   }, []);
@@ -484,7 +523,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       );
       if (!cancelled) {
         setExtractedKeys(keys);
-        setReportFields(mergeReportFields(createEmptyReportFields(), extracted));
+        setReportFields(
+          applyOfficerProfile(mergeReportFields(createEmptyReportFields(), extracted))
+        );
       }
     };
 
@@ -517,7 +558,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         );
         if (!cancelled) {
           setExtractedKeys(keys);
-          setReportFields(mergeReportFields(createEmptyReportFields(), extracted));
+          setReportFields(
+          applyOfficerProfile(mergeReportFields(createEmptyReportFields(), extracted))
+        );
         }
       })
       .catch(() => {
@@ -663,7 +706,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const schedulePreviewFit = useCallback(() => {
     const elements = getPreviewElements();
     if (!elements) return;
-    scheduleDocxPreviewFit(elements);
+    scheduleDocxPreviewFit(elements, DEFAULT_PREVIEW_ZOOM);
   }, [getPreviewElements]);
 
   const renderPreview = useCallback(async (blob: Blob) => {
@@ -708,7 +751,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     if (previewVersion === 0) return;
     const elements = getPreviewElements();
     if (!elements) return;
-    return observeDocxPreviewFit(elements);
+    return observeDocxPreviewFit(elements, DEFAULT_PREVIEW_ZOOM);
   }, [getPreviewElements, previewVersion]);
 
   const handleGenerate = async () => {
@@ -968,7 +1011,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               photoPreviewUrls={photoPreviewUrls}
               onAddPhotos={handleAddPhotos}
               onRemovePhoto={handleRemovePhoto}
-              onReorderPhoto={handleReorderPhoto}
+              onReorderPhotos={handleReorderPhotos}
               onCopyPhoto={handleCopyPhoto}
               onUpdatePhotoCaption={handleUpdatePhotoCaption}
               photoAnalysisContext={photoAnalysisContext}
@@ -999,54 +1042,72 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       )}
 
       {activeSectionId === PREVIEW_NAV_ID && (
-        <Card className="flex flex-col rounded-xl shadow-sm">
-          <CardHeader>
-            <CardTitle>Document preview</CardTitle>
-            <CardDescription>Scroll to review pages — scaled to panel width</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!docBlob ? (
-              <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-10 text-center">
-                <p className="text-sm text-muted-foreground">
-                  No document generated yet. Open the menu and choose
-                  <span className="font-medium text-foreground">
-                    {reportView === "prr" ? " Generate PRR " : " Generate Word Report "}
-                  </span>
-                  to build a preview.
-                </p>
-                <Button
-                  className="mt-4"
-                  onClick={reportView === "prr" ? handleGeneratePrr : handleGenerate}
-                  disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
-                >
-                  {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <FileText className="mr-2 h-4 w-4" />
-                  )}
-                  {reportView === "prr" ? "Generate PRR" : "Generate Word Report"}
-                </Button>
-              </div>
-            ) : (
-              <>
-                <div className="mb-3 flex flex-wrap gap-3">
+        <div className="fixed inset-0 z-50 flex flex-col bg-background">
+          <div className="flex items-center justify-between gap-3 border-b bg-surface-elevated px-4 py-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] shadow-sm">
+            <div className="flex min-w-0 items-center gap-2">
+              <Eye className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate text-sm font-semibold">Document preview</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {docBlob && (
+                <>
                   <Button
+                    size="sm"
+                    variant="outline"
                     onClick={reportView === "prr" ? handleUpdatePreviewPrr : handleUpdatePreview}
                     disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
-                    variant="outline"
+                  >
+                    {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
+                      <Loader2 className="h-4 w-4 animate-spin sm:mr-2" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 sm:mr-2" />
+                    )}
+                    <span className="hidden sm:inline">Update preview</span>
+                  </Button>
+                  <Button size="sm" onClick={handleDownload}>
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Download DOCX</span>
+                  </Button>
+                </>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label="Close preview"
+                onClick={() => setActiveSectionId(navVisibleSectionIds[0] ?? "1")}
+              >
+                <X className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Close</span>
+              </Button>
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col p-2 sm:p-3">
+            {!docBlob ? (
+              <div className="flex flex-1 items-center justify-center">
+                <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-10 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No document generated yet. Open the menu and choose
+                    <span className="font-medium text-foreground">
+                      {reportView === "prr" ? " Generate PRR " : " Generate Word Report "}
+                    </span>
+                    to build a preview.
+                  </p>
+                  <Button
+                    className="mt-4"
+                    onClick={reportView === "prr" ? handleGeneratePrr : handleGenerate}
+                    disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
                   >
                     {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <RefreshCw className="mr-2 h-4 w-4" />
+                      <FileText className="mr-2 h-4 w-4" />
                     )}
-                    Update preview
-                  </Button>
-                  <Button onClick={handleDownload}>
-                    <Download className="mr-2 h-4 w-4" />
-                    Download DOCX
+                    {reportView === "prr" ? "Generate PRR" : "Generate Word Report"}
                   </Button>
                 </div>
+              </div>
+            ) : (
+              <>
                 {previewError && (
                   <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                     {previewError}
@@ -1057,7 +1118,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 )}
                 <div
                   ref={previewViewportRef}
-                  className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-3 h-[min(70vh,720px)] xl:h-[min(calc(100vh-7rem),720px)]"
+                  className="docx-preview-viewport min-h-0 flex-1 overflow-auto border rounded-xl bg-muted/40 p-3"
                 >
                   <div ref={previewScalerRef} className="docx-preview-scaler mx-auto">
                     <div ref={previewRef} className="docx-preview-host bg-white" />
@@ -1065,8 +1126,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 </div>
               </>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {reportView === "prr" && activeSectionId !== PREVIEW_NAV_ID && (
@@ -1079,6 +1140,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               displayMode="tabs"
               activeSectionId={activeSectionId}
               onActiveSectionChange={setActiveSectionId}
+              sectionConfigs={PRR_SECTION_CONFIGS}
               visibleSectionIds={[...PRR_SECTION_IDS]}
             />
             <div className="flex flex-wrap gap-3 pt-2">

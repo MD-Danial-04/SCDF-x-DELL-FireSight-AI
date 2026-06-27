@@ -164,3 +164,53 @@ export async function svgStringToAnnexTemplatePngBlob(
     URL.revokeObjectURL(svgUrl);
   }
 }
+
+/** Composite an uploaded raster image into the fixed sketch frame on an annex template PNG. */
+export async function imageBlobToAnnexTemplatePngBlob(
+  imageSource: Blob,
+  header?: PhotoLogHeaderInfo,
+  options?: AnnexTemplatePngOptions,
+): Promise<Blob> {
+  const templatePageIndex = options?.templatePageIndex ?? 0;
+  const scale = ANNEX_A_RENDER_SCALE;
+  const canvasWidth = ANNEX_A_WIDTH * scale;
+  const canvasHeight = ANNEX_A_HEIGHT * scale;
+  const templateUrl = getDefaultPagePreviewUrl(templatePageIndex);
+  if (!templateUrl) {
+    throw new Error(`Annex template image not found for page ${templatePageIndex}`);
+  }
+
+  const imageUrl = URL.createObjectURL(imageSource);
+
+  try {
+    const [templateImg, uploadImg] = await Promise.all([
+      loadImage(templateUrl),
+      loadImage(imageUrl),
+    ]);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas not supported");
+
+    ctx.drawImage(templateImg, 0, 0, canvasWidth, canvasHeight);
+
+    const frame = getAnnexAFloorplanFrameRect(scale);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
+
+    const fill = computeFloorplanFrameFillRect(
+      uploadImg.naturalWidth,
+      uploadImg.naturalHeight,
+      scale,
+    );
+    ctx.drawImage(uploadImg, fill.x, fill.y, fill.width, fill.height);
+
+    drawHeaderValuesOnCanvas(ctx, header, canvasWidth, canvasHeight);
+
+    return encodeCanvasPng(canvas);
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+}

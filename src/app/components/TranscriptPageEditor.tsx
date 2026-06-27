@@ -1,12 +1,17 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ClipboardCopy, Loader2, Mic, Plus, Sparkles } from "lucide-react";
+import { useState } from "react";
+import {
+  ChevronDown,
+  ClipboardCopy,
+  Loader2,
+  Plus,
+  Sparkles,
+  Wand2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { InterviewRecordingCard } from "./InterviewRecordingCard";
-import { InterviewStepper, type InterviewPhase } from "./InterviewStepper";
-import {
-  InterviewProgress,
-  type InterviewProgressStage,
-} from "./InterviewProgress";
+import { GuidedInterviewView } from "./GuidedInterviewView";
+import type { GuidedInterviewResult } from "../hooks/useGuidedInterview";
+import { InterviewProgress } from "./InterviewProgress";
 import { SingpassRetrieveButton } from "./SingpassRetrieveButton";
 import { LeadingQuestionsPanel } from "./LeadingQuestionsPanel";
 import { Badge } from "./ui/badge";
@@ -197,8 +202,7 @@ interface TranscriptPageEditorProps {
   onFieldChange: (key: IntervieweeFieldKey, value: string) => void;
   onAddFollowUpToFacts: (text: string) => void;
   onSingpassRetrieved: (person: MyInfoPerson) => void;
-  onToggleAsked: (questionId: string) => void;
-  onPhaseChange?: (phase: InterviewPhase) => void;
+  onGuidedComplete: (result: GuidedInterviewResult) => void;
 }
 
 export function TranscriptPageEditor({
@@ -220,8 +224,7 @@ export function TranscriptPageEditor({
   onFieldChange,
   onAddFollowUpToFacts,
   onSingpassRetrieved,
-  onToggleAsked,
-  onPhaseChange,
+  onGuidedComplete,
 }: TranscriptPageEditorProps) {
   const section = getInterviewSection(page.sectionId);
   const isLeadingQuestions = section.kind === "leading-questions";
@@ -237,7 +240,6 @@ export function TranscriptPageEditor({
     ? new Map(analysisResult.coverage.map((item) => [item.id, item]))
     : undefined;
 
-  const askedIds = new Set(page.askedQuestionIds ?? []);
   const hasTranscript = page.transcriptEnglish.trim().length > 0;
 
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -246,49 +248,15 @@ export function TranscriptPageEditor({
   const [captureMode, setCaptureMode] = useState<"singpass" | "interview">(
     "singpass"
   );
-  const [phase, setPhase] = useState<InterviewPhase>(
-    hasTranscript ? "review" : "setup"
-  );
+  const [showGuided, setShowGuided] = useState(false);
 
-  // Leaving the Record phase unmounts the recorder and silently discards the
-  // captured audio. Block navigation while a recording is active/paused and
-  // prompt the user to End it first (which saves and transcribes it).
-  const requestPhaseChange = (next: InterviewPhase) => {
-    if (isRecordingActive && next !== "record") {
-      toast.warning("End the recording first — tap End to save and transcribe it.");
-      return;
-    }
-    setPhase(next);
+  const canRunGuided = page.leadingQuestionSet !== "none";
+  const hasGuidedResponses = (page.questionResponses?.length ?? 0) > 0;
+
+  const handleGuidedComplete = (result: GuidedInterviewResult) => {
+    onGuidedComplete(result);
+    setShowGuided(false);
   };
-
-  // Surface phase changes to the parent (used to gate the statement details to
-  // the Review phase). Ref-backed so an inline parent callback can't loop.
-  const onPhaseChangeRef = useRef(onPhaseChange);
-  onPhaseChangeRef.current = onPhaseChange;
-  useEffect(() => {
-    onPhaseChangeRef.current?.(phase);
-  }, [phase]);
-
-  // Track that a transcribe/analyze cycle is in flight so we only auto-advance
-  // to Review when it completes - not whenever the user revisits Record on a
-  // page that already has a transcript.
-  const processingCycleRef = useRef(false);
-  useEffect(() => {
-    if (isTranscribing || isAnalyzing) {
-      processingCycleRef.current = true;
-      return;
-    }
-    if (processingCycleRef.current && hasTranscript) {
-      processingCycleRef.current = false;
-      setPhase("review");
-    }
-  }, [isTranscribing, isAnalyzing, hasTranscript]);
-
-  const progressStage: InterviewProgressStage = isTranscribing
-    ? "transcribing"
-    : isAnalyzing
-      ? "analyzing"
-      : null;
 
   const transcriptBlock = (
     <div>
@@ -448,213 +416,147 @@ export function TranscriptPageEditor({
     );
   }
 
-  const askedMeta = activeLeadingQuestions
-    ? `Asked ${askedIds.size} / ${leadingQuestions.length}`
-    : undefined;
-
   return (
     <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
-      <InterviewStepper
-        phase={phase}
-        onPhaseChange={requestPhaseChange}
-        recordMeta={askedMeta}
-      />
+      {showGuided && activeLeadingQuestions ? (
+        <GuidedInterviewView
+          intervieweeName={interviewee.name}
+          questionSetTitle={activeLeadingQuestions.title}
+          questions={leadingQuestions}
+          interviewLanguage={page.interviewLanguage}
+          initialResponses={page.questionResponses}
+          onComplete={handleGuidedComplete}
+          onClose={() => setShowGuided(false)}
+        />
+      ) : null}
 
-      <InterviewProgress stage={progressStage} />
+      <InterviewProgress stage={isAnalyzing ? "analyzing" : null} />
 
-      {phase === "setup" && (
-        <div className="space-y-4">
-          <div>
-            <p className="text-sm font-semibold text-gray-800">Set up the interview</p>
-            <p className="text-xs text-gray-500">
-              Pick the leading question set and the spoken language, then start.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor={`${page.id}-leading-set`}>Leading question set</Label>
-              <Select
-                value={page.leadingQuestionSet}
-                onValueChange={(value) =>
-                  onLeadingSetChange(value as LeadingQuestionSet)
-                }
-              >
-                <SelectTrigger id={`${page.id}-leading-set`} className="w-full">
-                  <SelectValue placeholder="Select a set" />
-                </SelectTrigger>
-                <SelectContent>
-                  {LEADING_QUESTION_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor={`${page.id}-setup-language`}>Interview language</Label>
-              <Select
-                value={page.interviewLanguage}
-                onValueChange={(value) =>
-                  onLanguageChange(value as InterviewLanguage)
-                }
-              >
-                <SelectTrigger id={`${page.id}-setup-language`} className="w-full">
-                  <SelectValue placeholder="Select language" />
-                </SelectTrigger>
-                <SelectContent>
-                  {INTERVIEW_LANGUAGE_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <Button type="button" size="lg" onClick={() => setPhase("record")}>
-              <Mic className="mr-2 h-5 w-5" />
-              Start interview
-            </Button>
-          </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor={`${page.id}-leading-set`}>Leading question set</Label>
+          <Select
+            value={page.leadingQuestionSet}
+            onValueChange={(value) =>
+              onLeadingSetChange(value as LeadingQuestionSet)
+            }
+          >
+            <SelectTrigger id={`${page.id}-leading-set`} className="w-full">
+              <SelectValue placeholder="Select a set" />
+            </SelectTrigger>
+            <SelectContent>
+              {LEADING_QUESTION_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      )}
+        <div className="space-y-1">
+          <Label htmlFor={`${page.id}-setup-language`}>Interview language</Label>
+          <Select
+            value={page.interviewLanguage}
+            onValueChange={(value) =>
+              onLanguageChange(value as InterviewLanguage)
+            }
+          >
+            <SelectTrigger id={`${page.id}-setup-language`} className="w-full">
+              <SelectValue placeholder="Select language" />
+            </SelectTrigger>
+            <SelectContent>
+              {INTERVIEW_LANGUAGE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
-      {phase === "record" && (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+            <Wand2 className="h-4 w-4 text-primary" />
+            Guided interview
+          </p>
+          <p className="text-xs text-gray-500">
+            {canRunGuided
+              ? "Step through each leading question, record answers one at a time, and get AI follow-ups as you go."
+              : "Select a leading question set above to run the guided interview."}
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="lg"
+          onClick={() => {
+            if (!canRunGuided) {
+              toast.warning("Select a leading question set first.");
+              return;
+            }
+            setShowGuided(true);
+          }}
+          disabled={!canRunGuided}
+        >
+          <Wand2 className="mr-2 h-5 w-5" />
+          {hasGuidedResponses ? "Continue guided interview" : "Start guided interview"}
+        </Button>
+      </div>
+
+      {hasTranscript ? (
         <div className="space-y-4">
-          <InterviewRecordingCard
-            title="Record"
-            description="Record the statement while ticking off the questions you ask. Stop to transcribe."
-            interviewLanguage={page.interviewLanguage}
-            onInterviewLanguageChange={onLanguageChange}
-            onTranscriptsComplete={onTranscriptsComplete}
-            onRecordingStart={onRecordingStart}
-            onRecordingStop={onRecordingStop}
-            appliedToastMessage="Transcript applied to Facts revealed"
-            compact
-            sticky
-            floatingIndicator
-            inlineProgress
-            showLanguageSelect={false}
-            onProcessingChange={setIsTranscribing}
-            onActiveChange={setIsRecordingActive}
-          />
-
           {activeLeadingQuestions ? (
-            <LeadingQuestionsPanel
-              title={activeLeadingQuestions.title}
-              questions={leadingQuestions}
-              interviewLanguage={page.interviewLanguage}
-              coverage={coverageMap}
-              askedIds={askedIds}
-              onToggleAsked={onToggleAsked}
-            />
-          ) : (
-            <p className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">
-              No leading questions selected. You can still record the statement and
-              review the transcript.
-            </p>
-          )}
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-gray-500">
+                  Answers captured during the guided interview, with coverage
+                  status and follow-up prompts.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={
+                    !page.transcriptEnglish.trim() ||
+                    isAnalyzing ||
+                    !isCoordinatorConfigured()
+                  }
+                  onClick={onAnalyze}
+                >
+                  {isAnalyzing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Re-analyze
+                </Button>
+              </div>
 
-          {hasTranscript && (
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setPhase("review")}
-              >
-                Go to review
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+              <LeadingQuestionsPanel
+                title={activeLeadingQuestions.title}
+                questions={leadingQuestions}
+                interviewLanguage={page.interviewLanguage}
+                coverage={coverageMap}
+              />
 
-      {phase === "review" && (
-        <div className="space-y-4">
-          <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
-            <div>
-              <p className="text-sm font-semibold text-gray-800">
-                Ask follow-up questions
-              </p>
-              <p className="text-xs text-gray-500">
-                Record again after the statement — the new transcript is added to
-                Facts revealed below, not replaced.
-              </p>
-            </div>
-            <InterviewRecordingCard
-              chromeless
-              interviewLanguage={page.interviewLanguage}
-              onInterviewLanguageChange={onLanguageChange}
-              onTranscriptsComplete={onTranscriptsComplete}
-              onRecordingStop={onRecordingStop}
-              appliedToastMessage="Follow-up added to Facts revealed"
-              showLanguageSelect={false}
-              sticky
-              floatingIndicator
-              inlineProgress
-              onProcessingChange={setIsTranscribing}
-              onActiveChange={setIsRecordingActive}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="space-y-4">
-            {activeLeadingQuestions ? (
-              <>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-gray-500">
-                    Answers found in the transcript are shown per question, with
-                    coverage status and follow-up prompts.
-                  </p>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={
-                      !page.transcriptEnglish.trim() ||
-                      isAnalyzing ||
-                      !isCoordinatorConfigured()
-                    }
-                    onClick={onAnalyze}
-                  >
-                    {isAnalyzing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="mr-2 h-4 w-4" />
-                    )}
-                    Re-analyze
-                  </Button>
-                </div>
-
-                <LeadingQuestionsPanel
-                  title={activeLeadingQuestions.title}
-                  questions={leadingQuestions}
+              {analysisResult ? (
+                <FollowUpsPanel
+                  followUps={analysisResult.follow_ups}
                   interviewLanguage={page.interviewLanguage}
-                  coverage={coverageMap}
-                  askedIds={askedIds}
-                  onToggleAsked={onToggleAsked}
+                  onAddToFacts={onAddFollowUpToFacts}
                 />
+              ) : null}
+            </>
+          ) : null}
 
-                {analysisResult ? (
-                  <FollowUpsPanel
-                    followUps={analysisResult.follow_ups}
-                    interviewLanguage={page.interviewLanguage}
-                    onAddToFacts={onAddFollowUpToFacts}
-                  />
-                ) : null}
-              </>
-            ) : (
-              <p className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">
-                No leading questions selected — review the transcript on the right.
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-4">{transcriptBlock}</div>
-          </div>
+          {transcriptBlock}
         </div>
+      ) : (
+        <p className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">
+          Start the guided interview to record answers. The transcript, coverage
+          status and AI follow-ups will appear here once you finish.
+        </p>
       )}
     </div>
   );
