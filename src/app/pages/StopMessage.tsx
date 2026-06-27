@@ -529,7 +529,7 @@ export function StopMessage() {
                     >
                       <FileText className="w-5 h-5 shrink-0" />
                       <div>
-                        <div className="font-semibold text-sm">Fire investigation report</div>
+                        <div className="font-semibold text-sm">Full Fire Investigation Report</div>
                         <div className="text-xs opacity-90">Detailed Word report for fire incidents</div>
                       </div>
                     </Button>
