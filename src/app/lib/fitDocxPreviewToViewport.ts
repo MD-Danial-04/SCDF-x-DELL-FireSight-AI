@@ -2,6 +2,7 @@ const WRAPPER_PADDING = 8;
 const PAGE_MARGIN_BOTTOM = 8;
 const FIT_MARGIN = 4;
 const MIN_SCALE = 0.35;
+type ZoomSource = number | (() => number);
 
 export interface FitDocxPreviewElements {
   viewport: HTMLElement;
@@ -32,7 +33,7 @@ export function fitDocxPreviewToWidth({
   viewport,
   host,
   scaler,
-}: FitDocxPreviewElements): boolean {
+}: FitDocxPreviewElements, zoomMultiplier = 1): boolean {
   const innerWrapper = host.querySelector(
     ":scope > .docx-preview-wrapper"
   ) as HTMLElement | null;
@@ -59,16 +60,17 @@ export function fitDocxPreviewToWidth({
 
   const scale = Math.min(availW / pageWidth, 1);
   const clampedScale = Math.max(scale, MIN_SCALE);
+  const finalScale = clampedScale * Math.max(zoomMultiplier, 1);
 
   const naturalWidth = innerWrapper.offsetWidth || pageWidth + WRAPPER_PADDING * 2;
   const naturalHeight = measurePagesHeight(innerWrapper) + WRAPPER_PADDING * 2;
 
   host.style.width = `${naturalWidth}px`;
-  host.style.setProperty("--docx-fit-scale", String(clampedScale));
-  host.style.transform = `scale(${clampedScale})`;
+  host.style.setProperty("--docx-fit-scale", String(finalScale));
+  host.style.transform = `scale(${finalScale})`;
   host.style.transformOrigin = "top left";
-  scaler.style.width = `${naturalWidth * clampedScale}px`;
-  scaler.style.height = `${naturalHeight * clampedScale}px`;
+  scaler.style.width = `${naturalWidth * finalScale}px`;
+  scaler.style.height = `${naturalHeight * finalScale}px`;
 
   return true;
 }
@@ -78,10 +80,11 @@ export const fitDocxPreviewToViewport = fitDocxPreviewToWidth;
 
 export function scheduleDocxPreviewFit(
   elements: FitDocxPreviewElements,
+  zoomMultiplier = 1,
   onFit?: () => void
 ): () => void {
   const run = () => {
-    fitDocxPreviewToWidth(elements);
+    fitDocxPreviewToWidth(elements, zoomMultiplier);
     onFit?.();
   };
 
@@ -95,9 +98,12 @@ export function scheduleDocxPreviewFit(
 }
 
 export function observeDocxPreviewFit(
-  elements: FitDocxPreviewElements
+  elements: FitDocxPreviewElements,
+  zoomSource: ZoomSource = 1,
 ): () => void {
-  const run = () => fitDocxPreviewToWidth(elements);
+  const getZoomMultiplier = () =>
+    typeof zoomSource === "function" ? zoomSource() : zoomSource;
+  const run = () => fitDocxPreviewToWidth(elements, getZoomMultiplier());
 
   const viewportObserver = new ResizeObserver(run);
   viewportObserver.observe(elements.viewport);

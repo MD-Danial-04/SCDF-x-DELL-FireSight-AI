@@ -47,9 +47,6 @@ struct CrashScanWorkspaceView: View {
                         heroCard
                         previewCard
                         sceneMetaCard
-                        vehiclesCard
-                        markersCard
-                        measurementsCard
                         exportCard
                     }
                     .padding(.horizontal, 16)

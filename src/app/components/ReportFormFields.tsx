@@ -18,6 +18,7 @@ import {
   REPORT_FORM_SECTIONS,
   getDefaultOpenSections,
   type ReportFormFieldConfig,
+  type ReportFormSectionConfig,
 } from "../constants/reportFormSections";
 import {
   INTERVIEW_NAV_ID,
@@ -59,6 +60,7 @@ interface ReportFormFieldsProps {
   extractedKeys: Set<string>;
   onChange: (key: FireReportFieldKey, value: string) => void;
   visibleSectionIds?: string[];
+  sectionConfigs?: ReportFormSectionConfig[];
   displayMode?: "accordion" | "tabs";
   annexPreviewUrls?: Record<number, string>;
   annexHeaderPreviewUrls?: Record<number, string>;
@@ -273,6 +275,7 @@ export function ReportFormFields({
   extractedKeys,
   onChange,
   visibleSectionIds,
+  sectionConfigs = REPORT_FORM_SECTIONS,
   displayMode = "accordion",
   annexPreviewUrls = {},
   annexHeaderPreviewUrls = {},
@@ -312,8 +315,8 @@ export function ReportFormFields({
   const statusCtx = { fields, floorplanSvg, photos, annexPreviewUrls };
 
   const visibleSections = visibleSectionIds
-    ? REPORT_FORM_SECTIONS.filter((section) => visibleSectionIds.includes(section.id))
-    : REPORT_FORM_SECTIONS;
+    ? sectionConfigs.filter((section) => visibleSectionIds.includes(section.id))
+    : sectionConfigs;
 
   // The interview editor is surfaced as its own nav sub-item under section 5
   // (tabs mode only); accordion mode keeps it inline within section 5.

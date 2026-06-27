@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Textarea } from "./ui/textarea";
@@ -40,6 +40,7 @@ import { getPhotoLogDisplayInfo, type PhotoLogEntry } from "../types/photoLog";
 
 interface PhotoLogEditorProps {
   enabled: boolean;
+  persistenceKey?: string | null;
   photos: PhotoLogEntry[];
   previewUrls: Record<string, string>;
   photoAnalysisContext: PhotoAnalysisReportContext;
@@ -51,6 +52,13 @@ interface PhotoLogEditorProps {
   onPhotosAnalyzed: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
   onApplyPhotoSection: (photoId: string, section: SuggestedPhotoSection) => void;
 }
+
+interface PhotoLogEditorSnapshot {
+  selectedPhotoIds: string[];
+  selectNextCount: string;
+}
+
+const PHOTO_LOG_EDITOR_STORAGE_KEY = "firesight-photo-log-editor-state";
 
 function formatEditorLabel(boxLabel: string): string {
   return boxLabel
@@ -100,6 +108,7 @@ function SectionLinkButtonGroup({
 
 export function PhotoLogEditor({
   enabled,
+  persistenceKey = null,
   photos,
   previewUrls,
   photoAnalysisContext,
@@ -112,8 +121,37 @@ export function PhotoLogEditor({
   onApplyPhotoSection,
 }: PhotoLogEditorProps) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(() => new Set());
-  const [selectNextCount, setSelectNextCount] = useState("3");
+  const photoLogEditorStorageKey = persistenceKey
+    ? `${PHOTO_LOG_EDITOR_STORAGE_KEY}:${persistenceKey}`
+    : null;
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(() => {
+    if (typeof window === "undefined" || !photoLogEditorStorageKey) return new Set();
+    try {
+      const raw = window.localStorage.getItem(photoLogEditorStorageKey);
+      if (!raw) return new Set();
+      const snapshot = JSON.parse(raw) as Partial<PhotoLogEditorSnapshot>;
+      return new Set(
+        Array.isArray(snapshot.selectedPhotoIds)
+          ? snapshot.selectedPhotoIds.filter((id): id is string => typeof id === "string")
+          : [],
+      );
+    } catch {
+      window.localStorage.removeItem(photoLogEditorStorageKey);
+      return new Set();
+    }
+  });
+  const [selectNextCount, setSelectNextCount] = useState(() => {
+    if (typeof window === "undefined" || !photoLogEditorStorageKey) return "3";
+    try {
+      const raw = window.localStorage.getItem(photoLogEditorStorageKey);
+      if (!raw) return "3";
+      const snapshot = JSON.parse(raw) as Partial<PhotoLogEditorSnapshot>;
+      return typeof snapshot.selectNextCount === "string" ? snapshot.selectNextCount : "3";
+    } catch {
+      window.localStorage.removeItem(photoLogEditorStorageKey);
+      return "3";
+    }
+  });
   const { isAnalyzing, analyzingPhotoIds, progress, runBatchAnalysis } = usePhotoAnalysis();
 
   const displayInfo = useMemo(() => getPhotoLogDisplayInfo(photos), [photos]);
@@ -122,6 +160,57 @@ export function PhotoLogEditor({
     [displayInfo],
   );
   const coordinatorReady = isCoordinatorConfigured();
+
+  useEffect(() => {
+    if (!photoLogEditorStorageKey) {
+      setSelectedPhotoIds(new Set());
+      setSelectNextCount("3");
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(photoLogEditorStorageKey);
+      if (!raw) {
+        setSelectedPhotoIds(new Set());
+        setSelectNextCount("3");
+        return;
+      }
+
+      const snapshot = JSON.parse(raw) as Partial<PhotoLogEditorSnapshot>;
+      setSelectedPhotoIds(
+        new Set(
+          Array.isArray(snapshot.selectedPhotoIds)
+            ? snapshot.selectedPhotoIds.filter((id): id is string => typeof id === "string")
+            : [],
+        ),
+      );
+      setSelectNextCount(typeof snapshot.selectNextCount === "string" ? snapshot.selectNextCount : "3");
+    } catch {
+      window.localStorage.removeItem(photoLogEditorStorageKey);
+      setSelectedPhotoIds(new Set());
+      setSelectNextCount("3");
+    }
+  }, [photoLogEditorStorageKey]);
+
+  useEffect(() => {
+    setSelectedPhotoIds((current) => {
+      const validIds = new Set(photos.map((photo) => photo.id));
+      const next = new Set(Array.from(current).filter((id) => validIds.has(id)));
+      if (next.size === current.size) return current;
+      return next;
+    });
+  }, [photos]);
+
+  useEffect(() => {
+    if (!photoLogEditorStorageKey) return;
+    window.localStorage.setItem(
+      photoLogEditorStorageKey,
+      JSON.stringify({
+        selectedPhotoIds: Array.from(selectedPhotoIds),
+        selectNextCount,
+      } satisfies PhotoLogEditorSnapshot),
+    );
+  }, [photoLogEditorStorageKey, selectedPhotoIds, selectNextCount]);
 
   if (!enabled) return null;
 

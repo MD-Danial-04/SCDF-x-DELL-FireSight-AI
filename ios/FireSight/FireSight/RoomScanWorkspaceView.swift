@@ -48,10 +48,6 @@ struct RoomScanWorkspaceView: View {
                         heroCard
                         previewCard
                         roomMetaCard
-                        wallsCard
-                        openingsCard
-                        objectsCard
-                        annotationsCard
                         exportCard
                     }
                     .padding(.horizontal, 16)

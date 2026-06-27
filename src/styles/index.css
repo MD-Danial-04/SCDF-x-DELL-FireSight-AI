@@ -7,25 +7,41 @@
   display: block;
   /* Initial commit used 16px root; keep 14px app UI but restore preview typography */
   font-size: 16px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: none;
 }
 
 .docx-preview-host {
   font-size: 16px;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .docx-preview-scaler {
-  margin-inline: auto;
   overflow: visible;
+  will-change: transform;
 }
 
 .docx-preview-host > .docx-preview-wrapper {
   background: #e5e7eb;
-  padding: 8px;
+  padding: 4px;
   padding-bottom: 0;
+  display: flex;
+  flex-flow: column;
+  align-items: flex-start !important;
+}
+
+@media (min-width: 640px) {
+  .docx-preview-host > .docx-preview-wrapper {
+    align-items: center !important;
+  }
 }
 
 .docx-preview-host > .docx-preview-wrapper > section.docx-preview {
   margin-bottom: 8px;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
