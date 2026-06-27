@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Reorder, useDragControls } from "motion/react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Textarea } from "./ui/textarea";
-import { Label } from "./ui/label";
 import { Checkbox } from "./ui/checkbox";
-import { Input } from "./ui/input";
 import {
-  ChevronDown,
-  ChevronUp,
   Copy,
+  GripVertical,
   ImagePlus,
   Loader2,
   Sparkles,
@@ -25,18 +23,15 @@ import { usePhotoAnalysis } from "../hooks/usePhotoAnalysis";
 import { AiProcessingDialog } from "./AiProcessingDialog";
 import { isCoordinatorConfigured } from "../types/inference";
 import {
-  getSectionLinkTooltip,
-  isSectionHighlighted,
-  isSectionLinkable,
-  PHOTO_REF_LABELS,
-  SECTION_2_LINK_SECTIONS,
-  SECTION_5_LINK_SECTIONS,
   SECTION_LINK_BUTTON_LABELS,
-  SUGGESTED_SECTION_CONFIDENCE_THRESHOLD,
-  type SectionCandidates,
+  SUGGESTED_PHOTO_SECTIONS,
   type SuggestedPhotoSection,
 } from "../types/photoAnalysis";
-import { getPhotoLogDisplayInfo, type PhotoLogEntry } from "../types/photoLog";
+import {
+  getPhotoLogDisplayInfo,
+  type PhotoLogDisplayInfo,
+  type PhotoLogEntry,
+} from "../types/photoLog";
 
 interface PhotoLogEditorProps {
   enabled: boolean;
@@ -46,7 +41,7 @@ interface PhotoLogEditorProps {
   photoAnalysisContext: PhotoAnalysisReportContext;
   onAddPhotos: (files: FileList | File[]) => void;
   onRemovePhoto: (id: string) => void;
-  onReorderPhoto: (id: string, direction: "up" | "down") => void;
+  onReorderPhotos: (orderedIds: string[]) => void;
   onCopyPhoto: (id: string) => void;
   onUpdatePhotoCaption: (id: string, caption: string) => void;
   onPhotosAnalyzed: (updates: Record<string, PhotoAnalysisPartialEntry>) => void;
@@ -55,7 +50,6 @@ interface PhotoLogEditorProps {
 
 interface PhotoLogEditorSnapshot {
   selectedPhotoIds: string[];
-  selectNextCount: string;
 }
 
 const PHOTO_LOG_EDITOR_STORAGE_KEY = "firesight-photo-log-editor-state";
@@ -66,46 +60,6 @@ function formatEditorLabel(boxLabel: string): string {
     .replace(/^COPY OF PHOTO /, "Copy of ");
 }
 
-function SectionLinkButtonGroup({
-  label,
-  sections,
-  photoId,
-  candidates,
-  onApply,
-}: {
-  label: string;
-  sections: readonly SuggestedPhotoSection[];
-  photoId: string;
-  candidates: SectionCandidates | undefined;
-  onApply: (photoId: string, section: SuggestedPhotoSection) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-gray-500">{label}</p>
-      <div className="flex flex-wrap gap-1">
-        {sections.map((section) => {
-          const linkable = isSectionLinkable(candidates, section);
-          const highlighted = isSectionHighlighted(candidates, section);
-          return (
-            <Button
-              key={section}
-              type="button"
-              variant={highlighted ? "default" : "outline"}
-              size="sm"
-              className="h-7 text-xs px-2"
-              disabled={!linkable}
-              title={getSectionLinkTooltip(candidates, section)}
-              onClick={() => onApply(photoId, section)}
-            >
-              {SECTION_LINK_BUTTON_LABELS[section]}
-            </Button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export function PhotoLogEditor({
   enabled,
   persistenceKey = null,
@@ -114,7 +68,7 @@ export function PhotoLogEditor({
   photoAnalysisContext,
   onAddPhotos,
   onRemovePhoto,
-  onReorderPhoto,
+  onReorderPhotos,
   onCopyPhoto,
   onUpdatePhotoCaption,
   onPhotosAnalyzed,
@@ -140,19 +94,7 @@ export function PhotoLogEditor({
       return new Set();
     }
   });
-  const [selectNextCount, setSelectNextCount] = useState(() => {
-    if (typeof window === "undefined" || !photoLogEditorStorageKey) return "3";
-    try {
-      const raw = window.localStorage.getItem(photoLogEditorStorageKey);
-      if (!raw) return "3";
-      const snapshot = JSON.parse(raw) as Partial<PhotoLogEditorSnapshot>;
-      return typeof snapshot.selectNextCount === "string" ? snapshot.selectNextCount : "3";
-    } catch {
-      window.localStorage.removeItem(photoLogEditorStorageKey);
-      return "3";
-    }
-  });
-  const { isAnalyzing, analyzingPhotoIds, progress, runBatchAnalysis } = usePhotoAnalysis();
+  const { isAnalyzing, progress, runBatchAnalysis } = usePhotoAnalysis();
 
   const displayInfo = useMemo(() => getPhotoLogDisplayInfo(photos), [photos]);
   const originalPhotos = useMemo(
@@ -164,7 +106,6 @@ export function PhotoLogEditor({
   useEffect(() => {
     if (!photoLogEditorStorageKey) {
       setSelectedPhotoIds(new Set());
-      setSelectNextCount("3");
       return;
     }
 
@@ -172,7 +113,6 @@ export function PhotoLogEditor({
       const raw = window.localStorage.getItem(photoLogEditorStorageKey);
       if (!raw) {
         setSelectedPhotoIds(new Set());
-        setSelectNextCount("3");
         return;
       }
 
@@ -184,11 +124,9 @@ export function PhotoLogEditor({
             : [],
         ),
       );
-      setSelectNextCount(typeof snapshot.selectNextCount === "string" ? snapshot.selectNextCount : "3");
     } catch {
       window.localStorage.removeItem(photoLogEditorStorageKey);
       setSelectedPhotoIds(new Set());
-      setSelectNextCount("3");
     }
   }, [photoLogEditorStorageKey]);
 
@@ -207,10 +145,9 @@ export function PhotoLogEditor({
       photoLogEditorStorageKey,
       JSON.stringify({
         selectedPhotoIds: Array.from(selectedPhotoIds),
-        selectNextCount,
       } satisfies PhotoLogEditorSnapshot),
     );
-  }, [photoLogEditorStorageKey, selectedPhotoIds, selectNextCount]);
+  }, [photoLogEditorStorageKey, selectedPhotoIds]);
 
   if (!enabled) return null;
 
@@ -254,14 +191,6 @@ export function PhotoLogEditor({
     setSelectedPhotoIds(new Set());
   };
 
-  const selectNextUnanalyzed = () => {
-    const count = Math.max(1, Number.parseInt(selectNextCount, 10) || 1);
-    const unanalyzed = originalPhotos.filter(
-      (info) => info.entry.captionSource !== "ai",
-    );
-    setSelectedPhotoIds(new Set(unanalyzed.slice(0, count).map((info) => info.entry.id)));
-  };
-
   const getSelectedItemsInOrder = (ids: Set<string>) =>
     originalPhotos
       .filter((info) => ids.has(info.entry.id))
@@ -269,8 +198,6 @@ export function PhotoLogEditor({
         id: info.entry.id,
         blob: info.entry.blob,
         fileName: info.entry.fileName,
-        number: info.number,
-        uid: info.entry.uid,
       }));
 
   const runAnalysisForSelection = async (ids: Set<string>) => {
@@ -286,38 +213,10 @@ export function PhotoLogEditor({
     }
 
     try {
-      const results = await runBatchAnalysis(items, (priorResults, currentItem) => {
-        const priorCaptions = originalPhotos
-          .filter((info) => {
-            if (info.number === null) return false;
-            const currentIndex = originalPhotos.findIndex(
-              (item) => item.entry.id === currentItem.id,
-            );
-            const infoIndex = originalPhotos.findIndex(
-              (item) => item.entry.id === info.entry.id,
-            );
-            return infoIndex >= 0 && infoIndex < currentIndex;
-          })
-          .map((info) => {
-            const fromBatch = priorResults[info.entry.id];
-            return {
-              number: info.number as number,
-              uid: info.entry.uid,
-              suggestedSection:
-                fromBatch?.suggested_section ?? info.entry.suggestedSection ?? null,
-              detectedElements:
-                fromBatch?.detected_elements ?? info.entry.detectedElements ?? [],
-              caption: fromBatch?.caption ?? info.entry.caption,
-            };
-          })
-          .filter(
-            (item) =>
-              (item.detectedElements?.length ?? 0) > 0 ||
-              (item.caption?.trim().length ?? 0) > 0,
-          );
-
-        return buildPhotoAnalysisContext(photoAnalysisContext, priorCaptions);
-      });
+      const results = await runBatchAnalysis(
+        items,
+        buildPhotoAnalysisContext(photoAnalysisContext),
+      );
 
       const updates: Record<string, PhotoAnalysisPartialEntry> = {};
       for (const [id, result] of Object.entries(results)) {
@@ -338,8 +237,8 @@ export function PhotoLogEditor({
     void runAnalysisForSelection(selectedPhotoIds);
   };
 
-  const handleAnalyzeSingle = (photoId: string) => {
-    void runAnalysisForSelection(new Set([photoId]));
+  const handleReorder = (ordered: PhotoLogDisplayInfo[]) => {
+    onReorderPhotos(ordered.map((info) => info.entry.id));
   };
 
   const selectedCount = selectedPhotoIds.size;
@@ -423,25 +322,6 @@ export function PhotoLogEditor({
             >
               Clear
             </Button>
-            <div className="flex items-center gap-1">
-              <Input
-                type="number"
-                min={1}
-                className="h-8 w-14 text-xs"
-                value={selectNextCount}
-                disabled={isAnalyzing}
-                onChange={(e) => setSelectNextCount(e.target.value)}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={isAnalyzing || originalPhotos.length === 0}
-                onClick={selectNextUnanalyzed}
-              >
-                Select next N unanalyzed
-              </Button>
-            </div>
           </div>
           {progress && (
             <p className="text-xs text-gray-600">
@@ -459,195 +339,185 @@ export function PhotoLogEditor({
       {photos.length === 0 ? (
         <p className="text-sm text-gray-500 italic">No photos added yet.</p>
       ) : (
-        <ul className="space-y-3">
-          {displayInfo.map((info, index) => {
-            const photo = info.entry;
-            const editorLabel = formatEditorLabel(info.boxLabel);
-            const isAnalyzingThis = analyzingPhotoIds.has(photo.id);
-            const hasAnalysis =
-              photo.captionSource === "ai" || Boolean(photo.sectionCandidates);
-            const lowConfidenceSection =
-              !photo.suggestedSection &&
-              photo.suggestedSectionConfidence != null &&
-              photo.suggestedSectionConfidence < SUGGESTED_SECTION_CONFIDENCE_THRESHOLD;
-
-            return (
-              <li
-                key={photo.id}
-                className={`rounded-md border p-3 ${
-                  info.isCopy ? "bg-slate-100 border-slate-200" : "bg-gray-50"
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  {!info.isCopy && (
-                    <Checkbox
-                      className="mt-1"
-                      checked={selectedPhotoIds.has(photo.id)}
-                      disabled={isAnalyzing}
-                      onCheckedChange={(checked) =>
-                        togglePhotoSelection(photo.id, checked === true)
-                      }
-                      aria-label={`Select ${editorLabel} for analysis`}
-                    />
-                  )}
-                  <div className="w-14 h-14 shrink-0 rounded border bg-white overflow-hidden">
-                    {previewUrls[photo.id] ? (
-                      <img
-                        src={previewUrls[photo.id]}
-                        alt={editorLabel}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-400">
-                        <ImagePlus className="w-5 h-5" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold">{editorLabel}</p>
-                      {info.isCopy && (
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                          Copy
-                        </Badge>
-                      )}
-                      {photo.captionSource === "ai" && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                          AI caption
-                        </Badge>
-                      )}
-                      {photo.suggestedSection && (
-                        <Badge className="text-[10px] px-1.5 py-0">
-                          Top: {PHOTO_REF_LABELS[photo.suggestedSection]}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-600 truncate" title={photo.fileName}>
-                      {photo.fileName}
-                    </p>
-                    <p className="text-xs font-mono text-gray-800 mt-0.5">
-                      UID: {photo.uid}
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1 shrink-0">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      disabled={index === 0}
-                      title="Move up"
-                      onClick={() => onReorderPhoto(photo.id, "up")}
-                    >
-                      <ChevronUp className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      disabled={index === photos.length - 1}
-                      title="Move down"
-                      onClick={() => onReorderPhoto(photo.id, "down")}
-                    >
-                      <ChevronDown className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  {!info.isCopy && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      title="Create copy of photo"
-                      onClick={() => onCopyPhoto(photo.id)}
-                    >
-                      <Copy className="w-4 h-4" />
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                    title="Remove photo"
-                    onClick={() => onRemovePhoto(photo.id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-                <div className="mt-2">
-                  <Label htmlFor={`caption-${photo.id}`} className="text-xs text-gray-600">
-                    Caption
-                  </Label>
-                  <Textarea
-                    id={`caption-${photo.id}`}
-                    value={photo.caption ?? ""}
-                    onChange={(e) => onUpdatePhotoCaption(photo.id, e.target.value)}
-                    rows={2}
-                    placeholder="Description for Annex D & F"
-                    className="mt-1 text-sm"
-                  />
-                </div>
-                {!info.isCopy && (
-                  <div className="mt-2 space-y-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={isAnalyzing || !coordinatorReady}
-                      onClick={() => handleAnalyzeSingle(photo.id)}
-                    >
-                      {isAnalyzingThis ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-4 h-4 mr-2" />
-                      )}
-                      Analyze
-                    </Button>
-                    {hasAnalysis && (
-                      <div className="rounded-md border bg-white p-2 space-y-2">
-                        <p className="text-xs font-medium text-gray-700">Link to report</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <SectionLinkButtonGroup
-                            label="Section 2"
-                            sections={SECTION_2_LINK_SECTIONS}
-                            photoId={photo.id}
-                            candidates={photo.sectionCandidates}
-                            onApply={onApplyPhotoSection}
-                          />
-                          <SectionLinkButtonGroup
-                            label="Section 5"
-                            sections={SECTION_5_LINK_SECTIONS}
-                            photoId={photo.id}
-                            candidates={photo.sectionCandidates}
-                            onApply={onApplyPhotoSection}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {photo.detectedElements && photo.detectedElements.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {photo.detectedElements.map((element) => (
-                      <Badge key={element} variant="secondary" className="text-[10px]">
-                        {element}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                {lowConfidenceSection && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    Section suggestion below confidence threshold (
-                    {Math.round(photo.suggestedSectionConfidence! * 100)}%).
-                  </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        <Reorder.Group
+          axis="y"
+          values={displayInfo}
+          onReorder={handleReorder}
+          className="space-y-3"
+        >
+          {displayInfo.map((info) => (
+            <PhotoLogRow
+              key={info.entry.id}
+              info={info}
+              previewUrl={previewUrls[info.entry.id]}
+              isSelected={selectedPhotoIds.has(info.entry.id)}
+              isAnalyzing={isAnalyzing}
+              onToggleSelect={togglePhotoSelection}
+              onCopyPhoto={onCopyPhoto}
+              onRemovePhoto={onRemovePhoto}
+              onUpdatePhotoCaption={onUpdatePhotoCaption}
+              onApplyPhotoSection={onApplyPhotoSection}
+            />
+          ))}
+        </Reorder.Group>
       )}
     </div>
+  );
+}
+
+interface PhotoLogRowProps {
+  info: PhotoLogDisplayInfo;
+  previewUrl?: string;
+  isSelected: boolean;
+  isAnalyzing: boolean;
+  onToggleSelect: (photoId: string, checked: boolean) => void;
+  onCopyPhoto: (id: string) => void;
+  onRemovePhoto: (id: string) => void;
+  onUpdatePhotoCaption: (id: string, caption: string) => void;
+  onApplyPhotoSection: (photoId: string, section: SuggestedPhotoSection) => void;
+}
+
+function PhotoLogRow({
+  info,
+  previewUrl,
+  isSelected,
+  isAnalyzing,
+  onToggleSelect,
+  onCopyPhoto,
+  onRemovePhoto,
+  onUpdatePhotoCaption,
+  onApplyPhotoSection,
+}: PhotoLogRowProps) {
+  const photo = info.entry;
+  const dragControls = useDragControls();
+  const [dragging, setDragging] = useState(false);
+
+  const editorLabel = formatEditorLabel(info.boxLabel);
+  const rowLabel = `${editorLabel}: ${photo.uid}`;
+  const hasAnalysis = photo.captionSource === "ai";
+
+  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 && event.pointerType === "mouse") return;
+    event.preventDefault();
+    setDragging(true);
+    dragControls.start(event);
+    const stop = () => {
+      setDragging(false);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  };
+
+  return (
+    <Reorder.Item
+      value={info}
+      dragListener={false}
+      dragControls={dragControls}
+      onDragStart={() => setDragging(true)}
+      onDragEnd={() => setDragging(false)}
+      whileDrag={{ scale: 1.02, boxShadow: "0 12px 24px rgba(15, 23, 42, 0.18)" }}
+      className={`rounded-md border p-3 ${
+        info.isCopy ? "bg-slate-100 border-slate-200" : "bg-gray-50"
+      } ${dragging ? "relative z-10 border-sky-400 ring-2 ring-sky-300" : ""}`}
+    >
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          aria-label={`Drag to reorder ${rowLabel}`}
+          title="Drag to reorder"
+          onPointerDown={startDrag}
+          onContextMenu={(e) => e.preventDefault()}
+          className={`mt-0.5 flex h-14 w-6 shrink-0 touch-none select-none items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 ${
+            dragging ? "cursor-grabbing bg-sky-100 text-sky-600" : "cursor-grab"
+          }`}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        {!info.isCopy && (
+          <Checkbox
+            className="mt-1"
+            checked={isSelected}
+            disabled={isAnalyzing}
+            onCheckedChange={(checked) => onToggleSelect(photo.id, checked === true)}
+            aria-label={`Select ${rowLabel} for analysis`}
+          />
+        )}
+        <div className="w-14 h-14 shrink-0 overflow-hidden rounded border border-gray-200 bg-white">
+          {previewUrl ? (
+            <img
+              src={previewUrl}
+              alt={rowLabel}
+              draggable={false}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-gray-400">
+              <ImagePlus className="w-5 h-5" />
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold break-all">{rowLabel}</p>
+            {info.isCopy && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                Copy
+              </Badge>
+            )}
+          </div>
+        </div>
+        {!info.isCopy && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            title="Create copy of photo"
+            onClick={() => onCopyPhoto(photo.id)}
+          >
+            <Copy className="w-4 h-4" />
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+          title="Remove photo"
+          onClick={() => onRemovePhoto(photo.id)}
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
+      <div className="mt-2">
+        <Textarea
+          id={`caption-${photo.id}`}
+          value={photo.caption ?? ""}
+          onChange={(e) => onUpdatePhotoCaption(photo.id, e.target.value)}
+          rows={2}
+          placeholder="Description for Annex D & F"
+          className="text-sm"
+        />
+      </div>
+      {!info.isCopy && hasAnalysis && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-xs font-medium text-gray-700">Link to:</span>
+          {SUGGESTED_PHOTO_SECTIONS.map((section) => (
+            <Button
+              key={section}
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
+              onClick={() => onApplyPhotoSection(photo.id, section)}
+            >
+              {SECTION_LINK_BUTTON_LABELS[section]}
+            </Button>
+          ))}
+        </div>
+      )}
+    </Reorder.Item>
   );
 }

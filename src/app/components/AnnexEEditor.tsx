@@ -6,7 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Compass, Loader2, MousePointer2, Plus, Trash2 } from "lucide-react";
+import { Check, Compass, Loader2, MousePointer2, Plus, Trash2 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -21,21 +21,16 @@ import {
 import { Slider } from "./ui/slider";
 import { cn } from "./ui/utils";
 import {
-  ANNEX_E_MARKER_COLOR,
   buildAnnotatedFloorplanSvg,
-  buildArrowGeometry,
   clampMarkerTip,
-  computeMarkerScale,
   createDefaultMarker,
   findMarkerHitAtPoint,
   getMarkerAngleDeg,
   getMarkerLengthBounds,
   getMarkerVisibleLength,
   parseViewBoxFromSvg,
-  setMarkerTipFromAngleLength,
   setMarkerTipFromAngleVisibleLength,
   type AnnexEMarker,
-  type AnnexEViewBox,
   type MarkerHitPart,
 } from "../lib/annexEMarkers";
 import { svgStringToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
@@ -64,6 +59,7 @@ interface AnnexEEditorProps {
   enabled: boolean;
   floorplanSvg: string | null;
   photos: PhotoLogEntry[];
+  photoPreviewUrls?: Record<string, string>;
   incidentNo?: string;
   locationOfFire?: string;
   onOverrideChange: (pageIndex: number, blob: Blob | null) => void;
@@ -82,12 +78,40 @@ type DragMode =
     }
   | { mode: "adjust-arrow"; pointerId: number; markerId: string };
 
-interface SvgViewportMapping {
-  scale: number;
-  offsetX: number;
-  offsetY: number;
-  rectLeft: number;
-  rectTop: number;
+interface CanvasPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Map a point in floorplan SVG user units to pixels relative to the SVG's own box.
+ * The handle overlay shares that box, so the result lines up exactly with the
+ * marker as the browser actually renders it (independent of letterboxing/border).
+ */
+function svgUserToCanvasPx(svg: SVGSVGElement, x: number, y: number): CanvasPoint | null {
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  const point = svg.createSVGPoint();
+  point.x = x;
+  point.y = y;
+  const screen = point.matrixTransform(ctm);
+  const rect = svg.getBoundingClientRect();
+  return { x: screen.x - rect.left, y: screen.y - rect.top };
+}
+
+/** Map a client (screen) point to floorplan SVG user units using the live render transform. */
+function clientToSvgUser(
+  svg: SVGSVGElement,
+  clientX: number,
+  clientY: number,
+): CanvasPoint | null {
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  const point = svg.createSVGPoint();
+  point.x = clientX;
+  point.y = clientY;
+  const local = point.matrixTransform(ctm.inverse());
+  return { x: local.x, y: local.y };
 }
 
 function hashString(value: string): string {
@@ -130,131 +154,23 @@ function isValidMarker(candidate: unknown): candidate is AnnexEMarker {
   );
 }
 
-function computeSvgViewportMapping(
-  rect: DOMRect,
-  viewBox: AnnexEViewBox,
-): SvgViewportMapping {
-  const scale = Math.min(rect.width / viewBox.width, rect.height / viewBox.height);
-  const contentWidth = viewBox.width * scale;
-  const contentHeight = viewBox.height * scale;
-  return {
-    scale,
-    offsetX: (rect.width - contentWidth) / 2,
-    offsetY: (rect.height - contentHeight) / 2,
-    rectLeft: rect.left,
-    rectTop: rect.top,
-  };
-}
-
-function clientToSvg(
-  clientX: number,
-  clientY: number,
-  mapping: SvgViewportMapping,
-  viewBox: AnnexEViewBox,
-) {
-  const localX = clientX - mapping.rectLeft - mapping.offsetX;
-  const localY = clientY - mapping.rectTop - mapping.offsetY;
-  if (mapping.scale <= 0) return null;
-  return {
-    x: viewBox.x + localX / mapping.scale,
-    y: viewBox.y + localY / mapping.scale,
-  };
-}
-
-function svgToCanvasPixel(
-  svgX: number,
-  svgY: number,
-  mapping: SvgViewportMapping,
-  viewBox: AnnexEViewBox,
-) {
-  return {
-    x: mapping.offsetX + (svgX - viewBox.x) * mapping.scale,
-    y: mapping.offsetY + (svgY - viewBox.y) * mapping.scale,
-  };
-}
-
-function SelectionOverlay({
-  marker,
-  focus,
-  viewBox,
-}: {
-  marker: AnnexEMarker;
-  focus: SelectionFocus;
-  viewBox: AnnexEViewBox;
-}) {
-  const scale = computeMarkerScale(viewBox);
-  const arrow = buildArrowGeometry(
-    marker.cx,
-    marker.cy,
-    marker.tipX,
-    marker.tipY,
-    scale.radius,
-    scale.arrowHeadLength,
-    scale.arrowHeadWidth,
-  );
-  const highlightStroke = scale.strokeWidth * 2.5;
-
-  return (
-    <svg
-      viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      preserveAspectRatio="xMidYMid meet"
-      aria-hidden
-    >
-      {focus === "body" && (
-        <circle
-          cx={marker.cx}
-          cy={marker.cy}
-          r={scale.radius * 1.45}
-          fill="none"
-          stroke={ANNEX_E_MARKER_COLOR}
-          strokeWidth={highlightStroke}
-          strokeDasharray={`${scale.radius * 0.35} ${scale.radius * 0.2}`}
-          opacity={0.85}
-        />
-      )}
-      {focus === "arrow" && (
-        <>
-          <line
-            x1={arrow.lineStartX}
-            y1={arrow.lineStartY}
-            x2={arrow.lineEndX}
-            y2={arrow.lineEndY}
-            stroke={ANNEX_E_MARKER_COLOR}
-            strokeWidth={highlightStroke}
-            strokeLinecap="round"
-            opacity={0.9}
-          />
-          {arrow.headPoints ? (
-            <polygon points={arrow.headPoints} fill={ANNEX_E_MARKER_COLOR} opacity={0.9} />
-          ) : null}
-        </>
-      )}
-    </svg>
-  );
-}
-
 function MarkerHandles({
-  marker,
-  mapping,
-  viewBox,
+  center,
+  tip,
   onMoveDrag,
   onTipDrag,
   onMoveStart,
   onTipStart,
   onDragEnd,
 }: {
-  marker: AnnexEMarker;
-  mapping: SvgViewportMapping;
-  viewBox: AnnexEViewBox;
+  center: CanvasPoint;
+  tip: CanvasPoint;
   onMoveDrag: (clientX: number, clientY: number) => void;
   onTipDrag: (clientX: number, clientY: number) => void;
   onMoveStart: () => void;
   onTipStart: () => void;
   onDragEnd: () => void;
 }) {
-  const center = svgToCanvasPixel(marker.cx, marker.cy, mapping, viewBox);
-  const tip = svgToCanvasPixel(marker.tipX, marker.tipY, mapping, viewBox);
   const half = HANDLE_SIZE_PX / 2;
 
   const handleProps = (onMove: (e: ReactPointerEvent<HTMLButtonElement>) => void) => ({
@@ -328,6 +244,7 @@ export function AnnexEEditor({
   enabled,
   floorplanSvg,
   photos,
+  photoPreviewUrls = {},
   incidentNo,
   locationOfFire,
   onOverrideChange,
@@ -342,12 +259,14 @@ export function AnnexEEditor({
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [selectionFocus, setSelectionFocus] = useState<SelectionFocus>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>("select");
+  const [activePhotoId, setActivePhotoId] = useState<string | null>(null);
   const [hoverHit, setHoverHit] = useState<{ hit: MarkerHitPart } | null>(null);
   const [dragState, setDragState] = useState<DragMode | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [layoutTick, setLayoutTick] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const floorContainerRef = useRef<HTMLDivElement>(null);
   const dragStartClientRef = useRef<{ x: number; y: number } | null>(null);
   const moveDragStartRef = useRef<{
     startPoint: { x: number; y: number };
@@ -369,21 +288,26 @@ export function AnnexEEditor({
     [floorplanSvg],
   );
 
-  const getViewportMapping = useCallback((): SvgViewportMapping | null => {
-    if (!canvasRef.current || !viewBox) return null;
-    return computeSvgViewportMapping(canvasRef.current.getBoundingClientRect(), viewBox);
-  }, [viewBox]);
+  const getFloorSvg = useCallback(
+    () => floorContainerRef.current?.querySelector("svg") as SVGSVGElement | null,
+    [],
+  );
 
   const { photoOptions, numberById } = useMemo(() => {
-    const options: { id: string; number: number; uid: string }[] = [];
+    const options: { id: string; number: number; uid: string; previewUrl?: string }[] = [];
     const byId = new Map<string, number>();
     for (const info of getPhotoLogDisplayInfo(photos)) {
       if (info.isCopy || info.number === null) continue;
-      options.push({ id: info.entry.id, number: info.number, uid: info.entry.uid });
+      options.push({
+        id: info.entry.id,
+        number: info.number,
+        uid: info.entry.uid,
+        previewUrl: photoPreviewUrls[info.entry.id],
+      });
       byId.set(info.entry.id, info.number);
     }
     return { photoOptions: options, numberById: byId };
-  }, [photos]);
+  }, [photos, photoPreviewUrls]);
 
   const selectedMarker = markers.find((marker) => marker.id === selectedMarkerId) ?? null;
 
@@ -404,20 +328,49 @@ export function AnnexEEditor({
     [markers, numberById],
   );
 
+  const placedPhotoIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const marker of markers) {
+      if (marker.photoId) set.add(marker.photoId);
+    }
+    return set;
+  }, [markers]);
+
+  const displayMarkers = useMemo(
+    () =>
+      renderMarkers.map((marker) =>
+        marker.id === selectedMarkerId
+          ? { ...marker, highlight: selectionFocus }
+          : marker,
+      ),
+    [renderMarkers, selectedMarkerId, selectionFocus],
+  );
+
   const displaySvg = useMemo(() => {
     if (!floorplanSvg || !viewBox) return null;
-    return buildAnnotatedFloorplanSvg(floorplanSvg, renderMarkers, viewBox);
-  }, [floorplanSvg, renderMarkers, viewBox]);
+    return buildAnnotatedFloorplanSvg(floorplanSvg, displayMarkers, viewBox);
+  }, [floorplanSvg, displayMarkers, viewBox]);
 
-  const viewportMapping = useMemo(() => {
+  const handlePositions = useMemo(() => {
     void layoutTick;
-    return getViewportMapping();
-  }, [getViewportMapping, layoutTick]);
+    void displaySvg;
+    const svg = getFloorSvg();
+    if (!selectedMarker || !svg) return null;
+    const center = svgUserToCanvasPx(svg, selectedMarker.cx, selectedMarker.cy);
+    const tip = svgUserToCanvasPx(svg, selectedMarker.tipX, selectedMarker.tipY);
+    if (!center || !tip) return null;
+    return { center, tip };
+  }, [getFloorSvg, selectedMarker, layoutTick, displaySvg]);
+
+  const activePhotoNumber =
+    activePhotoId != null ? numberById.get(activePhotoId) ?? null : null;
 
   const modeHint =
     editorMode === "place"
-      ? "Click the floorplan to drop markers (keep clicking to add more). Press Select or Esc when done."
-      : "Drag the center dot to move, the tip dot for direction/length, or use the sliders below.";
+      ? activePhotoNumber != null
+        ? `Selected Photo ${activePhotoNumber} – click the floorplan to drop its marker, then drag the arrow to set direction.`
+        : "Click the floorplan to drop a marker, then drag the arrow to set direction. Press Select or Esc to stop."
+      : "Pick a photo below to place its marker, or drag the center dot to move and the tip dot for direction/length.";
 
   const canvasCursor =
     editorMode === "place"
@@ -611,6 +564,7 @@ export function AnnexEEditor({
         if (editorMode === "place") {
           event.preventDefault();
           setEditorMode("select");
+          setActivePhotoId(null);
         }
         return;
       }
@@ -627,11 +581,11 @@ export function AnnexEEditor({
 
   const clientPointToSvg = useCallback(
     (clientX: number, clientY: number) => {
-      const mapping = getViewportMapping();
-      if (!mapping || !viewBox) return null;
-      return clientToSvg(clientX, clientY, mapping, viewBox);
+      const svg = getFloorSvg();
+      if (!svg || !viewBox) return null;
+      return clientToSvgUser(svg, clientX, clientY);
     },
-    [getViewportMapping, viewBox],
+    [getFloorSvg, viewBox],
   );
 
   function beginCanvasDrag(
@@ -708,6 +662,7 @@ export function AnnexEEditor({
 
     if (editorMode === "place") {
       const marker = createDefaultMarker(point.x, point.y, viewBox);
+      marker.photoId = activePhotoId;
       setMarkers((current) => [...current, marker]);
       selectMarker(marker.id, "arrow");
       beginCanvasDrag(
@@ -755,6 +710,11 @@ export function AnnexEEditor({
 
       if (!moved && dragState.mode === "adjust-arrow") {
         setSelectionFocus("arrow");
+      }
+
+      if (dragState.mode === "place-arrow") {
+        setEditorMode("select");
+        setActivePhotoId(null);
       }
 
       setDragState(null);
@@ -845,18 +805,26 @@ export function AnnexEEditor({
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant={editorMode === "place" ? "default" : "outline"}
+              variant={editorMode === "place" && activePhotoId === null ? "default" : "outline"}
               size="sm"
-              onClick={() => setEditorMode((current) => (current === "place" ? "select" : "place"))}
+              onClick={() =>
+                setEditorMode((current) => {
+                  setActivePhotoId(null);
+                  return current === "place" ? "select" : "place";
+                })
+              }
             >
               <Plus className="mr-2 h-4 w-4" />
-              Add marker
+              Add blank marker
             </Button>
             <Button
               type="button"
               variant={editorMode === "select" ? "default" : "outline"}
               size="sm"
-              onClick={() => setEditorMode("select")}
+              onClick={() => {
+                setEditorMode("select");
+                setActivePhotoId(null);
+              }}
             >
               <MousePointer2 className="mr-2 h-4 w-4" />
               Select
@@ -877,19 +845,16 @@ export function AnnexEEditor({
           >
             {displaySvg && (
               <div
-                className="h-full w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full [&>svg]:object-contain"
+                ref={floorContainerRef}
+                className="h-full w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
                 dangerouslySetInnerHTML={{ __html: displaySvg }}
               />
             )}
-            {selectedMarker && selectionFocus && (
-              <SelectionOverlay marker={selectedMarker} focus={selectionFocus} viewBox={viewBox} />
-            )}
-            {selectedMarker && viewportMapping && (
+            {selectedMarker && handlePositions && (
               <div data-marker-handle className="pointer-events-none absolute inset-0 z-20 [&>button]:pointer-events-auto">
                 <MarkerHandles
-                  marker={selectedMarker}
-                  mapping={viewportMapping}
-                  viewBox={viewBox}
+                  center={handlePositions.center}
+                  tip={handlePositions.tip}
                   onMoveStart={() => {
                     selectMarker(selectedMarker.id, "body");
                     moveDragStartRef.current = null;
@@ -901,6 +866,77 @@ export function AnnexEEditor({
                   onTipDrag={handleTipHandleDrag}
                   onDragEnd={endHandleDrag}
                 />
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-border bg-white p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <Label className="text-xs text-muted-foreground">Photo log</Label>
+              {activePhotoNumber != null && (
+                <span className="text-xs font-medium text-sky-600">
+                  Placing Photo {activePhotoNumber}
+                </span>
+              )}
+            </div>
+            {photoOptions.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Add photos to the photo log to place their markers.
+              </p>
+            ) : (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {photoOptions.map((option) => {
+                  const isActive = option.id === activePhotoId;
+                  const isPlaced = placedPhotoIds.has(option.id);
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      disabled={isPlaced}
+                      onClick={() => {
+                        if (isPlaced) return;
+                        setActivePhotoId(option.id);
+                        setEditorMode("place");
+                      }}
+                      title={
+                        isPlaced
+                          ? `Photo ${option.number} · already placed`
+                          : `Photo ${option.number} · UID ${option.uid}`
+                      }
+                      className={cn(
+                        "relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border-2 bg-slate-100 transition-colors",
+                        isPlaced
+                          ? "cursor-not-allowed border-emerald-300"
+                          : isActive
+                            ? "border-sky-500 ring-2 ring-sky-300"
+                            : "border-slate-200 hover:border-slate-300",
+                      )}
+                    >
+                      {option.previewUrl ? (
+                        <img
+                          src={option.previewUrl}
+                          alt={`Photo ${option.number}`}
+                          className={cn(
+                            "h-full w-full object-cover",
+                            isPlaced && "opacity-50",
+                          )}
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                          No preview
+                        </div>
+                      )}
+                      <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white">
+                        {option.number}
+                      </span>
+                      {isPlaced && (
+                        <span className="absolute bottom-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white">
+                          <Check className="h-3 w-3" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1038,12 +1074,6 @@ export function AnnexEEditor({
                   />
                 </div>
               </div>
-            )}
-
-            {photoOptions.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Add photos to the photo log to assign photo numbers to markers.
-              </p>
             )}
           </div>
         </div>

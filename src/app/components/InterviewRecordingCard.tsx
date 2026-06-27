@@ -227,7 +227,12 @@ export function InterviewRecordingCard({
   ) : null;
 
   const recordButtons = (
-    <div className="flex items-center gap-3">
+    <div
+      className={cn(
+        "flex items-center gap-3",
+        chromeless && "w-full flex-wrap"
+      )}
+    >
       {(isActivelyRecording || isProcessing) && (
         <span className="text-sm font-mono text-primary tabular-nums">
           {isProcessing ? (
@@ -238,13 +243,19 @@ export function InterviewRecordingCard({
         </span>
       )}
       {isActivelyRecording && !isProcessing ? (
-        <>
+        <div
+          className={cn(
+            "flex items-center gap-3",
+            chromeless && "w-full basis-full"
+          )}
+        >
           {canPause && (
             <Button
               type="button"
               onClick={handlePauseResume}
               size="lg"
               variant="outline"
+              className={cn(chromeless && "flex-1")}
             >
               {isPaused ? (
                 <>
@@ -259,17 +270,24 @@ export function InterviewRecordingCard({
               )}
             </Button>
           )}
-          <Button type="button" onClick={handleEnd} size="lg" variant="secondary">
+          <Button
+            type="button"
+            onClick={handleEnd}
+            size="lg"
+            variant="secondary"
+            className={cn(chromeless && "flex-1")}
+          >
             <Square className="mr-2 h-5 w-5 fill-current" />
             End
           </Button>
-        </>
+        </div>
       ) : (
         <Button
           onClick={handleStart}
           size="lg"
           variant="default"
           disabled={isProcessing}
+          className={cn(chromeless && "w-full")}
         >
           {isProcessing ? (
             <>

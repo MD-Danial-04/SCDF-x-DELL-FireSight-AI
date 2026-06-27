@@ -10,6 +10,8 @@ export interface ReportSession {
   transcriptionJobId?: string;
   /** When set, ReportGeneration resumes this incident's saved draft instead of running extraction. */
   resumeDraftIncidentNo?: string;
+  /** When set, ReportGeneration opens this section/nav id on mount (e.g. deep link from the dashboard). */
+  initialSectionId?: string;
 }
 
 const ReportSessionContext = createContext<ReportSession | null>(null);

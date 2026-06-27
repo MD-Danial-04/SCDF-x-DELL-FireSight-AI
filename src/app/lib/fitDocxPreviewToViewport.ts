@@ -62,7 +62,14 @@ export function fitDocxPreviewToWidth({
   const clampedScale = Math.max(scale, MIN_SCALE);
   const finalScale = clampedScale * Math.max(zoomMultiplier, 1);
 
-  const naturalWidth = innerWrapper.offsetWidth || pageWidth + WRAPPER_PADDING * 2;
+  // innerWrapper.offsetWidth can be clamped to the (narrower) parent when the
+  // viewport is smaller than the page, so fall back to the true page width to
+  // keep the scaler sized to the content (otherwise the scaled page overflows
+  // the undersized scaler and appears pushed to one side instead of centered).
+  const naturalWidth = Math.max(
+    innerWrapper.offsetWidth,
+    pageWidth + WRAPPER_PADDING * 2,
+  );
   const naturalHeight = measurePagesHeight(innerWrapper) + WRAPPER_PADDING * 2;
 
   host.style.width = `${naturalWidth}px`;

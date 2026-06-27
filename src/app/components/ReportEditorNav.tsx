@@ -120,7 +120,9 @@ export function ReportEditorNav({
   const layoutHeader = useLayoutHeader();
   const slot = layoutHeader?.slot ?? null;
   const actionsSlot = layoutHeader?.actionsSlot ?? null;
+  const sidebarSlot = layoutHeader?.sidebarSlot ?? null;
   const setHasMenu = layoutHeader?.setHasMenu;
+  const setHasSidebar = layoutHeader?.setHasSidebar;
   const setTitle = layoutHeader?.setTitle;
   const setDocumentId = layoutHeader?.setDocumentId;
 
@@ -131,6 +133,12 @@ export function ReportEditorNav({
     setHasMenu(true);
     return () => setHasMenu(false);
   }, [setHasMenu]);
+
+  useEffect(() => {
+    if (!setHasSidebar) return;
+    setHasSidebar(true);
+    return () => setHasSidebar(false);
+  }, [setHasSidebar]);
 
   useEffect(() => {
     if (!setTitle) return;
@@ -203,7 +211,7 @@ export function ReportEditorNav({
       type="button"
       aria-label="Open report navigation"
       onClick={() => setOpen(true)}
-      className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
     >
       <Menu className="size-5" />
     </button>
@@ -227,21 +235,9 @@ export function ReportEditorNav({
     </Button>
   );
 
-  return (
+  const navBody = (
     <>
-      {slot ? createPortal(sectionTrigger, slot) : null}
-      {actionsSlot ? createPortal(saveButton, actionsSlot) : null}
-
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="flex w-80 max-w-[85vw] flex-col p-0">
-          <SheetHeader className="border-b px-4 py-3 text-left">
-            <SheetTitle>Navigation</SheetTitle>
-            <SheetDescription className="text-xs">
-              {completedCount} of {totalCount} sections completed
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
             <nav className="px-2 py-2">
               <ul className="space-y-1">
                 {appNavItems.map((item) => {
@@ -396,6 +392,37 @@ export function ReportEditorNav({
               {generateLabel}
             </Button>
           </div>
+    </>
+  );
+
+  return (
+    <>
+      {slot ? createPortal(sectionTrigger, slot) : null}
+      {actionsSlot ? createPortal(saveButton, actionsSlot) : null}
+      {sidebarSlot
+        ? createPortal(
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="border-b px-4 py-3">
+                <p className="text-sm font-semibold text-foreground">Navigation</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {completedCount} of {totalCount} sections completed
+                </p>
+              </div>
+              {navBody}
+            </div>,
+            sidebarSlot
+          )
+        : null}
+
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="left" className="flex w-80 max-w-[85vw] flex-col p-0">
+          <SheetHeader className="border-b px-4 py-3 text-left">
+            <SheetTitle>Navigation</SheetTitle>
+            <SheetDescription className="text-xs">
+              {completedCount} of {totalCount} sections completed
+            </SheetDescription>
+          </SheetHeader>
+          {navBody}
         </SheetContent>
       </Sheet>
     </>
