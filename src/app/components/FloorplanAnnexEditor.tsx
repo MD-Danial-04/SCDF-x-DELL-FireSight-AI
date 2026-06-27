@@ -7,7 +7,7 @@ import {
   Group,
   History,
   Loader2,
-  Map,
+  Map as MapIcon,
   MousePointer2,
   RotateCw,
   Save,
@@ -17,6 +17,9 @@ import {
   Type,
   Upload,
   X,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "./ui/badge";
@@ -626,6 +629,12 @@ export function FloorplanAnnexEditor({
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [fileName, setFileName] = useState(initialEditorState.fileName);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{
+    startDist: number;
+    startCamera: FloorplanViewBox;
+    anchor: { x: number; y: number };
+  } | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [history, setHistory] = useState<FloorplanHistoryEntry[]>([]);
   const [textEditState, setTextEditState] = useState<TextEditState | null>(null);
@@ -1801,6 +1810,28 @@ export function FloorplanAnnexEditor({
     return clientToSvg(clientX, clientY, computeSvgViewportMapping(rect, camera), camera);
   }
 
+  function applyPinchZoom(
+    startCamera: FloorplanViewBox,
+    anchor: { x: number; y: number },
+    startDist: number,
+    currentDist: number,
+  ) {
+    if (!baseViewBox || startDist <= 0 || currentDist <= 0) return;
+    const minWidth = baseViewBox.width * 0.03;
+    const maxWidth = baseViewBox.width * 6;
+    const factor = startDist / currentDist;
+    const nextWidth = clamp(startCamera.width * factor, minWidth, maxWidth);
+    const nextHeight = (nextWidth / startCamera.width) * startCamera.height;
+    const ratioX = (anchor.x - startCamera.x) / startCamera.width;
+    const ratioY = (anchor.y - startCamera.y) / startCamera.height;
+    setCamera({
+      x: anchor.x - ratioX * nextWidth,
+      y: anchor.y - ratioY * nextHeight,
+      width: nextWidth,
+      height: nextHeight,
+    });
+  }
+
   function applyZoom(factor: number, clientX?: number, clientY?: number) {
     const canvas = canvasRef.current;
     if (!canvas || !baseViewBox || !camera) return;
@@ -1932,9 +1963,27 @@ export function FloorplanAnnexEditor({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || !camera) return;
+    if (!camera) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    if (event.pointerType === "touch") {
+      activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (activePointersRef.current.size === 2) {
+        const points = Array.from(activePointersRef.current.values());
+        const dist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+        const midX = (points[0].x + points[1].x) / 2;
+        const midY = (points[0].y + points[1].y) / 2;
+        const anchor = getSvgPoint(midX, midY);
+        if (anchor) {
+          setDragState(null);
+          pinchRef.current = { startDist: dist || 1, startCamera: camera, anchor };
+        }
+        return;
+      }
+    }
+
+    if (event.button !== 0) return;
     let shouldCapturePointer = true;
 
     const hit = getNodeHit(event.target, baseViewBox);
@@ -2070,6 +2119,22 @@ export function FloorplanAnnexEditor({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch" && activePointersRef.current.has(event.pointerId)) {
+      activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+
+    if (pinchRef.current && activePointersRef.current.size >= 2) {
+      const points = Array.from(activePointersRef.current.values());
+      const dist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      applyPinchZoom(
+        pinchRef.current.startCamera,
+        pinchRef.current.anchor,
+        pinchRef.current.startDist,
+        dist,
+      );
+      return;
+    }
+
     if (editorMode === "placeLine" && lineDraft && !dragState) {
       const point = getSvgPoint(event.clientX, event.clientY);
       if (!point) return;
@@ -2236,6 +2301,13 @@ export function FloorplanAnnexEditor({
   }
 
   function clearDragState(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") {
+      activePointersRef.current.delete(event.pointerId);
+      if (activePointersRef.current.size < 2) {
+        pinchRef.current = null;
+      }
+    }
+
     if (!dragState || dragState.pointerId !== event.pointerId) return;
     const finishedDrag = dragState;
     setDragState(null);
@@ -2541,7 +2613,7 @@ export function FloorplanAnnexEditor({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Map className="h-4 w-4 text-primary" />
+            <MapIcon className="h-4 w-4 text-primary" />
             <p className="font-semibold text-foreground">Floorplan editor (Annex A &amp; E)</p>
             <Badge
               variant={enabled ? "secondary" : "outline"}
@@ -2742,7 +2814,7 @@ export function FloorplanAnnexEditor({
                         {draft.thumbnail ? (
                           <img src={draft.thumbnail} alt={draft.name} className="max-h-full max-w-full object-contain" />
                         ) : (
-                          <Map className="h-5 w-5 text-slate-300" />
+                          <MapIcon className="h-5 w-5 text-slate-300" />
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -3074,14 +3146,16 @@ export function FloorplanAnnexEditor({
                 />
                 <button
                   type="button"
-                  className="absolute z-30 h-4 w-4 rounded-full border-2 border-sky-500 bg-white"
+                  className="absolute z-30 flex h-7 w-7 items-center justify-center rounded-full touch-none"
                   style={{
-                    left: overlayRect.left + overlayRect.width - 8,
-                    top: overlayRect.top + overlayRect.height - 8,
+                    left: overlayRect.left + overlayRect.width - 14,
+                    top: overlayRect.top + overlayRect.height - 14,
                   }}
                   onPointerDown={beginResizeHandle}
                   aria-label="Resize shape"
-                />
+                >
+                  <span className="h-4 w-4 rounded-full border-2 border-sky-500 bg-white" />
+                </button>
                 <button
                   type="button"
                   className="absolute z-30 flex h-8 w-8 items-center justify-center rounded-full border-2 border-sky-500 bg-white"
@@ -3159,6 +3233,36 @@ export function FloorplanAnnexEditor({
                 />
               </div>
             )}
+
+            <div
+              className="absolute bottom-3 right-3 z-40 flex flex-col gap-1 rounded-xl border border-border bg-white/90 p-1 shadow-sm backdrop-blur"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => applyZoom(ZOOM_IN_FACTOR)}
+                aria-label="Zoom in"
+                className="flex size-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+              >
+                <ZoomIn className="size-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => applyZoom(ZOOM_OUT_FACTOR)}
+                aria-label="Zoom out"
+                className="flex size-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+              >
+                <ZoomOut className="size-5" />
+              </button>
+              <button
+                type="button"
+                onClick={resetCamera}
+                aria-label="Fit to view"
+                className="flex size-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-muted"
+              >
+                <Maximize2 className="size-5" />
+              </button>
+            </div>
 
           </div>
         </div>

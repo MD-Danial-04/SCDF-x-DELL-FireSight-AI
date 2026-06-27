@@ -81,9 +81,10 @@ function injectTablePlaceholders(xml) {
     [4, 0, "address"],
     [4, 1, "occupation"],
     [5, 0, "placeOfEmployment"],
+    // The original form's Telephone Nos. section only has Residence + Mobile
+    // sub-fields (no Office cell), so contactOffice is intentionally not mapped.
     [6, 1, "contactHome"],
     [6, 2, "contactMobile"],
-    [6, 2, "contactOffice"],
     [8, 0, "recordedTime"],
     [8, 1, "recordedDate"],
     [8, 2, "interviewTakenPlace"],
@@ -104,6 +105,22 @@ function injectTablePlaceholders(xml) {
   return xml.replace(tableXml, newTableXml);
 }
 
+/**
+ * Index of the last paragraph-open tag (`<w:p>` or `<w:p ...>`) before
+ * `beforeIdx`. Crucially this does NOT match `<w:pPr>` or `<w:pStyle>`, so it
+ * always lands on a real paragraph start rather than a properties element.
+ */
+function lastParagraphStart(xml, beforeIdx) {
+  const re = /<w:p(?:\s[^>]*)?>/g;
+  let last = -1;
+  let match;
+  while ((match = re.exec(xml)) !== null) {
+    if (match.index >= beforeIdx) break;
+    last = match.index;
+  }
+  return last;
+}
+
 function injectFactsBody(xml) {
   const necessaryIdx = xml.indexOf("<w:t>necessary</w:t>");
   if (necessaryIdx === -1) {
@@ -118,9 +135,18 @@ function injectFactsBody(xml) {
     return xml;
   }
 
-  const declParaStart = xml.lastIndexOf("<w:p", herebyIdx);
+  // Start of the "I hereby declare..." paragraph. Must be the paragraph's own
+  // <w:p> open tag — using a plain lastIndexOf("<w:p") would wrongly match the
+  // nested <w:pPr>/<w:pStyle> tags and nest {facts} inside paragraph
+  // properties (where it is silently dropped on render).
+  const declParaStart = lastParagraphStart(xml, herebyIdx);
+  if (declParaStart === -1) {
+    console.warn("Could not find declaration paragraph start");
+    return xml;
+  }
+
   const factsPara =
-    '<w:p><w:pPr><w:rPr><w:sz w:val="24"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>{facts}</w:t></w:r></w:p>';
+    '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:sz w:val="24"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>{facts}</w:t></w:r></w:p>';
 
   const before = xml.slice(0, paraEnd);
   const middle = xml.slice(paraEnd, declParaStart);
@@ -131,10 +157,13 @@ function injectFactsBody(xml) {
   return before + cleanedMiddle + factsPara + after;
 }
 
+// The signature marker uses [[ ]] rather than { } so docxtemplater leaves it
+// untouched during render(); the image is injected afterwards by replacing the
+// literal token (see injectDocxImage.ts).
 const SIGNATURE_LABEL_PARA =
-  '<w:p><w:pPr><w:rPr><w:sz w:val="24"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>Signature of person making statement</w:t></w:r></w:p>';
+  '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:sz w:val="24"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>Signature of person making statement</w:t></w:r></w:p>';
 const SIGNATURE_MARKER_PARA =
-  '<w:p><w:pPr><w:rPr><w:sz w:val="24"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>{intervieweeSignature}</w:t></w:r></w:p>';
+  '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:sz w:val="24"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>[[intervieweeSignature]]</w:t></w:r></w:p>';
 
 function injectSignaturePlaceholder(xml) {
   const marker = "<w:t> true.</w:t>";

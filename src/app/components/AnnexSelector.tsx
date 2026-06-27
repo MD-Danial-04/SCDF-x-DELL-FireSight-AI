@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge } from "./ui/badge";
 import { Checkbox } from "./ui/checkbox";
-import { Label } from "./ui/label";
 import {
   Accordion,
   AccordionContent,
@@ -16,7 +15,6 @@ import {
 } from "./ui/dialog";
 import {
   ANNEX_DEFINITIONS,
-  ANNEX_REFERENCE_SOURCE,
   buildAnnexAttachmentList,
   getAnnexById,
   sortAnnexIds,
@@ -293,14 +291,6 @@ export function AnnexSelector({
 
   return (
     <div className="space-y-4 md:col-span-2">
-      <div className="rounded-xl border border-border bg-white p-4">
-        <Label className="text-sm font-medium">Annex reference source</Label>
-        <p className="mt-1 font-mono text-sm text-gray-600">{ANNEX_REFERENCE_SOURCE}</p>
-        <p className="mt-1 text-xs text-gray-500">
-          Selected annex slides are appended as images at the end of the generated Word report.
-        </p>
-      </div>
-
       <div className="rounded-xl border border-border bg-white p-4">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {ANNEX_DEFINITIONS.map((annex) => (

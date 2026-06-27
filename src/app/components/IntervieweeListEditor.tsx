@@ -64,6 +64,16 @@ function todayDateString(): string {
   return new Date().toLocaleDateString();
 }
 
+/** Append a freshly transcribed segment to an existing transcript so follow-up
+ * recordings add to (rather than overwrite) what was captured before. */
+function appendTranscript(existing: string, addition: string): string {
+  const base = existing.trim();
+  const next = addition.trim();
+  if (!base) return next;
+  if (!next) return base;
+  return `${base}\n\n${next}`;
+}
+
 interface IntervieweeListEditorProps {
   interviewees: Interviewee[];
   onChange: (interviewees: Interviewee[]) => void;
@@ -313,10 +323,15 @@ export function IntervieweeListEditor({
     if (!interviewee || !page) return;
     const section = getInterviewSection(page.sectionId);
 
+    // Append so a follow-up recording adds to the existing transcript instead
+    // of replacing it. The merged text is what we analyze/extract against.
+    const mergedEnglish = appendTranscript(page.transcriptEnglish, english);
+    const mergedOriginal = appendTranscript(page.transcriptOriginal, original);
+
     patchPage(intervieweeId, pageId, (current) => ({
       ...current,
-      transcriptOriginal: original,
-      transcriptEnglish: english,
+      transcriptOriginal: mergedOriginal,
+      transcriptEnglish: mergedEnglish,
     }));
 
     if (section.kind === "leading-questions") {
@@ -329,7 +344,7 @@ export function IntervieweeListEditor({
         await analyzePage(
           intervieweeId,
           pageId,
-          english,
+          mergedEnglish,
           page.leadingQuestionSet,
           page.interviewLanguage
         );
@@ -337,7 +352,7 @@ export function IntervieweeListEditor({
       return;
     }
 
-    await extractPage(intervieweeId, pageId, english, page.sectionId, jobId);
+    await extractPage(intervieweeId, pageId, mergedEnglish, page.sectionId, jobId);
   };
 
   const handleAnalyze = (intervieweeId: string, pageId: string) => {

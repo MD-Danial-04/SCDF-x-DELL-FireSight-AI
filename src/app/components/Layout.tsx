@@ -5,6 +5,7 @@ import { cn } from "./ui/utils";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "./ui/sheet";
 import { DevSettingsDialog } from "./DevSettingsDialog";
+import { LayoutHeaderContext } from "../context/LayoutHeaderContext";
 
 type NavItem = {
   to: string;
@@ -109,13 +110,28 @@ export function Layout() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [devSettingsOpen, setDevSettingsOpen] = useState(false);
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const [headerActionsSlot, setHeaderActionsSlot] = useState<HTMLElement | null>(null);
+  const [hasPageMenu, setHasPageMenu] = useState(false);
+  const [pageTitle, setPageTitle] = useState<string | null>(null);
+  const [documentId, setDocumentId] = useState<string | null>(null);
   const meta =
     routeMeta[location.pathname] ??
     (["/incident", "/report", "/slides"].includes(location.pathname)
       ? routeMeta["/incident"]
       : { title: "FireSight AI", description: "Incident documentation platform" });
+  const headerTitle = pageTitle ?? meta.title;
 
   return (
+    <LayoutHeaderContext.Provider
+      value={{
+        slot: headerSlot,
+        actionsSlot: headerActionsSlot,
+        setHasMenu: setHasPageMenu,
+        setTitle: setPageTitle,
+        setDocumentId,
+      }}
+    >
     <div className="min-h-screen flex bg-surface">
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
@@ -127,42 +143,52 @@ export function Layout() {
       </aside>
 
       <div className="flex flex-1 flex-col min-w-0">
-        {/* Top bar */}
-        <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-border bg-surface-elevated/95 backdrop-blur px-4 sm:px-6">
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger asChild className="md:hidden">
-              <Button variant="ghost" size="icon" aria-label="Open menu">
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground border-sidebar-border">
-              <SheetHeader className="sr-only">
-                <SheetTitle>Navigation</SheetTitle>
-              </SheetHeader>
-              <SidebarBrand />
-              <NavLinks onNavigate={() => setMobileOpen(false)} />
-            </SheetContent>
-          </Sheet>
+        {/* Floating top bar — sticky, detached card with room for the device notch. */}
+        <header className="sticky top-0 z-40 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:px-4">
+          <div className="flex min-h-[4.5rem] items-center gap-3 rounded-2xl border border-border bg-surface-elevated/90 px-3 shadow-lg ring-1 ring-black/5 backdrop-blur supports-[backdrop-filter]:bg-surface-elevated/75 sm:gap-4 sm:px-5">
+            {/* Portal slot for a page to inject its own header menu trigger (e.g. report sections). */}
+            <div ref={setHeaderSlot} className="flex items-center" />
 
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground truncate">{meta.title}</p>
-            <p className="text-xs text-muted-foreground truncate hidden sm:block">
-              {meta.description}
-            </p>
+            {!hasPageMenu && (
+              <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+                <SheetTrigger asChild className="md:hidden">
+                  <Button variant="ghost" size="icon" aria-label="Open menu">
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground border-sidebar-border">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Navigation</SheetTitle>
+                  </SheetHeader>
+                  <SidebarBrand />
+                  <NavLinks onNavigate={() => setMobileOpen(false)} />
+                </SheetContent>
+              </Sheet>
+            )}
+
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold text-foreground">{headerTitle}</p>
+              {documentId && (
+                <p className="truncate text-xs text-muted-foreground">{documentId}</p>
+              )}
+            </div>
+
+            {/* Portal slot for page-provided header actions (e.g. report save). */}
+            <div ref={setHeaderActionsSlot} className="flex items-center gap-2" />
+
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Developer settings"
+              onClick={() => setDevSettingsOpen(true)}
+            >
+              <Settings className="h-5 w-5" />
+            </Button>
           </div>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Developer settings"
-            onClick={() => setDevSettingsOpen(true)}
-          >
-            <Settings className="h-5 w-5" />
-          </Button>
         </header>
 
         <main className="flex-1">
-          <div className="w-full px-4 py-8 sm:px-6 lg:px-8">
+          <div className="w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
             <Outlet />
           </div>
         </main>
@@ -174,5 +200,6 @@ export function Layout() {
 
       <DevSettingsDialog open={devSettingsOpen} onOpenChange={setDevSettingsOpen} />
     </div>
+    </LayoutHeaderContext.Provider>
   );
 }

@@ -2,15 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { FileText, Download, Loader2, RefreshCw, Save } from "lucide-react";
+import { FileText, Download, Loader2, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import { PageHeader } from "../components/PageHeader";
 import { StatusBanner } from "../components/StatusBanner";
 import { ExtractionLoadingScreen } from "../components/ExtractionLoadingScreen";
 import { remainingMinDelayMs, randomDemoDelayMs } from "../lib/loadingTiming";
-import { Badge } from "../components/ui/badge";
-import { getIncidentCategoryLabel } from "../constants/incidentTemplates";
 import { useReportSession } from "../context/ReportSessionContext";
 import { createEmptyReportFields, type FireReportData } from "../types/fireReport";
 import { extractReportFields, mergeReportFields } from "../lib/extractReportFields";
@@ -41,6 +38,9 @@ import {
   scheduleDocxPreviewFit,
 } from "../lib/fitDocxPreviewToViewport";
 import { ReportFormFields } from "../components/ReportFormFields";
+import { ReportEditorNav } from "../components/ReportEditorNav";
+import { PREVIEW_NAV_ID } from "../lib/reportSectionStatus";
+import { REPORT_FORM_SECTIONS } from "../constants/reportFormSections";
 import { generateAnnexDBlobs, generateAnnexFBlobs } from "../lib/photoLogAnnexes";
 import {
   createPhotoCopy,
@@ -65,7 +65,6 @@ import type { FloorplanDraftPayload } from "../lib/floorplanDrafts";
 import type { AnnexEMarker } from "../lib/annexEMarkers";
 import type { AnnexGEditorState } from "../components/AnnexGBurnChartEditor";
 
-type Step = "review" | "edit";
 type ReportView = "fir" | "prr";
 
 /** Static annex template pages (A/B/C/E/G) that receive header value overlays. */
@@ -81,8 +80,10 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const { incidentType, stopMessage, fieldNotes, transcriptionJobId, resumeDraftIncidentNo } =
     useReportSession();
   const { runExtraction, error: extractionError } = useExtractionJob();
-  const [step, setStep] = useState<Step>("review");
   const [reportView, setReportView] = useState<ReportView>("fir");
+  const [activeSectionId, setActiveSectionId] = useState<string>(
+    REPORT_FORM_SECTIONS[0]?.id ?? "1"
+  );
   const [reportFields, setReportFields] = useState<FireReportData>(() => createEmptyReportFields());
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<"loading" | "ready">("loading");
@@ -699,9 +700,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   }, [schedulePreviewFit]);
 
   useEffect(() => {
-    if (step !== "edit" || !docBlob) return;
+    if (activeSectionId !== PREVIEW_NAV_ID || !docBlob) return;
     void renderPreview(docBlob);
-  }, [step, docBlob, renderPreview]);
+  }, [activeSectionId, docBlob, renderPreview]);
 
   useEffect(() => {
     if (previewVersion === 0) return;
@@ -728,7 +729,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         photos,
       );
       setDocBlob(blob);
-      setStep("edit");
+      setActiveSectionId(PREVIEW_NAV_ID);
       toast.success("Fire Investigation Report generated");
     } catch (err) {
       console.error(err);
@@ -768,7 +769,10 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
 
   const handleDownload = () => {
     if (!docBlob) return;
-    const name = `${reportFields.incidentNo}_Fire_Investigation_Report.docx`;
+    const name =
+      reportView === "prr"
+        ? getPrrFilename(reportFields.incidentNo)
+        : `${reportFields.incidentNo}_Fire_Investigation_Report.docx`;
     downloadDocx(docBlob, name);
     toast.success("Report downloaded");
   };
@@ -777,11 +781,27 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     setIsGeneratingPrr(true);
     try {
       const blob = await generatePrrDocx(reportFields);
-      downloadDocx(blob, getPrrFilename(reportFields.incidentNo));
-      toast.success("PRR downloaded");
+      setDocBlob(blob);
+      setActiveSectionId(PREVIEW_NAV_ID);
+      toast.success("Preliminary Report Response generated");
     } catch (err) {
       console.error(err);
       toast.error("Failed to generate PRR. Check template placeholders.");
+    } finally {
+      setIsGeneratingPrr(false);
+    }
+  };
+
+  const handleUpdatePreviewPrr = async () => {
+    if (!docBlob) return;
+    setIsGeneratingPrr(true);
+    try {
+      const blob = await generatePrrDocx(reportFields);
+      setDocBlob(blob);
+      await renderPreview(blob);
+      toast.success("Preview updated");
+    } catch {
+      toast.error("Failed to update preview");
     } finally {
       setIsGeneratingPrr(false);
     }
@@ -871,10 +891,17 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   };
 
   const reportTypeLabel = reportView === "fir" ? "Fire investigation report" : "Preliminary report response";
-  const reportTypeDescription =
-    reportView === "fir"
-      ? "Review extracted fields, generate the Word document, then edit and download."
-      : "Review the PRR-only sections, then generate the Preliminary Report Response document.";
+
+  const handleReportViewChange = (view: ReportView) => {
+    setReportView(view);
+    setActiveSectionId(view === "prr" ? PRR_SECTION_IDS[0] : REPORT_FORM_SECTIONS[0]?.id ?? "1");
+    setDocBlob(null);
+    setPreviewVersion(0);
+    setPreviewError(null);
+  };
+
+  const navVisibleSectionIds =
+    reportView === "prr" ? [...PRR_SECTION_IDS] : REPORT_FORM_SECTIONS.map((section) => section.id);
 
   if (phase === "loading") {
     return <ExtractionLoadingScreen variant="report" stopMessagePreview={stopPreview} />;
@@ -882,36 +909,24 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
 
   return (
     <div className="space-y-8">
-      <PageHeader
+      <ReportEditorNav
         title={reportTypeLabel}
-        description={reportTypeDescription}
-        actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {incidentType ? (
-              <>
-                <Badge variant="outline" className="font-medium">
-                  {getIncidentCategoryLabel(incidentType.category)}
-                </Badge>
-                <Badge variant="secondary" className="bg-brand-fire-muted text-primary border-red-100">
-                  {incidentType.name}
-                </Badge>
-              </>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void handleSaveDraft()}
-              disabled={isSavingDraft}
-            >
-              {isSavingDraft ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-4 w-4" />
-              )}
-              Save draft
-            </Button>
-          </div>
-        }
+        reportView={reportView}
+        onReportViewChange={handleReportViewChange}
+        fields={reportFields}
+        extractedKeys={extractedKeys}
+        floorplanSvg={floorplanSvg}
+        photos={photos}
+        annexPreviewUrls={annexPreviewUrls}
+        visibleSectionIds={navVisibleSectionIds}
+        showInterviewNav={reportView === "fir"}
+        activeSectionId={activeSectionId}
+        onSelectSection={setActiveSectionId}
+        onSaveDraft={() => void handleSaveDraft()}
+        isSavingDraft={isSavingDraft}
+        onGenerate={reportView === "prr" ? () => void handleGeneratePrr() : () => void handleGenerate()}
+        isGenerating={reportView === "prr" ? isGeneratingPrr : isGenerating}
+        hasGeneratedDoc={Boolean(docBlob)}
       />
 
       {extractionError ? (
@@ -919,23 +934,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
           <p>{extractionError}</p>
         </StatusBanner>
       ) : null}
-
-      <div className="flex items-center justify-between gap-3">
-        <Button
-          type="button"
-          variant={reportView === "fir" ? "default" : "outline"}
-          onClick={() => setReportView("fir")}
-        >
-          FIR
-        </Button>
-        <Button
-          type="button"
-          variant={reportView === "prr" ? "default" : "outline"}
-          onClick={() => setReportView("prr")}
-        >
-          PRR
-        </Button>
-      </div>
 
       {false && <StatusBanner variant="success" title="Stop message captured">
         {stopMessage ? (
@@ -953,20 +951,16 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         )}
       </StatusBanner>}
 
-      {reportView === "fir" && step === "review" && (
+      {reportView === "fir" && activeSectionId !== PREVIEW_NAV_ID && (
         <Card className="rounded-xl shadow-sm">
-          <CardHeader>
-            <CardTitle>Review extracted information</CardTitle>
-            <CardDescription>
-              Fields marked auto-filled were parsed from your stop message. Edit as needed, then generate the Word report.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 pt-6">
             <ReportFormFields
               fields={reportFields}
               extractedKeys={extractedKeys}
               onChange={updateField}
               displayMode="tabs"
+              activeSectionId={activeSectionId}
+              onActiveSectionChange={setActiveSectionId}
               annexPreviewUrls={annexPreviewUrls}
               annexHeaderPreviewUrls={annexHeaderPreviewUrls}
               onAnnexOverrideChange={handleAnnexOverrideChange}
@@ -1000,124 +994,91 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               generatingStatementId={generatingStatementId}
               isGeneratingAllStatements={isGeneratingAllStatements}
             />
-            <Button onClick={handleGenerate} disabled={isGenerating} size="lg">
-              {isGenerating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Generating…
-                </>
-              ) : (
-                <>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Generate Word Report
-                </>
-              )}
-            </Button>
           </CardContent>
         </Card>
       )}
 
-      {reportView === "fir" && step === "edit" && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader>
-              <CardTitle>Edit report fields</CardTitle>
-              <CardDescription>Changes apply when you update the preview</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <ReportFormFields
-                fields={reportFields}
-                extractedKeys={extractedKeys}
-                onChange={updateField}
-                displayMode="tabs"
-                annexPreviewUrls={annexPreviewUrls}
-                annexHeaderPreviewUrls={annexHeaderPreviewUrls}
-                onAnnexOverrideChange={handleAnnexOverrideChange}
-                photos={photos}
-                photoPreviewUrls={photoPreviewUrls}
-                onAddPhotos={handleAddPhotos}
-                onRemovePhoto={handleRemovePhoto}
-                onReorderPhoto={handleReorderPhoto}
-                onCopyPhoto={handleCopyPhoto}
-                onUpdatePhotoCaption={handleUpdatePhotoCaption}
-                photoAnalysisContext={photoAnalysisContext}
-                onPhotosAnalyzed={handlePhotosAnalyzed}
-                onApplyPhotoSection={handleApplyPhotoSection}
-                onPhotoRefLinksChange={handlePhotoRefLinksChange}
-                onPhotoRefNoteChange={handlePhotoRefNoteChange}
-                photoLogAnnexPreviewUrls={photoLogAnnexPreviewUrls}
-                photoLogPreviewLoading={photoLogPreviewLoading}
-                floorplanSvg={floorplanSvg}
-                floorplanPersistenceKey={floorplanPersistenceKey}
-                onFloorplanSvgChange={setFloorplanSvg}
-                onIntervieweesChange={updateInterviewees}
-                onGenerateStatement={handleGenerateStatement}
-                onGenerateAllStatements={handleGenerateAllStatements}
-                onPreviewStatement={handlePreviewStatementBlob}
-                generatingStatementId={generatingStatementId}
-                isGeneratingAllStatements={isGeneratingAllStatements}
-              />
-              <div className="flex flex-wrap gap-3 pt-4 border-t">
+      {activeSectionId === PREVIEW_NAV_ID && (
+        <Card className="flex flex-col rounded-xl shadow-sm">
+          <CardHeader>
+            <CardTitle>Document preview</CardTitle>
+            <CardDescription>Scroll to review pages — scaled to panel width</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!docBlob ? (
+              <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-10 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No document generated yet. Open the menu and choose
+                  <span className="font-medium text-foreground">
+                    {reportView === "prr" ? " Generate PRR " : " Generate Word Report "}
+                  </span>
+                  to build a preview.
+                </p>
                 <Button
-                  onClick={handleUpdatePreview}
-                  disabled={isGenerating}
-                  variant="outline"
+                  className="mt-4"
+                  onClick={reportView === "prr" ? handleGeneratePrr : handleGenerate}
+                  disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
                 >
-                  {isGenerating ? (
+                  {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
+                    <FileText className="mr-2 h-4 w-4" />
                   )}
-                  Update preview
-                </Button>
-                <Button onClick={handleDownload}>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download DOCX
+                  {reportView === "prr" ? "Generate PRR" : "Generate Word Report"}
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card className="flex flex-col rounded-xl shadow-sm xl:sticky xl:top-20 xl:self-start">
-            <CardHeader>
-              <CardTitle>Document preview</CardTitle>
-              <CardDescription>Scroll to review pages — scaled to panel width</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {previewError && (
-                <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                  {previewError}
-                </p>
-              )}
-              {!previewError && previewVersion === 0 && step === "edit" && docBlob && (
-                <p className="mb-3 text-sm text-muted-foreground">Rendering preview…</p>
-              )}
-              <div
-                ref={previewViewportRef}
-                className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-3 h-[min(480px,50vh)] xl:h-[min(calc(100vh-7rem),720px)]"
-              >
-                <div ref={previewScalerRef} className="docx-preview-scaler mx-auto">
-                  <div ref={previewRef} className="docx-preview-host bg-white" />
+            ) : (
+              <>
+                <div className="mb-3 flex flex-wrap gap-3">
+                  <Button
+                    onClick={reportView === "prr" ? handleUpdatePreviewPrr : handleUpdatePreview}
+                    disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
+                    variant="outline"
+                  >
+                    {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Update preview
+                  </Button>
+                  <Button onClick={handleDownload}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download DOCX
+                  </Button>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                {previewError && (
+                  <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    {previewError}
+                  </p>
+                )}
+                {!previewError && previewVersion === 0 && (
+                  <p className="mb-3 text-sm text-muted-foreground">Rendering preview…</p>
+                )}
+                <div
+                  ref={previewViewportRef}
+                  className="docx-preview-viewport overflow-auto border rounded-xl bg-muted/40 p-3 h-[min(70vh,720px)] xl:h-[min(calc(100vh-7rem),720px)]"
+                >
+                  <div ref={previewScalerRef} className="docx-preview-scaler mx-auto">
+                    <div ref={previewRef} className="docx-preview-host bg-white" />
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       )}
 
-      {reportView === "prr" && (
+      {reportView === "prr" && activeSectionId !== PREVIEW_NAV_ID && (
         <Card className="rounded-xl shadow-sm">
-          <CardHeader>
-            <CardTitle>PRR information</CardTitle>
-            <CardDescription>
-              Complete the sections required for the Preliminary Report Response, then generate the document.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 pt-6">
             <ReportFormFields
               fields={reportFields}
               extractedKeys={extractedKeys}
               onChange={updateField}
+              displayMode="tabs"
+              activeSectionId={activeSectionId}
+              onActiveSectionChange={setActiveSectionId}
               visibleSectionIds={[...PRR_SECTION_IDS]}
             />
             <div className="flex flex-wrap gap-3 pt-2">
@@ -1127,18 +1088,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 onClick={handlePrevious}
               >
                 Back to Incident
-              </Button>
-              <Button
-                type="button"
-                onClick={handleGeneratePrr}
-                disabled={isGeneratingPrr}
-              >
-                {isGeneratingPrr ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileText className="mr-2 h-4 w-4" />
-                )}
-                Generate PRR
               </Button>
             </div>
           </CardContent>

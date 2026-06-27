@@ -107,7 +107,7 @@ export function Records() {
               {drafts.map((draft) => (
                 <div
                   key={draft.incidentNo}
-                  className="flex items-center justify-between gap-4 p-4 rounded-xl border border-border bg-card hover:bg-muted/40 transition-colors"
+                  className="flex flex-col gap-3 p-4 rounded-xl border border-border bg-card hover:bg-muted/40 transition-colors sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 >
                   <div className="flex items-center gap-4 min-w-0 flex-1">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-fire-muted">
@@ -124,14 +124,18 @@ export function Records() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Button type="button" onClick={() => handleResume(draft.incidentNo)}>
+                    <Button
+                      type="button"
+                      className="flex-1 sm:flex-none"
+                      onClick={() => handleResume(draft.incidentNo)}
+                    >
                       Resume
                     </Button>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 text-red-600 hover:text-red-700"
+                      className="h-9 w-9 shrink-0 text-red-600 hover:text-red-700"
                       onClick={() => setPendingDeleteIncidentNo(draft.incidentNo)}
                       title={`Delete draft ${draft.incidentNo}`}
                     >
