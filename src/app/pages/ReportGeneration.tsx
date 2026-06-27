@@ -37,6 +37,7 @@ import {
 } from "../lib/annexHeaderOverlay";
 import { getDefaultPagePreviewUrl } from "../lib/annexImageAssets";
 import {
+  fitDocxPreviewToWidth,
   observeDocxPreviewFit,
   scheduleDocxPreviewFit,
 } from "../lib/fitDocxPreviewToViewport";
@@ -656,11 +657,21 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const hasShownStopMessageToastRef = useRef(false);
   const pinchStartDistanceRef = useRef<number | null>(null);
   const pinchStartZoomRef = useRef(1);
+  const appliedPreviewZoomRef = useRef(1);
   const panTouchIdRef = useRef<number | null>(null);
   const panStartXRef = useRef(0);
   const panStartYRef = useRef(0);
   const panStartScrollLeftRef = useRef(0);
   const panStartScrollTopRef = useRef(0);
+  const previewAnchorFrameRef = useRef<number | null>(null);
+  const previewZoomFrameRef = useRef<number | null>(null);
+  const pendingPreviewZoomRef = useRef<number | null>(null);
+  const pendingPreviewAnchorRef = useRef<{
+    contentX: number;
+    contentY: number;
+    viewportX: number;
+    viewportY: number;
+  } | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
 
   const getDefaultPreviewZoom = useCallback(() => {
@@ -692,6 +703,147 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     scheduleDocxPreviewFit(elements, previewZoom);
   }, [getPreviewElements, previewZoom]);
 
+  const getPreviewLayoutSnapshot = useCallback(() => {
+    const viewport = previewViewportRef.current;
+    const host = previewRef.current;
+    if (!viewport || !host) return null;
+
+    const viewportRect = viewport.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    const scale = Number.parseFloat(host.style.getPropertyValue("--docx-fit-scale")) || 1;
+
+    return {
+      viewport,
+      scale,
+      baseOffsetX: hostRect.left - viewportRect.left + viewport.scrollLeft,
+      baseOffsetY: hostRect.top - viewportRect.top + viewport.scrollTop,
+    };
+  }, []);
+
+  const capturePinchAnchor = useCallback((touches: TouchList) => {
+    const layout = getPreviewLayoutSnapshot();
+    if (!layout || touches.length < 2) return null;
+
+    const first = touches[0];
+    const second = touches[1];
+    if (!first || !second) return null;
+
+    const rect = layout.viewport.getBoundingClientRect();
+    const viewportX = (first.clientX + second.clientX) / 2 - rect.left;
+    const viewportY = (first.clientY + second.clientY) / 2 - rect.top;
+
+    return {
+      contentX:
+        (layout.viewport.scrollLeft + viewportX - layout.baseOffsetX) / layout.scale,
+      contentY:
+        (layout.viewport.scrollTop + viewportY - layout.baseOffsetY) / layout.scale,
+      viewportX,
+      viewportY,
+    };
+  }, [getPreviewLayoutSnapshot]);
+
+  const restorePreviewAnchor = useCallback((
+    anchorPoint: {
+      contentX: number;
+      contentY: number;
+      viewportX: number;
+      viewportY: number;
+    },
+    layout = getPreviewLayoutSnapshot(),
+  ) => {
+    if (!layout) return;
+
+    const nextScrollLeft =
+      anchorPoint.contentX * layout.scale +
+      layout.baseOffsetX -
+      anchorPoint.viewportX;
+    const nextScrollTop =
+      anchorPoint.contentY * layout.scale +
+      layout.baseOffsetY -
+      anchorPoint.viewportY;
+
+    layout.viewport.scrollLeft = Math.min(
+      Math.max(0, nextScrollLeft),
+      Math.max(0, layout.viewport.scrollWidth - layout.viewport.clientWidth),
+    );
+    layout.viewport.scrollTop = Math.min(
+      Math.max(0, nextScrollTop),
+      Math.max(0, layout.viewport.scrollHeight - layout.viewport.clientHeight),
+    );
+  }, [getPreviewLayoutSnapshot]);
+
+  const applyPreviewZoom = useCallback((nextZoom: number, anchorPoint?: {
+    contentX: number;
+    contentY: number;
+    viewportX: number;
+    viewportY: number;
+  } | null) => {
+    const elements = getPreviewElements();
+    if (!elements) return;
+
+    fitDocxPreviewToWidth(elements, nextZoom);
+    appliedPreviewZoomRef.current = nextZoom;
+
+    if (!anchorPoint) return;
+
+    restorePreviewAnchor(anchorPoint);
+    if (previewAnchorFrameRef.current != null) {
+      cancelAnimationFrame(previewAnchorFrameRef.current);
+    }
+    previewAnchorFrameRef.current = requestAnimationFrame(() => {
+      previewAnchorFrameRef.current = null;
+      restorePreviewAnchor(anchorPoint);
+    });
+  }, [getPreviewElements, restorePreviewAnchor]);
+
+  const queuePreviewZoom = useCallback((nextZoom: number, anchorPoint?: {
+    contentX: number;
+    contentY: number;
+    viewportX: number;
+    viewportY: number;
+  } | null) => {
+    pendingPreviewZoomRef.current = nextZoom;
+    pendingPreviewAnchorRef.current = anchorPoint ?? null;
+    if (previewZoomFrameRef.current != null) return;
+
+    previewZoomFrameRef.current = requestAnimationFrame(() => {
+      previewZoomFrameRef.current = null;
+      const pendingZoom = pendingPreviewZoomRef.current;
+      if (pendingZoom == null) return;
+      applyPreviewZoom(pendingZoom, pendingPreviewAnchorRef.current);
+    });
+  }, [applyPreviewZoom]);
+
+  const capturePointerAnchor = useCallback((clientX: number, clientY: number) => {
+    const layout = getPreviewLayoutSnapshot();
+    if (!layout) return null;
+
+    const rect = layout.viewport.getBoundingClientRect();
+    const viewportX = clientX - rect.left;
+    const viewportY = clientY - rect.top;
+
+    return {
+      contentX:
+        (layout.viewport.scrollLeft + viewportX - layout.baseOffsetX) / layout.scale,
+      contentY:
+        (layout.viewport.scrollTop + viewportY - layout.baseOffsetY) / layout.scale,
+      viewportX,
+      viewportY,
+    };
+  }, [getPreviewLayoutSnapshot]);
+
+  const handlePreviewWheel = useCallback((event: WheelEvent) => {
+    if (!event.ctrlKey) return;
+
+    event.preventDefault();
+    const anchorPoint = capturePointerAnchor(event.clientX, event.clientY);
+    if (!anchorPoint) return;
+
+    const zoomFactor = Math.exp(-event.deltaY * 0.01);
+    const nextZoom = clampPreviewZoom(appliedPreviewZoomRef.current * zoomFactor);
+    queuePreviewZoom(nextZoom, anchorPoint);
+  }, [capturePointerAnchor, clampPreviewZoom, queuePreviewZoom]);
+
   const handlePreviewTouchStart = useCallback((event: TouchEvent) => {
     const viewport = previewViewportRef.current;
     if (!viewport) return;
@@ -700,7 +852,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       const distance = getTouchDistance(event.touches);
       if (!distance) return;
       pinchStartDistanceRef.current = distance;
-      pinchStartZoomRef.current = previewZoom;
+      pinchStartZoomRef.current = appliedPreviewZoomRef.current;
+      pendingPreviewAnchorRef.current = capturePinchAnchor(event.touches);
       panTouchIdRef.current = null;
       return;
     }
@@ -712,7 +865,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     panStartYRef.current = touch.clientY;
     panStartScrollLeftRef.current = viewport.scrollLeft;
     panStartScrollTopRef.current = viewport.scrollTop;
-  }, [getTouchDistance, previewZoom]);
+  }, [capturePinchAnchor, getTouchDistance]);
 
   const handlePreviewTouchMove = useCallback((event: TouchEvent) => {
     const viewport = previewViewportRef.current;
@@ -722,8 +875,10 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       const nextDistance = getTouchDistance(event.touches);
       if (!nextDistance) return;
       event.preventDefault();
+      const anchorPoint = capturePinchAnchor(event.touches);
       const scale = nextDistance / pinchStartDistanceRef.current;
-      setPreviewZoom(clampPreviewZoom(pinchStartZoomRef.current * scale));
+      const nextZoom = clampPreviewZoom(pinchStartZoomRef.current * scale);
+      queuePreviewZoom(nextZoom, anchorPoint);
       return;
     }
 
@@ -734,7 +889,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     event.preventDefault();
     viewport.scrollLeft = panStartScrollLeftRef.current - (touch.clientX - panStartXRef.current);
     viewport.scrollTop = panStartScrollTopRef.current - (touch.clientY - panStartYRef.current);
-  }, [clampPreviewZoom, getTouchDistance]);
+  }, [capturePinchAnchor, clampPreviewZoom, getTouchDistance, queuePreviewZoom]);
 
   const handlePreviewTouchEnd = useCallback((event: TouchEvent) => {
     if (event.touches.length < 2) {
@@ -808,8 +963,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     if (previewVersion === 0) return;
     const elements = getPreviewElements();
     if (!elements) return;
-    return observeDocxPreviewFit(elements, previewZoom);
-  }, [getPreviewElements, previewVersion, previewZoom]);
+    return observeDocxPreviewFit(elements, () => appliedPreviewZoomRef.current);
+  }, [getPreviewElements, previewVersion]);
 
   useEffect(() => {
     setPreviewZoom(getDefaultPreviewZoom());
@@ -817,8 +972,20 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
 
   useEffect(() => {
     if (previewVersion === 0) return;
-    schedulePreviewFit();
-  }, [previewVersion, previewZoom, schedulePreviewFit]);
+    if (Math.abs(appliedPreviewZoomRef.current - previewZoom) < 0.001) return;
+    applyPreviewZoom(previewZoom);
+  }, [applyPreviewZoom, previewVersion, previewZoom]);
+
+  useEffect(() => {
+    return () => {
+      if (previewAnchorFrameRef.current != null) {
+        cancelAnimationFrame(previewAnchorFrameRef.current);
+      }
+      if (previewZoomFrameRef.current != null) {
+        cancelAnimationFrame(previewZoomFrameRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const viewport = previewViewportRef.current;
@@ -839,19 +1006,24 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     const onTouchEnd = (event: Event) => {
       handlePreviewTouchEnd(event as TouchEvent);
     };
+    const onWheel = (event: Event) => {
+      handlePreviewWheel(event as WheelEvent);
+    };
 
     viewport.addEventListener("touchstart", onTouchStart, { passive: true });
     viewport.addEventListener("touchmove", onTouchMove, { passive: false });
     viewport.addEventListener("touchend", onTouchEnd, { passive: true });
     viewport.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    viewport.addEventListener("wheel", onWheel, { passive: false });
 
     return () => {
       viewport.removeEventListener("touchstart", onTouchStart);
       viewport.removeEventListener("touchmove", onTouchMove);
       viewport.removeEventListener("touchend", onTouchEnd);
       viewport.removeEventListener("touchcancel", onTouchEnd);
+      viewport.removeEventListener("wheel", onWheel);
     };
-  }, [handlePreviewTouchEnd, handlePreviewTouchMove, handlePreviewTouchStart, prrScreen, reportView, step, previewVersion]);
+  }, [handlePreviewTouchEnd, handlePreviewTouchMove, handlePreviewTouchStart, handlePreviewWheel, prrScreen, reportView, step, previewVersion]);
 
   const handleGenerate = async () => {
     const selected = parseSelectedAnnexes(reportFields.selectedAnnexes);
@@ -1032,7 +1204,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const reportTypeDescription =
     reportView === "fir"
       ? "Review extracted fields, generate the Word document, then edit and download."
-      : "Review the PRR-only sections, then generate the Preliminary Report Response document.";
+      : "";
 
   if (phase === "loading") {
     return <ExtractionLoadingScreen variant="report" stopMessagePreview={stopPreview} />;

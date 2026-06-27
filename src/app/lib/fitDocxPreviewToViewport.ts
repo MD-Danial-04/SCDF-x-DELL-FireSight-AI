@@ -2,6 +2,7 @@ const WRAPPER_PADDING = 8;
 const PAGE_MARGIN_BOTTOM = 8;
 const FIT_MARGIN = 4;
 const MIN_SCALE = 0.35;
+type ZoomSource = number | (() => number);
 
 export interface FitDocxPreviewElements {
   viewport: HTMLElement;
@@ -98,9 +99,11 @@ export function scheduleDocxPreviewFit(
 
 export function observeDocxPreviewFit(
   elements: FitDocxPreviewElements,
-  zoomMultiplier = 1,
+  zoomSource: ZoomSource = 1,
 ): () => void {
-  const run = () => fitDocxPreviewToWidth(elements, zoomMultiplier);
+  const getZoomMultiplier = () =>
+    typeof zoomSource === "function" ? zoomSource() : zoomSource;
+  const run = () => fitDocxPreviewToWidth(elements, getZoomMultiplier());
 
   const viewportObserver = new ResizeObserver(run);
   viewportObserver.observe(elements.viewport);

@@ -1,3 +1,5 @@
+import { createClientId } from "../lib/createClientId";
+
 import type { SectionCandidates, SuggestedPhotoSection } from "./photoAnalysis";
 
 export interface PhotoLogEntry {
@@ -41,7 +43,7 @@ export function parsePhotoUid(fileName: string): string {
 
 export function createPhotoLogEntry(file: File): PhotoLogEntry {
   return {
-    id: crypto.randomUUID(),
+    id: createClientId(),
     blob: file,
     fileName: file.name,
     uid: parsePhotoUid(file.name),
@@ -50,7 +52,7 @@ export function createPhotoLogEntry(file: File): PhotoLogEntry {
 
 export function createPhotoCopy(original: PhotoLogEntry): PhotoLogEntry {
   return {
-    id: crypto.randomUUID(),
+    id: createClientId(),
     blob: original.blob,
     fileName: original.fileName,
     uid: original.uid,
