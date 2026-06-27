@@ -1,3 +1,5 @@
+import { createClientId } from "../lib/createClientId";
+
 export type LeadingQuestionSet = "none" | "amd" | "vehicle-fire" | "lpg-town-gas";
 
 export type InterviewLanguage = "en" | "ms" | "ta" | "zh";
@@ -93,7 +95,7 @@ export function createEmptyTranscriptPage(
   fixed = false
 ): TranscriptPage {
   return {
-    id: crypto.randomUUID(),
+    id: createClientId(),
     sectionId,
     interviewLanguage,
     leadingQuestionSet,
@@ -123,7 +125,7 @@ function createFixedTranscriptPages(
 
 export function createEmptyInterviewee(recordedBy = ""): Interviewee {
   return {
-    id: crypto.randomUUID(),
+    id: createClientId(),
     name: "",
     designation: "",
     nric: "",
