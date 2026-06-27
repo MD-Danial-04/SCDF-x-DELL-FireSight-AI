@@ -69,7 +69,7 @@ interface ReportFormFieldsProps {
   photoPreviewUrls?: Record<string, string>;
   onAddPhotos?: (files: FileList | File[]) => void;
   onRemovePhoto?: (id: string) => void;
-  onReorderPhoto?: (id: string, direction: "up" | "down") => void;
+  onReorderPhotos?: (orderedIds: string[]) => void;
   onCopyPhoto?: (id: string) => void;
   onUpdatePhotoCaption?: (id: string, caption: string) => void;
   photoAnalysisContext?: PhotoAnalysisReportContext;
@@ -284,7 +284,7 @@ export function ReportFormFields({
   photoPreviewUrls = {},
   onAddPhotos,
   onRemovePhoto,
-  onReorderPhoto,
+  onReorderPhotos,
   onCopyPhoto,
   onUpdatePhotoCaption,
   photoAnalysisContext = {},
@@ -394,7 +394,7 @@ export function ReportFormFields({
               photoPreviewUrls={photoPreviewUrls}
               onAddPhotos={onAddPhotos}
               onRemovePhoto={onRemovePhoto}
-              onReorderPhoto={onReorderPhoto}
+              onReorderPhotos={onReorderPhotos}
               onCopyPhoto={onCopyPhoto}
               onUpdatePhotoCaption={onUpdatePhotoCaption}
               photoAnalysisContext={photoAnalysisContext}

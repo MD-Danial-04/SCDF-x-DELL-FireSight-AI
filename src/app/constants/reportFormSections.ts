@@ -132,8 +132,8 @@ export const REPORT_FORM_SECTIONS: ReportFormSectionConfig[] = [
     id: "8",
     title: "8 ATTACHMENTS",
     fields: [
-      { key: "annexLayoutPlan", label: "Annex A – Layout Plan (label)" },
-      { key: "annexPhotographs", label: "Annex B – Photographs (label)" },
+      { key: "annexLayoutPlan", label: "Annex A – Location Plan (label)" },
+      { key: "annexPhotographs", label: "Annex B – Site Plan (label)" },
     ],
   },
   {

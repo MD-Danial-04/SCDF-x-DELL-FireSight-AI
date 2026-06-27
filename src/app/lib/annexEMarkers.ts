@@ -8,9 +8,13 @@ export interface AnnexEMarker {
   photoId: string | null;
 }
 
+export type MarkerHighlight = "body" | "arrow" | null;
+
 /** Marker enriched with the resolved photo number for rendering. */
 export interface RenderMarker extends AnnexEMarker {
   photoNumber?: number | null;
+  /** When set, draws a selection highlight on this marker (same coordinate space). */
+  highlight?: MarkerHighlight;
 }
 
 export interface AnnexEViewBox {
@@ -227,6 +231,7 @@ export function buildMarkersSvgFragment(
   if (markers.length === 0) return "";
 
   const scale = computeMarkerScale(viewBox);
+  const highlightStroke = scale.strokeWidth * 2.5;
   const parts = markers.map((marker) => {
     const arrow = buildArrowGeometry(
       marker.cx,
@@ -239,8 +244,25 @@ export function buildMarkersSvgFragment(
     );
     const label = marker.photoNumber != null ? String(marker.photoNumber) : "?";
 
+    const highlightParts: string[] = [];
+    if (marker.highlight === "body") {
+      highlightParts.push(
+        `<circle cx="${marker.cx}" cy="${marker.cy}" r="${scale.radius * 1.45}" fill="none" stroke="${ANNEX_E_MARKER_COLOR}" stroke-width="${highlightStroke}" stroke-dasharray="${scale.radius * 0.35} ${scale.radius * 0.2}" opacity="0.85" />`,
+      );
+    } else if (marker.highlight === "arrow") {
+      highlightParts.push(
+        `<line x1="${arrow.lineStartX}" y1="${arrow.lineStartY}" x2="${arrow.lineEndX}" y2="${arrow.lineEndY}" stroke="${ANNEX_E_MARKER_COLOR}" stroke-width="${highlightStroke}" stroke-linecap="round" opacity="0.9" />`,
+      );
+      if (arrow.headPoints) {
+        highlightParts.push(
+          `<polygon points="${arrow.headPoints}" fill="${ANNEX_E_MARKER_COLOR}" stroke="none" opacity="0.9" />`,
+        );
+      }
+    }
+
     return [
       `<g data-annex-e-marker="${escapeXml(marker.id)}">`,
+      ...highlightParts,
       `<circle cx="${marker.cx}" cy="${marker.cy}" r="${scale.radius}" fill="none" stroke="${ANNEX_E_MARKER_COLOR}" stroke-width="${scale.strokeWidth}" />`,
       `<line x1="${arrow.lineStartX}" y1="${arrow.lineStartY}" x2="${arrow.lineEndX}" y2="${arrow.lineEndY}" stroke="${ANNEX_E_MARKER_COLOR}" stroke-width="${scale.strokeWidth}" stroke-linecap="round" />`,
       arrow.headPoints

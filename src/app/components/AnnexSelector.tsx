@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { X } from "lucide-react";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import {
   Accordion,
@@ -9,6 +11,7 @@ import {
 } from "./ui/accordion";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -20,6 +23,7 @@ import {
   sortAnnexIds,
 } from "../constants/annexDefinitions";
 import { FloorplanAnnexEditor } from "./FloorplanAnnexEditor";
+import { AnnexImageUploadEditor } from "./AnnexImageUploadEditor";
 import { AnnexEEditor } from "./AnnexEEditor";
 import { AnnexGBurnChartEditor, type AnnexGEditorState } from "./AnnexGBurnChartEditor";
 import { PhotoLogEditor } from "./PhotoLogEditor";
@@ -43,7 +47,7 @@ interface AnnexSelectorProps {
   photoPreviewUrls?: Record<string, string>;
   onAddPhotos?: (files: FileList | File[]) => void;
   onRemovePhoto?: (id: string) => void;
-  onReorderPhoto?: (id: string, direction: "up" | "down") => void;
+  onReorderPhotos?: (orderedIds: string[]) => void;
   onCopyPhoto?: (id: string) => void;
   onUpdatePhotoCaption?: (id: string, caption: string) => void;
   photoAnalysisContext?: PhotoAnalysisReportContext;
@@ -71,8 +75,32 @@ interface EditorCardDefinition {
   body: ReactNode;
 }
 
+const PHOTO_LOG_IDS = ["D", "E", "F"] as const;
+
+/** Selector row id -> editor card ids hosted inline under that row. */
+const ROW_CARD_IDS: Record<string, string[]> = {
+  A: ["annex-a-image"],
+  B: ["annex-b-image"],
+  C: ["floorplan"],
+  photoLog: ["photo-log", "annex-e"],
+  G: ["annex-g"],
+};
+
+/** Editor cards whose internal state must survive collapse (canvas/painting). */
+const PERSISTENT_CARD_IDS = ["photo-log", "annex-g"];
+
+type SelectorRow =
+  | { kind: "single"; annex: (typeof ANNEX_DEFINITIONS)[number] }
+  | { kind: "photoLog" };
+
+function summarizeRowStatus(cards: EditorCardDefinition[]): string {
+  if (cards.some((c) => c.status === "In progress")) return "In progress";
+  if (cards.some((c) => c.status === "Edited" || c.status === "Ready")) return "Edited";
+  return "Not started";
+}
+
 function formatAnnexTitle(title: string) {
-  return title.replace(/^Annex [A-G] â€“ ?/, "");
+  return title.replace(/^Annex [A-G]\s*[–-]\s*/, "");
 }
 
 function buildStatusTone(status: string) {
@@ -101,7 +129,7 @@ export function AnnexSelector({
   photoPreviewUrls = {},
   onAddPhotos,
   onRemovePhoto,
-  onReorderPhoto,
+  onReorderPhotos,
   onCopyPhoto,
   onUpdatePhotoCaption,
   photoAnalysisContext = {},
@@ -120,7 +148,7 @@ export function AnnexSelector({
   onFloorplanSvgChange,
 }: AnnexSelectorProps) {
   const [openEditorId, setOpenEditorId] = useState<string>("");
-  const [mobileFloorplanOpen, setMobileFloorplanOpen] = useState(false);
+  const [mobileEditorRowId, setMobileEditorRowId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -138,6 +166,31 @@ export function AnnexSelector({
     onChange(next, buildAnnexAttachmentList(next));
   };
 
+  const photoLogChecked = PHOTO_LOG_IDS.every((id) => selectedIds.includes(id));
+
+  const togglePhotoLog = (checked: boolean) => {
+    const set = new Set(selectedIds);
+    PHOTO_LOG_IDS.forEach((id) => (checked ? set.add(id) : set.delete(id)));
+    const next = sortAnnexIds([...set]);
+    onChange(next, buildAnnexAttachmentList(next));
+  };
+
+  const selectorRows = useMemo<SelectorRow[]>(() => {
+    const rows: SelectorRow[] = [];
+    let photoLogInserted = false;
+    for (const annex of ANNEX_DEFINITIONS) {
+      if (PHOTO_LOG_IDS.includes(annex.id as (typeof PHOTO_LOG_IDS)[number])) {
+        if (!photoLogInserted) {
+          rows.push({ kind: "photoLog" });
+          photoLogInserted = true;
+        }
+        continue;
+      }
+      rows.push({ kind: "single", annex });
+    }
+    return rows;
+  }, []);
+
   const allAnnexesSelected = selectedIds.length === ANNEX_DEFINITIONS.length;
 
   const toggleAllAnnexes = (checked: boolean) => {
@@ -145,24 +198,66 @@ export function AnnexSelector({
     onChange(next, buildAnnexAttachmentList(next));
   };
 
-  const floorplanSelected = selectedIds.includes("A") || selectedIds.includes("E");
+  const floorplanSelected = selectedIds.includes("C") || selectedIds.includes("E");
   const photoLogSelected = selectedIds.includes("D") || selectedIds.includes("F");
+  const annexASelected = selectedIds.includes("A");
+  const annexBSelected = selectedIds.includes("B");
   const annexESelected = selectedIds.includes("E");
   const annexGSelected = selectedIds.includes("G");
 
   const editorCards = useMemo<EditorCardDefinition[]>(() => {
     const cards: EditorCardDefinition[] = [];
 
+    if (onOverrideChange && annexASelected) {
+      cards.push({
+        id: "annex-a-image",
+        title: "Annex A location plan",
+        description: "Upload an image to place in the centre of the Annex A template.",
+        annexes: ["A"],
+        status: overrides[0] ? "Edited" : "Not started",
+        body: (
+          <AnnexImageUploadEditor
+            annexId="A"
+            pageIndex={0}
+            incidentNo={incidentNo}
+            locationOfFire={locationOfFire}
+            previewUrl={overrides[0]}
+            onOverrideChange={onOverrideChange}
+          />
+        ),
+      });
+    }
+
+    if (onOverrideChange && annexBSelected) {
+      cards.push({
+        id: "annex-b-image",
+        title: "Annex B site plan",
+        description: "Upload an image to place in the centre of the Annex B template.",
+        annexes: ["B"],
+        status: overrides[1] ? "Edited" : "Not started",
+        body: (
+          <AnnexImageUploadEditor
+            annexId="B"
+            pageIndex={1}
+            incidentNo={incidentNo}
+            locationOfFire={locationOfFire}
+            previewUrl={overrides[1]}
+            onOverrideChange={onOverrideChange}
+          />
+        ),
+      });
+    }
+
     if (onOverrideChange && floorplanSelected) {
       cards.push({
         id: "floorplan",
         title: "Floorplan editor",
-        description: "Use the shared layout canvas for Annex A and Annex E.",
-        annexes: ["A", "E"].filter((id) => selectedIds.includes(id)),
+        description: "Use the shared layout canvas for Annex C and Annex E.",
+        annexes: ["C", "E"].filter((id) => selectedIds.includes(id)),
         status: floorplanSvg ? "Edited" : "Not started",
         body: (
           <FloorplanAnnexEditor
-            enabled={selectedIds.includes("A")}
+            enabled={selectedIds.includes("C")}
             incidentNo={incidentNo}
             locationOfFire={locationOfFire}
             floorplanSvg={floorplanSvg}
@@ -179,7 +274,7 @@ export function AnnexSelector({
     if (
       onAddPhotos &&
       onRemovePhoto &&
-      onReorderPhoto &&
+      onReorderPhotos &&
       onCopyPhoto &&
       onUpdatePhotoCaption &&
       onPhotosAnalyzed &&
@@ -201,7 +296,7 @@ export function AnnexSelector({
             photoAnalysisContext={photoAnalysisContext}
             onAddPhotos={onAddPhotos}
             onRemovePhoto={onRemovePhoto}
-            onReorderPhoto={onReorderPhoto}
+            onReorderPhotos={onReorderPhotos}
             onCopyPhoto={onCopyPhoto}
             onUpdatePhotoCaption={onUpdatePhotoCaption}
             onPhotosAnalyzed={onPhotosAnalyzed}
@@ -223,6 +318,7 @@ export function AnnexSelector({
             enabled
             floorplanSvg={floorplanSvg}
             photos={photos}
+            photoPreviewUrls={photoPreviewUrls}
             incidentNo={incidentNo}
             locationOfFire={locationOfFire}
             onOverrideChange={onOverrideChange}
@@ -258,6 +354,8 @@ export function AnnexSelector({
 
     return cards;
   }, [
+    annexASelected,
+    annexBSelected,
     annexESelected,
     annexGSelected,
     floorplanSelected,
@@ -274,7 +372,7 @@ export function AnnexSelector({
     onUpdatePhotoCaption,
     onOverrideChange,
     onRemovePhoto,
-    onReorderPhoto,
+    onReorderPhotos,
     onFloorplanSvgChange,
     floorplanDraftState,
     onFloorplanDraftStateChange,
@@ -290,112 +388,172 @@ export function AnnexSelector({
     selectedIds,
   ]);
 
+  const cardsByRow = useMemo(() => {
+    const map: Record<string, EditorCardDefinition[]> = {};
+    for (const [rowId, cardIds] of Object.entries(ROW_CARD_IDS)) {
+      const owned = editorCards.filter((card) => cardIds.includes(card.id));
+      if (owned.length > 0) map[rowId] = owned;
+    }
+    return map;
+  }, [editorCards]);
+
   useEffect(() => {
-    if (!editorCards.some((card) => card.id === openEditorId)) {
+    if (openEditorId && !cardsByRow[openEditorId]) {
       setOpenEditorId("");
     }
-  }, [editorCards, openEditorId]);
+  }, [cardsByRow, openEditorId]);
+
+  useEffect(() => {
+    if (mobileEditorRowId && !cardsByRow[mobileEditorRowId]) {
+      setMobileEditorRowId(null);
+    }
+  }, [cardsByRow, mobileEditorRowId]);
+
+  const mobileRow = mobileEditorRowId
+    ? selectorRows.find(
+        (row) => (row.kind === "single" ? row.annex.id : "photoLog") === mobileEditorRowId,
+      )
+    : null;
+  const mobileTitle = mobileRow
+    ? mobileRow.kind === "single"
+      ? `Annex ${mobileRow.annex.id} – ${formatAnnexTitle(mobileRow.annex.title)}`
+      : "Photo Log"
+    : "";
 
   return (
     <div className="space-y-4 md:col-span-2">
       <div className="rounded-xl border border-border bg-white p-4">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {ANNEX_DEFINITIONS.map((annex) => (
-            <label
-              key={annex.id}
-              className="flex items-start gap-2 rounded-lg border border-slate-200 p-3 transition hover:bg-slate-50"
-            >
+        <p className="mb-3 text-xs text-gray-500">
+          Tick an annex to include it. Selected annexes with an editor can be expanded to edit the
+          page inline; only one editor stays open at a time.
+        </p>
+
+        <Accordion
+          type="single"
+          collapsible
+          value={openEditorId}
+          onValueChange={(value) => {
+            if (isMobile) {
+              if (value) setMobileEditorRowId(value);
+              setOpenEditorId("");
+              return;
+            }
+            setOpenEditorId(value);
+          }}
+          className="grid grid-cols-1 gap-2"
+        >
+          {selectorRows.map((row) => {
+            const isSingle = row.kind === "single";
+            const rowId = isSingle ? row.annex.id : "photoLog";
+            const checked = isSingle ? selectedIds.includes(row.annex.id) : photoLogChecked;
+            const onToggle = (next: boolean) =>
+              isSingle ? toggle(row.annex.id, next) : togglePhotoLog(next);
+            const label = isSingle ? `Annex ${row.annex.id}` : "Photo Log";
+            const description = isSingle
+              ? formatAnnexTitle(row.annex.title)
+              : "Annexes D–F (table, plan, photographs)";
+
+            const ownedCards = cardsByRow[rowId] ?? [];
+            const hasEditor = ownedCards.length > 0;
+            const persistent = ownedCards.some((card) => PERSISTENT_CARD_IDS.includes(card.id));
+
+            const checkbox = (
               <Checkbox
-                checked={selectedIds.includes(annex.id)}
-                onCheckedChange={(checked) => toggle(annex.id, checked === true)}
+                checked={checked}
+                onCheckedChange={(value) => onToggle(value === true)}
+                aria-label={`Include ${label}`}
               />
-              <span className="text-sm leading-snug">
-                <span className="font-semibold">Annex {annex.id}</span>
-                <span className="block text-gray-600">{formatAnnexTitle(annex.title)}</span>
+            );
+            const labelText = (
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left text-sm leading-snug">
+                <span className="font-semibold whitespace-nowrap">{label}</span>
+                <span className="text-gray-600">{description}</span>
               </span>
-            </label>
-          ))}
-        </div>
-      </div>
+            );
 
-      {editorCards.length > 0 && (
-        <div className="rounded-xl border border-border bg-white p-4">
-          <div className="mb-3">
-            <p className="text-sm font-medium text-foreground">Selected annex editors</p>
-            <p className="mt-1 text-xs text-gray-500">
-              Only one editor stays open at a time to keep the page manageable.
-            </p>
-          </div>
+            if (!hasEditor) {
+              return (
+                <label
+                  key={rowId}
+                  className="flex items-start gap-2 rounded-lg border border-slate-200 p-3 transition hover:bg-slate-50"
+                >
+                  {checkbox}
+                  {labelText}
+                </label>
+              );
+            }
 
-          <Accordion
-            type="single"
-            collapsible
-            value={openEditorId}
-            onValueChange={(value) => {
-              if (isMobile && value === "floorplan") {
-                setMobileFloorplanOpen(true);
-                setOpenEditorId("");
-                return;
-              }
-              setOpenEditorId(value);
-            }}
-            className="w-full"
-          >
-            {editorCards.map((card) => (
+            return (
               <AccordionItem
-                key={card.id}
-                value={card.id}
-                className="mb-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 last:mb-0"
+                key={rowId}
+                value={rowId}
+                className="overflow-hidden rounded-lg border border-slate-200"
               >
-                <AccordionTrigger className="py-3 hover:no-underline">
-                  <div className="flex w-full flex-col gap-3 text-left md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">{card.title}</span>
-                        <Badge className={buildStatusTone(card.status)}>{card.status}</Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-gray-500">{card.description}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {card.annexes.map((annexId) => (
-                        <Badge
-                          key={`${card.id}-${annexId}`}
-                          variant="outline"
-                          className="border-slate-200 bg-white text-slate-700"
-                        >
-                          Annex {annexId}
-                        </Badge>
+                <div className="flex items-center gap-2 px-3 transition hover:bg-slate-50">
+                  {checkbox}
+                  <AccordionTrigger className="flex-1 items-center py-3 hover:no-underline">
+                    <span className="flex flex-1 items-center gap-2">
+                      {labelText}
+                      <Badge
+                        className={cn(
+                          "self-start",
+                          buildStatusTone(summarizeRowStatus(ownedCards)),
+                        )}
+                      >
+                        {summarizeRowStatus(ownedCards)}
+                      </Badge>
+                    </span>
+                  </AccordionTrigger>
+                </div>
+                {!isMobile && (
+                  <AccordionContent
+                    forceMount={persistent ? true : undefined}
+                    className="border-t border-slate-200 bg-slate-50/60 px-3 pt-3"
+                  >
+                    <div
+                      className={cn(
+                        "space-y-4",
+                        persistent && openEditorId !== rowId && "hidden",
+                      )}
+                    >
+                      {ownedCards.map((card) => (
+                        <div key={card.id}>{card.body}</div>
                       ))}
                     </div>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent
-                  forceMount={card.id === "photo-log" || card.id === "annex-g" ? true : undefined}
-                  className="pt-1 pb-2"
-                >
-                  <div
-                    className={cn(
-                      (card.id === "photo-log" || card.id === "annex-g") &&
-                        openEditorId !== card.id &&
-                        "hidden",
-                    )}
-                  >
-                    {card.body}
-                  </div>
-                </AccordionContent>
+                  </AccordionContent>
+                )}
               </AccordionItem>
-            ))}
-          </Accordion>
-        </div>
-      )}
+            );
+          })}
+        </Accordion>
+      </div>
+
       {isMobile && (
-        <Dialog open={mobileFloorplanOpen} onOpenChange={setMobileFloorplanOpen}>
-          <DialogContent className="top-0 left-0 h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 p-0 sm:max-w-none">
-            <DialogHeader className="border-b border-border px-4 py-3 text-left">
-              <DialogTitle>Floorplan editor</DialogTitle>
+        <Dialog
+          open={mobileEditorRowId !== null}
+          onOpenChange={(open) => !open && setMobileEditorRowId(null)}
+        >
+          <DialogContent
+            showCloseButton={false}
+            className="top-0 left-0 flex h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 p-0 sm:max-w-none"
+          >
+            <DialogHeader className="sticky top-0 z-10 flex-row items-center justify-between gap-2 border-b border-border bg-background px-4 py-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] text-left">
+              <DialogTitle className="truncate">{mobileTitle}</DialogTitle>
+              <DialogClose asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close"
+                  className="-mr-2 shrink-0"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </DialogClose>
             </DialogHeader>
-            <div className="h-[calc(100dvh-4rem)] overflow-y-auto p-3">
-              {editorCards.find((card) => card.id === "floorplan")?.body}
+            <div className="flex-1 space-y-4 overflow-y-auto p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+              {(mobileEditorRowId ? cardsByRow[mobileEditorRowId] ?? [] : []).map((card) => (
+                <div key={card.id}>{card.body}</div>
+              ))}
             </div>
           </DialogContent>
         </Dialog>

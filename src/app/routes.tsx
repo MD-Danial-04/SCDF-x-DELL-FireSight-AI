@@ -26,6 +26,7 @@ function getRouteSessionValue(state: unknown): ReportSession {
     premisesOwner: session.premisesOwner,
     premisesUen: session.premisesUen,
     resumeDraftIncidentNo: session.resumeDraftIncidentNo,
+    initialSectionId: session.initialSectionId,
   };
 }
 
@@ -54,7 +55,6 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: Dashboard },
       { path: "incident", Component: StopMessage },
-      { path: "late-activation", Component: StopMessage },
       { path: "records", Component: Records },
       { path: "stop-message", Component: StopMessageRedirect },
       { path: "report", Component: ReportRoute },

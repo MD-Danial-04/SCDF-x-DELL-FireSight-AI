@@ -8,6 +8,7 @@ import type { PhotoAnalysisResult } from "../types/photoAnalysis";
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_POLLS = 120;
+const MAX_CONCURRENT_ANALYSES = 4;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,20 +27,11 @@ interface PhotoAnalysisProgress {
 
 interface UsePhotoAnalysisState {
   isAnalyzing: boolean;
-  analyzingPhotoIds: ReadonlySet<string>;
   error: string | null;
   progress: PhotoAnalysisProgress | null;
-  runAnalysis: (
-    file: Blob,
-    fileName: string,
-    context?: CreateAnalyzePhotoJobContext,
-  ) => Promise<PhotoAnalysisResult>;
   runBatchAnalysis: (
     items: PhotoAnalysisBatchItem[],
-    buildContext: (
-      priorResults: Record<string, PhotoAnalysisResult>,
-      currentItem: PhotoAnalysisBatchItem,
-    ) => CreateAnalyzePhotoJobContext,
+    context?: CreateAnalyzePhotoJobContext,
   ) => Promise<Record<string, PhotoAnalysisResult>>;
 }
 
@@ -66,41 +58,13 @@ async function pollPhotoAnalysisJob(jobId: string): Promise<PhotoAnalysisResult>
 
 export function usePhotoAnalysis(): UsePhotoAnalysisState {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analyzingPhotoIds, setAnalyzingPhotoIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<PhotoAnalysisProgress | null>(null);
-
-  const runAnalysis = useCallback(
-    async (
-      file: Blob,
-      fileName: string,
-      context?: CreateAnalyzePhotoJobContext,
-    ): Promise<PhotoAnalysisResult> => {
-      setIsAnalyzing(true);
-      setError(null);
-      try {
-        const job = await createAnalyzePhotoJob(file, fileName, context);
-        return await pollPhotoAnalysisJob(job.id);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Photo analysis failed";
-        setError(message);
-        throw err;
-      } finally {
-        setIsAnalyzing(false);
-      }
-    },
-    [],
-  );
 
   const runBatchAnalysis = useCallback(
     async (
       items: PhotoAnalysisBatchItem[],
-      buildContext: (
-        priorResults: Record<string, PhotoAnalysisResult>,
-        currentItem: PhotoAnalysisBatchItem,
-      ) => CreateAnalyzePhotoJobContext,
+      context?: CreateAnalyzePhotoJobContext,
     ): Promise<Record<string, PhotoAnalysisResult>> => {
       if (items.length === 0) {
         return {};
@@ -109,22 +73,27 @@ export function usePhotoAnalysis(): UsePhotoAnalysisState {
       setIsAnalyzing(true);
       setError(null);
       setProgress({ done: 0, total: items.length });
-      setAnalyzingPhotoIds(new Set(items.map((item) => item.id)));
 
       const results: Record<string, PhotoAnalysisResult> = {};
+      let nextIndex = 0;
+      let completed = 0;
 
-      try {
-        for (let index = 0; index < items.length; index += 1) {
-          const item = items[index];
-          setAnalyzingPhotoIds(new Set([item.id]));
+      const worker = async (): Promise<void> => {
+        while (nextIndex < items.length) {
+          const item = items[nextIndex];
+          nextIndex += 1;
 
-          const context = buildContext(results, item);
           const job = await createAnalyzePhotoJob(item.blob, item.fileName, context);
           results[item.id] = await pollPhotoAnalysisJob(job.id);
 
-          setProgress({ done: index + 1, total: items.length });
+          completed += 1;
+          setProgress({ done: completed, total: items.length });
         }
+      };
 
+      try {
+        const workerCount = Math.min(MAX_CONCURRENT_ANALYSES, items.length);
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
         return results;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Photo analysis failed";
@@ -132,7 +101,6 @@ export function usePhotoAnalysis(): UsePhotoAnalysisState {
         throw err;
       } finally {
         setIsAnalyzing(false);
-        setAnalyzingPhotoIds(new Set());
         setProgress(null);
       }
     },
@@ -141,10 +109,8 @@ export function usePhotoAnalysis(): UsePhotoAnalysisState {
 
   return {
     isAnalyzing,
-    analyzingPhotoIds,
     error,
     progress,
-    runAnalysis,
     runBatchAnalysis,
   };
 }

@@ -91,9 +91,15 @@ import {
 } from "../lib/floorplanDrafts";
 import { FloorplanInspectorPanel } from "./FloorplanInspectorPanel";
 import { clientToSvg, computeSvgViewportMapping } from "../lib/svgViewport";
-import { SHARED_FLOORPLAN_PNG_LIBRARY } from "../constants/floorplanPngLibrary";
+import {
+  SHARED_FLOORPLAN_PNG_LIBRARY,
+  FLOORPLAN_LIBRARY_CATEGORY_ORDER,
+} from "../constants/floorplanPngLibrary";
 
 const BLANK_FLOORPLAN = createBlankFloorplan();
+
+/** The floorplan layout canvas produces Annex C (Layout Plan of the Affected Area). */
+const ANNEX_C_PAGE_INDEX = 2;
 
 type EditorMode = "select" | "placeObjectBox" | "placeText" | "placeLine";
 
@@ -913,6 +919,14 @@ export function FloorplanAnnexEditor({
       ),
     [normalizedLibrarySearch, pngLibrary]
   );
+  const sharedPngLibraryGroups = useMemo(
+    () =>
+      FLOORPLAN_LIBRARY_CATEGORY_ORDER.map((category) => ({
+        category,
+        items: filteredSharedPngLibrary.filter((item) => item.category === category),
+      })).filter((group) => group.items.length > 0),
+    [filteredSharedPngLibrary]
+  );
 
   useEffect(() => {
     if (!textEditState || !textEditRef.current) return;
@@ -1095,7 +1109,7 @@ export function FloorplanAnnexEditor({
 
   useEffect(() => {
     if (!exportSvg || !enabled) {
-      onOverrideChange(0, null);
+      onOverrideChange(ANNEX_C_PAGE_INDEX, null);
       return;
     }
 
@@ -1103,11 +1117,15 @@ export function FloorplanAnnexEditor({
 
     (async () => {
       try {
-        const blob = await svgStringToAnnexTemplatePngBlob(exportSvg, {
-          incidentNo,
-          locationOfFire,
-        });
-        if (!cancelled) onOverrideChange(0, blob);
+        const blob = await svgStringToAnnexTemplatePngBlob(
+          exportSvg,
+          {
+            incidentNo,
+            locationOfFire,
+          },
+          { templatePageIndex: ANNEX_C_PAGE_INDEX },
+        );
+        if (!cancelled) onOverrideChange(ANNEX_C_PAGE_INDEX, blob);
       } catch (error) {
         if (!cancelled) {
           setUploadError(error instanceof Error ? error.message : "Unable to prepare the floorplan image.");
@@ -2614,16 +2632,16 @@ export function FloorplanAnnexEditor({
         <div>
           <div className="flex items-center gap-2">
             <MapIcon className="h-4 w-4 text-primary" />
-            <p className="font-semibold text-foreground">Floorplan editor (Annex A &amp; E)</p>
+            <p className="font-semibold text-foreground">Floorplan editor (Annex C &amp; E)</p>
             <Badge
               variant={enabled ? "secondary" : "outline"}
               className={enabled ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""}
             >
-              {enabled ? "Included in report" : "Select Annex A to attach"}
+              {enabled ? "Included in report" : "Select Annex C to attach"}
             </Badge>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
           <input
             ref={fileInputRef}
             id="floorplan-layout-upload"
@@ -2651,6 +2669,7 @@ export function FloorplanAnnexEditor({
           <Button
             type="button"
             variant="outline"
+            className="shrink-0"
             disabled={importing}
             onClick={() => fileInputRef.current?.click()}
           >
@@ -2669,22 +2688,7 @@ export function FloorplanAnnexEditor({
           <Button
             type="button"
             variant="outline"
-            onClick={() => libraryImageInputRef.current?.click()}
-          >
-            <Upload className="mr-2 h-4 w-4" />
-            Upload
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setClearDialogOpen(true)}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Clear canvas
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
+            className="shrink-0"
             onClick={handleOpenDraftsDialog}
             disabled={!draftsEnabled}
             title={
@@ -2700,6 +2704,15 @@ export function FloorplanAnnexEditor({
                 {loadedDraftName}
               </Badge>
             ) : null}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="ml-auto shrink-0"
+            onClick={() => setClearDialogOpen(true)}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Clear
           </Button>
         </div>
       </div>
@@ -2948,23 +2961,50 @@ export function FloorplanAnnexEditor({
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="text-sm font-medium text-foreground">Shared library</p>
                   </div>
-                  {filteredSharedPngLibrary.length > 0 ? (
-                    <div className="overflow-x-auto pb-1">
-                      <div className="flex w-max gap-2">
-                      {filteredSharedPngLibrary.map((item) => (
-                        <Button
-                          key={item.id}
-                          type="button"
-                          variant="outline"
-                          className="max-w-full justify-start bg-white"
-                          onClick={() => placeLibraryImage(item)}
-                          title={item.name}
+                  {sharedPngLibraryGroups.length > 0 ? (
+                    <Accordion
+                      type="multiple"
+                      key={normalizedLibrarySearch || "all"}
+                      defaultValue={
+                        normalizedLibrarySearch
+                          ? sharedPngLibraryGroups.map((group) => group.category)
+                          : []
+                      }
+                      className="space-y-2"
+                    >
+                      {sharedPngLibraryGroups.map((group) => (
+                        <AccordionItem
+                          key={group.category}
+                          value={group.category}
+                          className="overflow-hidden rounded-xl border border-border bg-white"
                         >
-                          <span className="block truncate">{item.name}</span>
-                        </Button>
+                          <AccordionTrigger className="px-3 py-2 hover:no-underline">
+                            <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                              {group.category}
+                              <Badge variant="secondary">{group.items.length}</Badge>
+                            </span>
+                          </AccordionTrigger>
+                          <AccordionContent className="px-3 pb-3">
+                            <div className="overflow-x-auto pb-1">
+                              <div className="flex w-max gap-2">
+                                {group.items.map((item) => (
+                                  <Button
+                                    key={item.id}
+                                    type="button"
+                                    variant="outline"
+                                    className="max-w-full justify-start bg-white"
+                                    onClick={() => placeLibraryImage(item)}
+                                    title={item.name}
+                                  >
+                                    <span className="block truncate">{item.name}</span>
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
                       ))}
-                      </div>
-                    </div>
+                    </Accordion>
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       No shared PNG elements found.
@@ -2975,6 +3015,16 @@ export function FloorplanAnnexEditor({
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <p className="text-sm font-medium text-foreground">My library</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => libraryImageInputRef.current?.click()}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload PNG
+                    </Button>
                   </div>
                   {filteredPersonalPngLibrary.length > 0 ? (
                     <div className="overflow-x-auto pb-1">
