@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { Mic, MicOff, FileText, FileImage, Loader2 } from "lucide-react";
+import { Mic, MicOff, FileText, FileImage, Loader2, RotateCcw } from "lucide-react";
 import { useLocation } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "../components/PageHeader";
@@ -68,6 +68,7 @@ export function StopMessage() {
   const { job, isProcessing, error: inferenceError, submitTranscription } = useTranscriptionJob();
   const [textInput, setTextInput] = useState("");
   const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [asrActive, setAsrActive] = useState(false);
   const [fieldNotes, setFieldNotes] = useState("");
   const [showGeneration, setShowGeneration] = useState(false);
   const [documentType, setDocumentType] = useState<"report" | "slides" | null>(null);
@@ -128,6 +129,7 @@ export function StopMessage() {
       });
       setFamFieldNotesRevealed(false);
       setVoiceTranscript("");
+      setAsrActive(false);
       setFieldNotes("");
       return;
     }
@@ -135,6 +137,7 @@ export function StopMessage() {
     setFamDemoPending(null);
     setFamFieldNotesRevealed(false);
     setVoiceTranscript(scenario.stopMessage);
+    setAsrActive(true);
     setFieldNotes(scenario.fieldNotes);
     toast.success("Demo sample loaded");
   }, []);
@@ -151,6 +154,8 @@ export function StopMessage() {
       setFamFieldNotesRevealed(false);
       setIsDemoSelection(false);
       setSelectedSelectValue(value);
+      setVoiceTranscript("");
+      setAsrActive(false);
       const type = incidentTypes.find((t) => t.id === value);
       setSelectedIncidentType(type || null);
     },
@@ -181,6 +186,7 @@ export function StopMessage() {
       if (job.transcript) {
         setVoiceTranscript(job.transcript);
       }
+      setAsrActive(true);
       toast.success("Recording transcribed");
     }
   }, [job]);
@@ -222,6 +228,7 @@ export function StopMessage() {
       clearTypewriterTimer();
       start();
       if (famDemoPending) {
+        setAsrActive(true);
         startFamTypewriter(famDemoPending.stopMessage);
       }
     } else {
@@ -233,6 +240,24 @@ export function StopMessage() {
       } else {
         setVoiceTranscript(NON_DEMO_STOP_MESSAGE);
       }
+      setAsrActive(true);
+    }
+  };
+
+  const handleResetTemplate = () => {
+    clearTypewriterTimer();
+    setVoiceTranscript("");
+    setAsrActive(false);
+    if (selectedIncidentType) {
+      setTextInput(selectedIncidentType.template);
+    }
+  };
+
+  const handleStopMessageChange = (value: string) => {
+    if (asrActive) {
+      setVoiceTranscript(value);
+    } else {
+      setTextInput(value);
     }
   };
 
@@ -333,12 +358,9 @@ export function StopMessage() {
             ]}
           />
 
-          <Card className="rounded-xl shadow-sm">
-            <CardHeader>
-              <CardTitle>Select incident type</CardTitle>
-              <CardDescription>
-                Choose a category, then the specific incident template for your stop message
-              </CardDescription>
+          <Card className="gap-3 rounded-xl shadow-sm">
+            <CardHeader className="pt-4 pb-0">
+              <CardTitle className="text-base font-semibold">Select incident type</CardTitle>
             </CardHeader>
             <CardContent>
               <Select value={selectedSelectValue} onValueChange={handleIncidentSelectChange}>
@@ -398,23 +420,31 @@ export function StopMessage() {
           </Card>
 
           {selectedIncidentType && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card className="rounded-xl shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-base">Template Reference</CardTitle>
-                  <CardDescription>
-                    Use the template as a guide, then record your stop message below
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Textarea
-                    value={textInput}
-                    readOnly
-                    rows={12}
-                    className="font-mono text-sm bg-muted/50"
-                  />
+            <Card className="gap-3 rounded-xl shadow-sm">
+              <CardHeader className="pt-4 pb-0">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <CardTitle className="text-base font-semibold">Stop message</CardTitle>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResetTemplate}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Reset template
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Textarea
+                  value={asrActive ? voiceTranscript : textInput}
+                  onChange={(e) => handleStopMessageChange(e.target.value)}
+                  placeholder="Edit the template, record to transcribe, or paste your stop message..."
+                  rows={12}
+                  className="font-mono text-sm"
+                />
 
-                  <div className="border-t pt-4 space-y-3">
+                <div className="border-t pt-4 space-y-3">
                     {isActivelyRecording && (
                       <div className="flex items-center justify-center gap-3">
                         <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -462,38 +492,12 @@ export function StopMessage() {
                   </div>
                 </CardContent>
               </Card>
-
-              <Card className="rounded-xl shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-base">Transcribed Text</CardTitle>
-                  <CardDescription>
-                    {isProcessing
-                      ? "Transcription in progress…"
-                      : voiceTranscript
-                        ? "Review and edit the transcribed stop message"
-                        : "Your recording will appear here after you stop, or paste your stop message"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Textarea
-                    value={voiceTranscript}
-                    onChange={(e) => setVoiceTranscript(e.target.value)}
-                    placeholder="Transcription will appear here after recording, or paste your stop message..."
-                    rows={12}
-                    className="font-mono text-sm"
-                  />
-                </CardContent>
-              </Card>
-            </div>
           )}
 
           {selectedIncidentType && (
-            <Card className="rounded-xl shadow-sm">
-              <CardHeader>
-                <CardTitle>Field Notes</CardTitle>
-                <CardDescription>
-                  Paste drafts, shorthand, or scene notes.
-                </CardDescription>
+            <Card className="gap-3 rounded-xl shadow-sm">
+              <CardHeader className="pt-4 pb-0">
+                <CardTitle className="text-base font-semibold">Field Notes</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <Textarea
@@ -505,47 +509,35 @@ export function StopMessage() {
                   rows={8}
                   className="font-mono text-sm"
                 />
-                <p className="text-sm text-muted-foreground">
-                  Optional — supplements your stop message when generating the report.
-                </p>
               </CardContent>
             </Card>
           )}
 
           {canGenerate && (
-            <Card className="rounded-xl shadow-sm">
-              <CardHeader>
-                <CardTitle>Generate documentation</CardTitle>
-                <CardDescription>
-                  Choose the type of documentation to generate for this incident
-                </CardDescription>
+            <Card className="gap-3 rounded-xl shadow-sm">
+              <CardHeader className="pt-4 pb-0">
+                <CardTitle className="text-base font-semibold">Generate documentation</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-wrap gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   {showFireReport && (
                     <Button
                       onClick={handleGenerateReport}
-                      className="h-auto flex items-center gap-3 rounded-xl px-4 py-3 text-left"
+                      className="h-auto min-h-12 flex items-center justify-center gap-2 rounded-xl px-4 py-3 whitespace-normal text-center"
                     >
                       <FileText className="w-5 h-5 shrink-0" />
-                      <div>
-                        <div className="font-semibold text-sm">Full Fire Investigation Report</div>
-                        <div className="text-xs opacity-90">Detailed Word report for fire incidents</div>
-                      </div>
+                      <span className="font-semibold text-sm">Fire investigation report</span>
                     </Button>
                   )}
                   <Button
                     onClick={handleGenerateSlides}
                     variant="slides"
-                    className="h-auto flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-left"
+                    className={`h-auto min-h-12 flex items-center justify-center gap-2 rounded-xl px-4 py-3 whitespace-normal text-center ${
+                      showFireReport ? "" : "col-span-2"
+                    }`}
                   >
-                    <FileImage className="w-4 h-4 shrink-0" />
-                    <div>
-                      <div className="font-semibold text-sm">Activation slides</div>
-                      <div className="text-[11px] opacity-90 leading-tight">
-                        Presentation slides for briefings
-                      </div>
-                    </div>
+                    <FileImage className="w-5 h-5 shrink-0" />
+                    <span className="font-semibold text-sm">Activation slides</span>
                   </Button>
                 </div>
               </CardContent>
@@ -566,7 +558,7 @@ export function StopMessage() {
               <Input
                 id="activation-title"
                 placeholder="e.g., Night Shift Briefing - 20 May 2026"
-                className="mt-1"
+                className="mt-1 text-sm"
               />
             </div>
             <div>
@@ -575,7 +567,7 @@ export function StopMessage() {
                 id="activation-description"
                 placeholder="Enter briefing details..."
                 rows={6}
-                className="mt-1"
+                className="mt-1 text-sm"
               />
             </div>
             <Button onClick={handleGenerateSlides} variant="slides">

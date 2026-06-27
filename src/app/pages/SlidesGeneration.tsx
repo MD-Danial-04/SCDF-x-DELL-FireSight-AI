@@ -48,6 +48,7 @@ import {
 } from "../lib/generateActivationSlides";
 import { useExtractionJob } from "../hooks/useExtractionJob";
 import { isInferenceConfigured } from "../types/inference";
+import { useLayoutHeader } from "../context/LayoutHeaderContext";
 
 interface PhotoField {
   id: string;
@@ -87,11 +88,20 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
   const [slidesBlob, setSlidesBlob] = useState<Blob | null>(null);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [photoFields, setPhotoFields] = useState<PhotoField[]>(INITIAL_PHOTO_FIELDS);
+  const [mobileEditPane, setMobileEditPane] = useState<"edit" | "preview">("edit");
   const previewViewportRef = useRef<HTMLDivElement>(null);
+  const layoutHeader = useLayoutHeader();
+  const setHeaderDocumentId = layoutHeader?.setDocumentId;
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, []);
+
+  useEffect(() => {
+    if (!setHeaderDocumentId) return;
+    setHeaderDocumentId(slideData.incidentNo?.trim() || null);
+    return () => setHeaderDocumentId(null);
+  }, [setHeaderDocumentId, slideData.incidentNo]);
 
   const uploadedPhotoCount = photoFields.filter((f) => f.preview).length;
   const slidesFilename = getActivationSlidesFilename(slideData.incidentNo);
@@ -464,7 +474,7 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
     ) : null;
 
   const previewCard = (
-    <Card className="flex flex-col rounded-xl shadow-sm xl:sticky xl:top-20 xl:self-start">
+    <Card className={`flex-col rounded-xl shadow-sm xl:flex xl:sticky xl:top-20 xl:self-start ${mobileEditPane === "preview" ? "flex" : "hidden"}`}>
       <CardHeader>
         <CardTitle className="text-lg">Slide preview</CardTitle>
         <CardDescription>Live preview — updates as you edit fields</CardDescription>
@@ -472,7 +482,7 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
       <CardContent className="p-0">
         <div
           ref={previewViewportRef}
-          className="slide-preview-viewport flex items-center justify-center overflow-hidden border rounded-xl bg-muted/40 h-[min(480px,50vh)] xl:h-[min(calc(100vh-7rem),720px)]"
+          className="slide-preview-viewport flex items-center justify-center overflow-hidden border rounded-xl bg-muted/40 h-[min(70vh,720px)] xl:h-[min(calc(100vh-7rem),720px)]"
         >
           <ActivationSlidesPreview
             viewportRef={previewViewportRef}
@@ -538,8 +548,37 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
         </StatusBanner>
       ) : null}
 
+      <div className="flex rounded-lg border bg-muted/40 p-1 xl:hidden" role="tablist" aria-label="Editor view">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileEditPane === "edit"}
+          onClick={() => setMobileEditPane("edit")}
+          className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            mobileEditPane === "edit"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground"
+          }`}
+        >
+          Edit fields
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileEditPane === "preview"}
+          onClick={() => setMobileEditPane("preview")}
+          className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            mobileEditPane === "preview"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground"
+          }`}
+        >
+          Preview
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-        <div className="space-y-6">
+        <div className={`space-y-6 xl:block ${mobileEditPane === "edit" ? "" : "hidden"}`}>
           {slideContentCard}
           {!generatedSlides && generateSlidesCard}
           {downloadSection}

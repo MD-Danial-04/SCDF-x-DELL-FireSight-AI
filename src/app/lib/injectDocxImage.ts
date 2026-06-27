@@ -83,13 +83,39 @@ function readPngDimensions(buffer: Uint8Array): { width: number; height: number 
   return { width, height };
 }
 
+// Markers in the template use [[ ]] delimiters (not docxtemplater's { }) so
+// they survive doc.render() and can be located here for image injection.
+function markerToken(markerText: string): string {
+  return `[[${markerText}]]`;
+}
+
+/**
+ * Replace the single `<w:p>...[[marker]]...</w:p>` paragraph that contains the
+ * marker token. Anchored on the token's position and scoped to its own
+ * paragraph — a regex with `[\s\S]*?` would greedily span from the first
+ * paragraph in the document and clobber the whole body.
+ */
 function replaceMarkerParagraph(documentXml: string, markerText: string, replacement: string): string {
-  const markerParaRegex = new RegExp(
-    `<w:p[^>]*>[\\s\\S]*?\\{${markerText}\\}[\\s\\S]*?</w:p>`,
-    "g"
+  const token = markerToken(markerText);
+  const tokenIdx = documentXml.indexOf(token);
+  if (tokenIdx === -1) return documentXml;
+
+  const closeTag = "</w:p>";
+  const closeIdx = documentXml.indexOf(closeTag, tokenIdx);
+  if (closeIdx === -1) return documentXml;
+  const paraEnd = closeIdx + closeTag.length;
+
+  const before = documentXml.slice(0, tokenIdx);
+  const paraStart = Math.max(
+    before.lastIndexOf("<w:p>"),
+    before.lastIndexOf("<w:p ")
   );
-  if (!markerParaRegex.test(documentXml)) return documentXml;
-  return documentXml.replace(markerParaRegex, replacement);
+  // Bail if we can't cleanly isolate the marker's own paragraph (no opening
+  // tag, or a paragraph boundary sits between the open tag and the token).
+  if (paraStart === -1) return documentXml;
+  if (before.slice(paraStart).includes(closeTag)) return documentXml;
+
+  return documentXml.slice(0, paraStart) + replacement + documentXml.slice(paraEnd);
 }
 
 function removeMarkerParagraph(documentXml: string, markerText: string): string {
@@ -114,7 +140,7 @@ export function injectImageAtMarker(
   options: InjectDocxImageOptions = {}
 ): void {
   let documentXml = zip.file("word/document.xml")?.asText() ?? "";
-  if (!documentXml.includes(`{${markerText}}`)) return;
+  if (!documentXml.includes(markerToken(markerText))) return;
 
   const extension: DocxImageExtension = "png";
   const mediaPrefix = options.mediaPrefix ?? "docx-image";

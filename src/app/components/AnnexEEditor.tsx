@@ -43,7 +43,7 @@ import { getPhotoLogDisplayInfo, type PhotoLogEntry } from "../types/photoLog";
 
 const ANNEX_E_PAGE_INDEX = 4;
 const TAP_THRESHOLD_PX = 5;
-const HANDLE_SIZE_PX = 22;
+const HANDLE_SIZE_PX = 28;
 const ANNEX_E_MARKERS_STORAGE_PREFIX = "annex-e-markers";
 
 const COMPASS_ANGLES: { label: string; angle: number }[] = [
@@ -907,7 +907,7 @@ export function AnnexEEditor({
 
           <div className="space-y-4 rounded-xl border border-border bg-white p-3">
             <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[180px] space-y-1">
+              <div className="w-full space-y-1 sm:w-auto sm:min-w-[180px]">
                 <Label className="text-xs text-muted-foreground">Selected marker</Label>
                 <p className="text-sm font-medium">
                   {selectedMarker
@@ -922,7 +922,7 @@ export function AnnexEEditor({
                 </p>
               </div>
 
-              <div className="min-w-[180px] space-y-1">
+              <div className="w-full space-y-1 sm:w-auto sm:min-w-[180px]">
                 <Label className="text-xs text-muted-foreground">Photo number</Label>
                 <Select
                   value={selectedMarker?.photoId ?? "none"}

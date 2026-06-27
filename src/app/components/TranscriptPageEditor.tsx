@@ -572,7 +572,34 @@ export function TranscriptPageEditor({
       )}
 
       {phase === "review" && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
+          <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-800">
+                Ask follow-up questions
+              </p>
+              <p className="text-xs text-gray-500">
+                Record again after the statement — the new transcript is added to
+                Facts revealed below, not replaced.
+              </p>
+            </div>
+            <InterviewRecordingCard
+              chromeless
+              interviewLanguage={page.interviewLanguage}
+              onInterviewLanguageChange={onLanguageChange}
+              onTranscriptsComplete={onTranscriptsComplete}
+              onRecordingStop={onRecordingStop}
+              appliedToastMessage="Follow-up added to Facts revealed"
+              showLanguageSelect={false}
+              sticky
+              floatingIndicator
+              inlineProgress
+              onProcessingChange={setIsTranscribing}
+              onActiveChange={setIsRecordingActive}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="space-y-4">
             {activeLeadingQuestions ? (
               <>
@@ -626,6 +653,7 @@ export function TranscriptPageEditor({
           </div>
 
           <div className="space-y-4">{transcriptBlock}</div>
+          </div>
         </div>
       )}
     </div>

@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AnnexSelector, parseSelectedAnnexes } from "./AnnexSelector";
 import { IntervieweeListEditor } from "./IntervieweeListEditor";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
 import {
   Accordion,
   AccordionContent,
@@ -13,18 +15,22 @@ import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { cn } from "./ui/utils";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "./ui/tooltip";
-import { Check, PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import {
   REPORT_FORM_SECTIONS,
-  getAllSectionFields,
   getDefaultOpenSections,
   type ReportFormFieldConfig,
   type ReportFormSectionConfig,
 } from "../constants/reportFormSections";
+import {
+  INTERVIEW_NAV_ID,
+  INTERVIEW_NAV_LABEL,
+  buildSectionNavOrder,
+  countAutoFilled,
+  getCompletionStatusMeta,
+  getFieldConfigsStatus,
+  getIntervieweesStatus,
+  getSectionStatus,
+  parseSectionTitle,
+} from "../lib/reportSectionStatus";
 import { TenantSectionEditor } from "./TenantSectionEditor";
 import {
   buildAnnexAttachmentList,
@@ -88,184 +94,10 @@ interface ReportFormFieldsProps {
   onPreviewStatement?: (intervieweeId: string) => Promise<Blob>;
   generatingStatementId?: string | null;
   isGeneratingAllStatements?: boolean;
-}
-
-type CompletionStatus = "not-edited" | "partial" | "complete";
-
-/** Nav id for the interview sub-section pulled out of report section 5. */
-const INTERVIEW_NAV_ID = "5-interview";
-const INTERVIEW_NAV_LABEL = "Interview / Interviewees";
-
-function getCompletionStatusFromValues(values: string[]): CompletionStatus {
-  const filledCount = values.filter((value) => value.trim().length > 0).length;
-
-  if (filledCount === 0) {
-    return "not-edited";
-  }
-
-  if (filledCount === values.length) {
-    return "complete";
-  }
-
-  return "partial";
-}
-
-function getCompletionStatusMeta(status: CompletionStatus) {
-  switch (status) {
-    case "complete":
-      return {
-        label: "Completed",
-        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      };
-    case "partial":
-      return {
-        label: "Partially completed",
-        className: "border-amber-200 bg-amber-50 text-amber-700",
-      };
-    default:
-      return {
-        label: "Not edited",
-        className: "border-slate-200 bg-slate-100 text-slate-600",
-      };
-  }
-}
-
-function parseSectionTitle(title: string): { number: string; label: string } {
-  const match = title.match(/^(\d+)\s+(.*)$/);
-  if (match) {
-    return { number: match[1], label: match[2] };
-  }
-  return { number: "", label: title };
-}
-
-function getStatusBadgeColors(status: CompletionStatus, isActive: boolean) {
-  if (isActive) {
-    return "border-transparent bg-red-600 text-white";
-  }
-  switch (status) {
-    case "complete":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "partial":
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    default:
-      return "border-slate-200 bg-slate-100 text-slate-500";
-  }
-}
-
-function SectionStatusIndicator({
-  status,
-  autoCount,
-}: {
-  status: CompletionStatus;
-  autoCount: number;
-}) {
-  const { label } = getCompletionStatusMeta(status);
-
-  let indicator: ReactNode;
-  if (status === "complete") {
-    indicator = (
-      <span className="flex size-4 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-        <Check className="size-3" strokeWidth={3} />
-      </span>
-    );
-  } else if (status === "partial") {
-    indicator = <span className="size-2.5 rounded-full bg-amber-400" />;
-  } else {
-    indicator = <span className="size-2.5 rounded-full border border-slate-300" />;
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="flex shrink-0 items-center justify-center" aria-label={label}>
-          {indicator}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        <span>{label}</span>
-        {autoCount > 0 && <span> · {autoCount} auto-filled</span>}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-function getFieldConfigsStatus(
-  fieldConfigs: ReportFormFieldConfig[],
-  fields: FireReportData
-): CompletionStatus {
-  return getCompletionStatusFromValues(
-    fieldConfigs.map((config) => String(fields[config.key] ?? ""))
-  );
-}
-
-function getIntervieweesStatus(interviewees: Interviewee[]): CompletionStatus {
-  const relevantValues = interviewees.flatMap((interviewee) => [
-    interviewee.name,
-    interviewee.designation,
-    interviewee.nric,
-    interviewee.nationality,
-    interviewee.address,
-    interviewee.contactMobile,
-    interviewee.contactHome,
-    interviewee.contactOffice,
-    interviewee.recordedStartTime,
-    interviewee.recordedEndTime,
-    interviewee.recordedDate,
-    interviewee.interviewTakenPlace,
-    interviewee.interpretedBy,
-    interviewee.recordedBy,
-    interviewee.factsOriginal,
-    interviewee.facts,
-    interviewee.signatureDataUrl,
-  ]);
-
-  return getCompletionStatusFromValues(relevantValues);
-}
-
-function getAttachmentsEditorStatus({
-  selectedAnnexes,
-  floorplanSvg,
-  photos,
-  annexPreviewUrls,
-}: {
-  selectedAnnexes: string[];
-  floorplanSvg: string | null;
-  photos: PhotoLogEntry[];
-  annexPreviewUrls: Record<number, string>;
-}): CompletionStatus {
-  const editorRequirements: boolean[] = [];
-
-  if (selectedAnnexes.includes("A") || selectedAnnexes.includes("E")) {
-    editorRequirements.push(Boolean(floorplanSvg?.trim()));
-  }
-
-  if (selectedAnnexes.includes("E")) {
-    editorRequirements.push(Boolean(annexPreviewUrls[4]));
-  }
-
-  if (selectedAnnexes.includes("D") || selectedAnnexes.includes("F")) {
-    editorRequirements.push(photos.length > 0);
-  }
-
-  if (selectedAnnexes.includes("G")) {
-    editorRequirements.push(Boolean(annexPreviewUrls[8]));
-  }
-
-  if (editorRequirements.length === 0) {
-    return "complete";
-  }
-
-  const completedCount = editorRequirements.filter(Boolean).length;
-
-  if (completedCount === 0) {
-    return "not-edited";
-  }
-
-  if (completedCount === editorRequirements.length) {
-    return "complete";
-  }
-
-  return "partial";
+  /** Controlled active section id (tabs mode); the drawer/hamburger is owned by ReportEditorNav. */
+  activeSectionId?: string;
+  /** Called when the in-page prev/next buttons move to an adjacent section (tabs mode). */
+  onActiveSectionChange?: (id: string) => void;
 }
 
 interface PhotoRefContext {
@@ -308,7 +140,7 @@ function Field({
 
   return (
     <div>
-      <Label htmlFor={key} className="flex items-center gap-2">
+      <Label htmlFor={key} className="flex items-center gap-2 text-sm">
         {label}
         {extracted && (
           <span className="text-xs font-normal text-green-600">(auto-filled)</span>
@@ -327,7 +159,7 @@ function Field({
           id={key}
           value={value}
           onChange={(e) => onChange(key, e.target.value)}
-          className="mt-1 border-slate-200/70 bg-white/95 text-slate-950 shadow-sm ring-1 ring-slate-100 focus-visible:border-slate-300 focus-visible:ring-primary/15"
+          className="mt-1 border-slate-200/70 bg-white/95 text-sm text-slate-950 shadow-sm ring-1 ring-slate-100 focus-visible:border-slate-300 focus-visible:ring-primary/15"
         />
       )}
     </div>
@@ -477,68 +309,10 @@ export function ReportFormFields({
   onPreviewStatement,
   generatingStatementId,
   isGeneratingAllStatements = false,
+  activeSectionId: activeSectionIdProp,
+  onActiveSectionChange,
 }: ReportFormFieldsProps) {
-  const countAutoFilled = (sectionId: string) => {
-    const section = sectionConfigs.find((item) => item.id === sectionId);
-    if (!section) return 0;
-    return getAllSectionFields(section).filter((field) => extractedKeys.has(field.key)).length;
-  };
-
-  const getSectionStatus = (sectionId: string): CompletionStatus => {
-    const section = sectionConfigs.find((item) => item.id === sectionId);
-    if (!section) return "not-edited";
-
-    if (sectionId === "8") {
-      const directFieldConfigs = (section.fields ?? []).filter(
-        (field) => field.key !== "annexReferenceSource" && field.key !== "selectedAnnexes"
-      );
-      const textStatus = directFieldConfigs.length
-        ? getFieldConfigsStatus(directFieldConfigs, fields)
-        : "not-edited";
-      const editorStatus = getAttachmentsEditorStatus({
-        selectedAnnexes: parseSelectedAnnexes(fields.selectedAnnexes),
-        floorplanSvg,
-        photos,
-        annexPreviewUrls,
-      });
-
-      if (textStatus === "complete" && editorStatus === "complete") {
-        return "complete";
-      }
-
-      if (textStatus === "not-edited" && editorStatus === "not-edited") {
-        return "not-edited";
-      }
-
-      return "partial";
-    }
-
-    const subsectionStatuses =
-      section.subsections?.map((subsection) => getFieldConfigsStatus(subsection.fields, fields)) ??
-      [];
-
-    const directFieldConfigs = section.fields ?? [];
-
-    const directStatuses = directFieldConfigs.length
-      ? [getFieldConfigsStatus(directFieldConfigs, fields)]
-      : [];
-
-    const statuses = [...directStatuses, ...subsectionStatuses];
-
-    if (statuses.length === 0) {
-      return "not-edited";
-    }
-
-    if (statuses.every((status) => status === "complete")) {
-      return "complete";
-    }
-
-    if (statuses.every((status) => status === "not-edited")) {
-      return "not-edited";
-    }
-
-    return "partial";
-  };
+  const statusCtx = { fields, floorplanSvg, photos, annexPreviewUrls };
 
   const visibleSections = visibleSectionIds
     ? sectionConfigs.filter((section) => visibleSectionIds.includes(section.id))
@@ -553,16 +327,19 @@ export function ReportFormFields({
 
   const intervieweeStatus = getIntervieweesStatus(fields.interviewees);
 
-  const [activeSectionId, setActiveSectionId] = useState<string>(visibleSections[0]?.id ?? "");
-  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [internalActiveSectionId, setInternalActiveSectionId] = useState<string>(
+    visibleSections[0]?.id ?? ""
+  );
+  const activeSectionId = activeSectionIdProp ?? internalActiveSectionId;
 
   useEffect(() => {
+    if (activeSectionIdProp !== undefined) return;
     const validIds = visibleSections.map((section) => section.id);
     if (showInterviewNav) validIds.push(INTERVIEW_NAV_ID);
-    if (!validIds.includes(activeSectionId)) {
-      setActiveSectionId(visibleSections[0]?.id ?? "");
+    if (!validIds.includes(internalActiveSectionId)) {
+      setInternalActiveSectionId(visibleSections[0]?.id ?? "");
     }
-  }, [activeSectionId, visibleSections, showInterviewNav]);
+  }, [activeSectionIdProp, internalActiveSectionId, visibleSections, showInterviewNav]);
 
   const photoRefContext: PhotoRefContext | undefined =
     onPhotoRefLinksChange && onPhotoRefNoteChange
@@ -719,146 +496,60 @@ export function ReportFormFields({
   }
 
   if (displayMode === "tabs") {
-    const interviewComplete = showInterviewNav && intervieweeStatus === "complete";
-    const totalCount = visibleSections.length + (showInterviewNav ? 1 : 0);
-    const completedCount =
-      visibleSections.filter(
-        (section) => getSectionStatus(section.id) === "complete"
-      ).length + (interviewComplete ? 1 : 0);
     const interviewActive = activeSectionId === INTERVIEW_NAV_ID;
+    const activeSection = visibleSections.find((section) => section.id === activeSectionId);
+    const activeParsed = activeSection ? parseSectionTitle(activeSection.title) : null;
+    const headingEyebrow = interviewActive ? "Section 5" : activeParsed?.number ? `Section ${activeParsed.number}` : null;
+    const headingTitle = interviewActive ? INTERVIEW_NAV_LABEL : activeParsed?.label ?? "";
+
+    const navOrder = buildSectionNavOrder(
+      visibleSections.map((section) => section.id),
+      showInterviewNav
+    );
+    const currentIndex = navOrder.indexOf(activeSectionId);
+    const prevId = currentIndex > 0 ? navOrder[currentIndex - 1] : null;
+    const nextId =
+      currentIndex >= 0 && currentIndex < navOrder.length - 1
+        ? navOrder[currentIndex + 1]
+        : null;
 
     return (
-      <div className="flex flex-col gap-6 md:flex-row">
-        <nav className={`shrink-0 ${navCollapsed ? "md:w-14" : "md:w-64"}`}>
-          <div
-            className={`mb-2 flex items-center gap-2 ${
-              navCollapsed ? "justify-center" : "justify-between px-1"
-            }`}
-          >
-            {!navCollapsed && (
-              <p className="text-xs font-medium text-muted-foreground">
-                {completedCount} of {totalCount} completed
+      <div className="min-w-0 rounded-xl border bg-background px-4 py-3">
+        {headingTitle && (
+          <div className="mb-3 border-b pb-3">
+            {headingEyebrow && (
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {headingEyebrow}
               </p>
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setNavCollapsed((prev) => !prev)}
-                  aria-label={navCollapsed ? "Expand sections" : "Minimize sections"}
-                  aria-expanded={!navCollapsed}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  {navCollapsed ? (
-                    <PanelLeftOpen className="size-4" />
-                  ) : (
-                    <PanelLeftClose className="size-4" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <span>{navCollapsed ? "Expand sections" : "Minimize sections"}</span>
-              </TooltipContent>
-            </Tooltip>
+            <h3 className="text-base font-semibold text-foreground">{headingTitle}</h3>
           </div>
-          <ul className="space-y-1">
-            {visibleSections.map((section) => {
-              const autoCount = countAutoFilled(section.id);
-              const isActive = section.id === activeSectionId;
-              const status = getSectionStatus(section.id);
-              const { number, label } = parseSectionTitle(section.title);
-
-              const sectionButton = (
-                <button
-                  type="button"
-                  onClick={() => setActiveSectionId(section.id)}
-                  aria-current={isActive ? "true" : undefined}
-                  className={`group flex w-full items-center gap-3 rounded-lg border-l-2 py-2 text-left transition-colors ${
-                    navCollapsed ? "justify-center px-2" : "px-3"
-                  } ${
-                    isActive
-                      ? "border-red-600 bg-red-50 font-semibold text-red-900"
-                      : "border-transparent text-foreground hover:bg-muted"
-                  }`}
-                >
-                  <span
-                    className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${getStatusBadgeColors(
-                      status,
-                      isActive
-                    )}`}
-                  >
-                    {number}
-                  </span>
-                  {!navCollapsed && (
-                    <>
-                      <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
-                      <SectionStatusIndicator status={status} autoCount={autoCount} />
-                    </>
-                  )}
-                </button>
-              );
-
-              return (
-                <li key={section.id}>
-                  {navCollapsed ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>{sectionButton}</TooltipTrigger>
-                      <TooltipContent side="right">
-                        <span>{label}</span>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    sectionButton
-                  )}
-
-                  {section.id === "5" && showInterviewNav && (
-                    navCollapsed ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => setActiveSectionId(INTERVIEW_NAV_ID)}
-                            aria-current={interviewActive ? "true" : undefined}
-                            className={`group mt-1 flex w-full items-center justify-center rounded-lg border-l-2 px-2 py-2 text-left transition-colors ${
-                              interviewActive
-                                ? "border-red-600 bg-red-50 font-semibold text-red-900"
-                                : "border-transparent text-foreground hover:bg-muted"
-                            }`}
-                          >
-                            <SectionStatusIndicator status={intervieweeStatus} autoCount={0} />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          <span>{INTERVIEW_NAV_LABEL}</span>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setActiveSectionId(INTERVIEW_NAV_ID)}
-                        aria-current={interviewActive ? "true" : undefined}
-                        className={`group mt-1 flex w-full items-center gap-3 rounded-lg border-l-2 py-2 pl-9 pr-3 text-left transition-colors ${
-                          interviewActive
-                            ? "border-red-600 bg-red-50 font-semibold text-red-900"
-                            : "border-transparent text-foreground hover:bg-muted"
-                        }`}
-                      >
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {INTERVIEW_NAV_LABEL}
-                        </span>
-                        <SectionStatusIndicator status={intervieweeStatus} autoCount={0} />
-                      </button>
-                    )
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-
-        <div className="min-w-0 flex-1 rounded-xl border bg-background px-4 py-3">
-          {interviewActive ? renderInterviewEditor() : renderSectionBody(activeSectionId)}
-        </div>
+        )}
+        {interviewActive ? renderInterviewEditor() : renderSectionBody(activeSectionId)}
+        {onActiveSectionChange && (
+          <div className="mt-4 flex items-center justify-between gap-3 border-t pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!prevId}
+              onClick={() => prevId && onActiveSectionChange(prevId)}
+            >
+              <ChevronLeft className="mr-1 h-4 w-4" />
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!nextId}
+              onClick={() => nextId && onActiveSectionChange(nextId)}
+            >
+              Next
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -870,8 +561,8 @@ export function ReportFormFields({
       className="w-full"
     >
       {visibleSections.map((section) => {
-        const autoCount = countAutoFilled(section.id);
-        const statusMeta = getCompletionStatusMeta(getSectionStatus(section.id));
+        const autoCount = countAutoFilled(section.id, extractedKeys);
+        const statusMeta = getCompletionStatusMeta(getSectionStatus(section.id, statusCtx));
 
         return (
           <AccordionItem key={section.id} value={section.id}>
