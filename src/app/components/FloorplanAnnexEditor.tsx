@@ -11,6 +11,7 @@ import {
   MousePointer2,
   RotateCw,
   Save,
+  ScanLine,
   Search,
   Slash,
   Trash2,
@@ -77,7 +78,15 @@ import {
   type FloorplanViewBox,
   type ObjectBoxShape,
 } from "../lib/floorplanEditor";
-import { convertRoomPlanFile } from "../lib/importRoomPlanFloorplan";
+import { convertRoomPlan } from "../../floorplan/convert";
+import { RoomPlanParseError } from "../../floorplan/parse";
+import {
+  addRoomScanFromJson,
+  getRoomScanLibrary,
+  removeRoomScan,
+  subscribeRoomScanLibrary,
+  type RoomScanLibraryItem,
+} from "../lib/roomScanLibrary";
 import { svgStringToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
 import {
   createDraft,
@@ -649,6 +658,7 @@ export function FloorplanAnnexEditor({
   const [lineStyle, setLineStyle] = useState<FloorplanLineStyle>(initialEditorState.lineStyle);
   const [lineDraft, setLineDraft] = useState<LineDraft | null>(null);
   const [pngLibrary, setPngLibrary] = useState<PngLibraryItem[]>([]);
+  const [scanLibrary, setScanLibrary] = useState<RoomScanLibraryItem[]>(() => getRoomScanLibrary());
   const [draftsDialogOpen, setDraftsDialogOpen] = useState(false);
   const [drafts, setDrafts] = useState<FloorplanDraftSummary[]>([]);
   const [draftsLoading, setDraftsLoading] = useState(false);
@@ -670,6 +680,7 @@ export function FloorplanAnnexEditor({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const libraryImageInputRef = useRef<HTMLInputElement>(null);
   const pendingFileRef = useRef<File | null>(null);
+  const pendingScanRef = useRef<RoomScanLibraryItem | null>(null);
 
   const trimmedIncidentNo = incidentNo?.trim() ?? "";
   const draftsEnabled = trimmedIncidentNo.length > 0;
@@ -851,6 +862,24 @@ export function FloorplanAnnexEditor({
   useEffect(() => {
     window.localStorage.setItem(FLOORPLAN_PNG_LIBRARY_STORAGE_KEY, JSON.stringify(pngLibrary));
   }, [pngLibrary]);
+
+  useEffect(() => {
+    setScanLibrary(getRoomScanLibrary());
+    return subscribeRoomScanLibrary(setScanLibrary);
+  }, []);
+
+  const scanThumbnails = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of scanLibrary) {
+      try {
+        const { svg } = convertRoomPlan(item.json);
+        map.set(item.id, `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`);
+      } catch {
+        // Skip thumbnails that fail to convert; the entry can still be removed.
+      }
+    }
+    return map;
+  }, [scanLibrary]);
 
   useEffect(() => {
     if (floorplanHydratedRef.current || !initialDraftState) return;
@@ -1446,7 +1475,14 @@ export function FloorplanAnnexEditor({
       let rawSvg: string;
       let warnings: string[] = [];
       if (jsonImport) {
-        ({ svg: rawSvg, warnings } = await convertRoomPlanFile(file));
+        const json = await file.text();
+        try {
+          addRoomScanFromJson(json);
+        } catch {
+          // Not a recognizable scan to archive (e.g. a raw RoomPlan export);
+          // still attempt to convert and render it directly below.
+        }
+        ({ svg: rawSvg, warnings } = convertRoomPlan(json));
       } else {
         rawSvg = await file.text();
       }
@@ -1758,14 +1794,60 @@ export function FloorplanAnnexEditor({
 
   function handleConfirmReplace() {
     const file = pendingFileRef.current;
+    const scan = pendingScanRef.current;
     pendingFileRef.current = null;
+    pendingScanRef.current = null;
     setReplaceDialogOpen(false);
     if (file) void processImportFile(file);
+    else if (scan) void processScanItem(scan);
   }
 
   function handleCancelReplace() {
     pendingFileRef.current = null;
+    pendingScanRef.current = null;
     setReplaceDialogOpen(false);
+  }
+
+  function canvasHasContent() {
+    return Boolean(fileName) || layers.length > 0 || generatedElements.length > 0;
+  }
+
+  async function processScanItem(item: RoomScanLibraryItem) {
+    setImporting(true);
+    setUploadError(null);
+    try {
+      const { svg, warnings } = convertRoomPlan(item.json);
+      loadFloorplan(svg, `${item.name}.svg`, { convertImportedObjectRects: true });
+      toast.success(`Layout plan loaded from "${item.name}"`);
+      for (const warning of warnings) {
+        toast.warning(warning);
+      }
+    } catch (error) {
+      const message =
+        error instanceof RoomPlanParseError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Unable to load the selected room scan.";
+      setUploadError(message);
+      toast.error(message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function applyScanFromLibrary(item: RoomScanLibraryItem) {
+    if (canvasHasContent()) {
+      pendingScanRef.current = item;
+      setReplaceDialogOpen(true);
+      return;
+    }
+    void processScanItem(item);
+  }
+
+  function handleRemoveScan(item: RoomScanLibraryItem) {
+    removeRoomScan(item.id);
+    toast.success(`Removed "${item.name}" from room scans`);
   }
 
   function clearCanvas() {
@@ -2721,7 +2803,10 @@ export function FloorplanAnnexEditor({
         open={replaceDialogOpen}
         onOpenChange={(open) => {
           setReplaceDialogOpen(open);
-          if (!open) pendingFileRef.current = null;
+          if (!open) {
+            pendingFileRef.current = null;
+            pendingScanRef.current = null;
+          }
         }}
       >
         <AlertDialogContent>
@@ -2940,6 +3025,75 @@ export function FloorplanAnnexEditor({
 
       <div className="rounded-2xl border border-border bg-slate-50/70 px-4">
         <Accordion type="single" collapsible className="w-full">
+          <AccordionItem value="room-scans" className="border-b-0">
+            <AccordionTrigger className="py-3 hover:no-underline">
+              <div className="flex flex-1 flex-wrap items-center justify-between gap-3 pr-4 text-left">
+                <div className="flex items-center gap-2">
+                  <ScanLine className="h-4 w-4 text-primary" />
+                  <p className="font-medium text-foreground">Room scans (from iPhone)</p>
+                </div>
+                <Badge variant="secondary">{scanLibrary.length}</Badge>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pb-4">
+              {scanLibrary.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {scanLibrary.map((item) => {
+                    const thumbnail = scanThumbnails.get(item.id);
+                    return (
+                      <div
+                        key={item.id}
+                        className="group relative overflow-hidden rounded-xl border border-border bg-white"
+                      >
+                        <button
+                          type="button"
+                          className="flex w-full flex-col text-left"
+                          onClick={() => applyScanFromLibrary(item)}
+                          disabled={importing}
+                          title={`Load "${item.name}" onto the canvas`}
+                        >
+                          <span className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-slate-900/90">
+                            {thumbnail ? (
+                              <img
+                                src={thumbnail}
+                                alt={`${item.name} preview`}
+                                className="h-full w-full object-contain p-2"
+                              />
+                            ) : (
+                              <ScanLine className="h-6 w-6 text-white/60" />
+                            )}
+                          </span>
+                          <span className="block min-w-0 px-2 py-2">
+                            <span className="block truncate text-sm font-medium text-foreground">
+                              {item.name}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {new Date(item.createdAt).toLocaleString()}
+                            </span>
+                          </span>
+                        </button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 top-1 h-7 w-7 bg-white/80 opacity-0 transition-opacity group-hover:opacity-100"
+                          onClick={() => handleRemoveScan(item)}
+                          title={`Remove ${item.name}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No room scans yet. Capture a scan in the FireSight iPhone app, or import a
+                  scan JSON with “Import layout plan” — saved scans appear here for reuse.
+                </p>
+              )}
+            </AccordionContent>
+          </AccordionItem>
           <AccordionItem value="png-libraries" className="border-b-0">
             <AccordionTrigger className="py-3 hover:no-underline">
               <div className="flex flex-1 flex-wrap items-center justify-between gap-3 pr-4 text-left">
