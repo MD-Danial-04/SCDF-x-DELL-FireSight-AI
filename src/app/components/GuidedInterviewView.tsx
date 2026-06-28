@@ -9,6 +9,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  SkipForward,
   Sparkles,
   Square,
   X,
@@ -414,13 +415,23 @@ function RecorderPanel({
               Stop &amp; finish
             </Button>
           ) : (
-            <Button
-              type="button"
-              onClick={() => void guided.advanceRecording()}
-            >
-              Next question
-              <ChevronRight className="ml-2 h-4 w-4" />
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void guided.skipRecording()}
+              >
+                <SkipForward className="mr-2 h-4 w-4" />
+                Skip
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void guided.advanceRecording()}
+              >
+                Next question
+                <ChevronRight className="ml-2 h-4 w-4" />
+              </Button>
+            </>
           )}
           <Button
             type="button"

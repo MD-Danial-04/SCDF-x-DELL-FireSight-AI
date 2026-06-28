@@ -1,8 +1,17 @@
-import { useRef, useState } from "react";
-import { ImagePlus, Loader2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ImagePlus, Loader2, MapPin, Minus, Plus, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { getDefaultPagePreviewUrl } from "../lib/annexImageAssets";
 import { imageBlobToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
+import { fetchLocationPlan, type LocationPlanResult } from "../lib/coordinatorApi";
+
+const MIN_ZOOM = 15;
+const MAX_ZOOM = 19;
+const DEFAULT_ZOOM = 17;
+
+interface LocationPlanPreview extends LocationPlanResult {
+  imageUrl: string;
+}
 
 interface AnnexImageUploadEditorProps {
   annexId: string;
@@ -25,6 +34,54 @@ export function AnnexImageUploadEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+
+  const supportsLocationPlan = annexId === "A";
+  const trimmedLocation = locationOfFire?.trim() ?? "";
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<LocationPlanPreview | null>(null);
+  const planUrlRef = useRef<string | null>(null);
+
+  useEffect(
+    () => () => {
+      if (planUrlRef.current) URL.revokeObjectURL(planUrlRef.current);
+    },
+    [],
+  );
+
+  const setPlanPreview = (next: LocationPlanResult | null) => {
+    if (planUrlRef.current) {
+      URL.revokeObjectURL(planUrlRef.current);
+      planUrlRef.current = null;
+    }
+    if (!next) {
+      setPlan(null);
+      return;
+    }
+    const imageUrl = URL.createObjectURL(next.imageBlob);
+    planUrlRef.current = imageUrl;
+    setPlan({ ...next, imageUrl });
+  };
+
+  const runGenerate = async (zoom: number) => {
+    if (!trimmedLocation) return;
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const result = await fetchLocationPlan(trimmedLocation, zoom);
+      setPlanPreview(result);
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Unable to generate the location plan.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleConfirmPlan = async () => {
+    if (!plan) return;
+    await applyImageBlob(plan.imageBlob);
+    setPlanPreview(null);
+  };
 
   const defaultUrl = getDefaultPagePreviewUrl(pageIndex);
   const displayUrl = previewUrl ?? defaultUrl ?? undefined;
@@ -120,7 +177,7 @@ export function AnnexImageUploadEditor({
         onChange={handleFileChange}
       />
 
-      <div className="flex items-center justify-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2">
         <Button
           type="button"
           variant="outline"
@@ -130,6 +187,23 @@ export function AnnexImageUploadEditor({
         >
           Upload image
         </Button>
+        {supportsLocationPlan && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => runGenerate(plan?.zoom ?? DEFAULT_ZOOM)}
+            disabled={busy || generating || !trimmedLocation}
+            title={trimmedLocation ? undefined : "Enter the Location of Fire first"}
+          >
+            {generating ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <MapPin className="mr-1 h-3.5 w-3.5" />
+            )}
+            Generate from address
+          </Button>
+        )}
         {hasOverride && (
           <Button
             type="button"
@@ -143,6 +217,84 @@ export function AnnexImageUploadEditor({
           </Button>
         )}
       </div>
+
+      {supportsLocationPlan && !trimmedLocation && (
+        <p className="text-center text-[11px] text-gray-400">
+          Add the Location of Fire to generate a plan from the address.
+        </p>
+      )}
+
+      {genError && <p className="text-center text-xs text-red-600">{genError}</p>}
+
+      {plan && (
+        <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3">
+          <p className="text-xs font-medium text-gray-700">Confirm location plan</p>
+          <p className="text-[11px] leading-snug text-gray-600">
+            Matched: <span className="font-medium">{plan.matchedAddress}</span>
+            {plan.postal ? ` (S${plan.postal})` : ""}
+          </p>
+          <div className="relative mx-auto w-full max-w-[240px] overflow-hidden rounded border border-gray-200 bg-gray-100">
+            <img
+              src={plan.imageUrl}
+              alt="Location plan preview"
+              className="h-full w-full object-contain"
+            />
+            {generating && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-center gap-2 text-xs text-gray-600">
+            <span>Zoom</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              aria-label="Zoom out"
+              onClick={() => runGenerate(Math.max(MIN_ZOOM, plan.zoom - 1))}
+              disabled={generating || plan.zoom <= MIN_ZOOM}
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </Button>
+            <span className="w-5 text-center font-medium">{plan.zoom}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              aria-label="Zoom in"
+              onClick={() => runGenerate(Math.min(MAX_ZOOM, plan.zoom + 1))}
+              disabled={generating || plan.zoom >= MAX_ZOOM}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmPlan}
+              disabled={busy || generating}
+            >
+              <Check className="mr-1 h-3.5 w-3.5" />
+              Use this plan
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setPlanPreview(null)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {error && <p className="text-center text-xs text-red-600">{error}</p>}
     </div>

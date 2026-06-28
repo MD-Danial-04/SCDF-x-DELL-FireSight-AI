@@ -144,6 +144,74 @@ export interface CreateAnalyzePhotoJobContext {
   fieldNotesExcerpt?: string;
 }
 
+export interface LocationPlanResult {
+  matchedAddress: string;
+  latitude: number;
+  longitude: number;
+  zoom: number;
+  postal: string | null;
+  imageBlob: Blob;
+}
+
+function base64ToBlob(base64: string, type: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type });
+}
+
+/**
+ * Fetch a OneMap-generated location-plan image for an address via the
+ * coordinator proxy. Returns the matched address metadata plus the raw map PNG.
+ */
+export async function fetchLocationPlan(
+  address: string,
+  zoom?: number
+): Promise<LocationPlanResult> {
+  const base = coordinatorUrl();
+  const key = webApiKey();
+  if (!base || !key) {
+    throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+  }
+
+  const params = new URLSearchParams({ address });
+  if (zoom !== undefined) {
+    params.set("zoom", String(zoom));
+  }
+
+  const response = await fetch(`${base}/v1/location-plan?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${key}` },
+  });
+
+  if (!response.ok) {
+    let detail = await response.text();
+    if (response.status === 404) {
+      detail = "No matching address was found on OneMap.";
+    }
+    throw new Error(`Failed to fetch location plan (${response.status}): ${detail}`);
+  }
+
+  const data = (await response.json()) as {
+    matched_address: string;
+    latitude: number;
+    longitude: number;
+    zoom: number;
+    postal: string | null;
+    image_base64: string;
+  };
+
+  return {
+    matchedAddress: data.matched_address,
+    latitude: data.latitude,
+    longitude: data.longitude,
+    zoom: data.zoom,
+    postal: data.postal,
+    imageBlob: base64ToBlob(data.image_base64, "image/png"),
+  };
+}
+
 export async function createAnalyzePhotoJob(
   file: Blob,
   fileName: string,

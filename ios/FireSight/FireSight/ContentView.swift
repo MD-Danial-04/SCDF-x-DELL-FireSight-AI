@@ -4,6 +4,7 @@ struct ContentView: View {
     @State private var isScanChooserPresented = false
     @State private var isRoomScanWorkspacePresented = false
     @State private var isCrashScanWorkspacePresented = false
+    @State private var bridge = WebAppBridge()
     @AppStorage("roomScanLauncherIsTrailing") private var roomScanLauncherIsTrailing = true
     @AppStorage("roomScanLauncherVerticalProgress") private var roomScanLauncherVerticalProgress = 1.0
 
@@ -12,6 +13,7 @@ struct ContentView: View {
     var body: some View {
         FireSightWebView(
             urlString: webAppURL,
+            bridge: bridge,
             launcherIsTrailing: $roomScanLauncherIsTrailing,
             launcherVerticalProgress: $roomScanLauncherVerticalProgress
         ) {
@@ -30,10 +32,19 @@ struct ContentView: View {
             Text("Choose what you need to capture at the scene.")
         }
         .fullScreenCover(isPresented: $isRoomScanWorkspacePresented) {
-            RoomScanWorkspaceView()
+            RoomScanWorkspaceView(onDeliver: deliverRoomScan)
         }
         .fullScreenCover(isPresented: $isCrashScanWorkspacePresented) {
             CrashScanWorkspaceView()
         }
+    }
+
+    /// Encode the reviewed scan and hand it to the embedded web app's scan
+    /// library, then close the workspace.
+    private func deliverRoomScan(_ document: RoomScanDocument) {
+        if let data = try? RoomScanDraftStore.makeJSONData(from: document) {
+            bridge.deliverRoomScan(jsonData: data)
+        }
+        isRoomScanWorkspacePresented = false
     }
 }

@@ -371,6 +371,22 @@ export function useGuidedInterview({
     }
   }, [advanceSegment, finalizeSegment]);
 
+  /** Skip the current question: roll the segment boundary and discard the
+   * captured audio (no transcription) while keeping the mic live, then advance
+   * to the next question. */
+  const skipRecording = useCallback(async () => {
+    const index = currentIndexRef.current;
+    try {
+      await advanceSegment();
+    } catch {
+      return;
+    }
+    segmentStartRef.current = Date.now();
+    if (index < queueRef.current.length - 1) {
+      setCurrentIndex(index + 1);
+    }
+  }, [advanceSegment]);
+
   /** Finish the continuous session: finalize the current segment and release
    * the mic, staying on the current question. Used by "Stop & finish", the
    * explicit "Stop recording" control, and the single-shot re-record flow. */
@@ -539,6 +555,7 @@ export function useGuidedInterview({
     pauseRecording,
     stopRecording,
     advanceRecording,
+    skipRecording,
     finishRecording,
     setManualAnswer,
     editAnswer,
