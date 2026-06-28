@@ -2,8 +2,25 @@ import SwiftUI
 import UIKit
 import WebKit
 
+/// Holds a weak reference to the live `WKWebView` so SwiftUI views (e.g. the
+/// room scan workspace) can deliver a captured scan straight into the embedded
+/// web app without going through the Files app.
+final class WebAppBridge {
+    weak var webView: WKWebView?
+
+    /// Deliver a room scan JSON payload to the web app. The bytes are base64
+    /// encoded so they can be embedded in the JS call without any escaping
+    /// concerns (quotes, newlines, unicode).
+    func deliverRoomScan(jsonData: Data) {
+        let base64 = jsonData.base64EncodedString()
+        let js = "window.fireSightRoomScan && window.fireSightRoomScan.deliverBase64('\(base64)')"
+        webView?.evaluateJavaScript(js, completionHandler: nil)
+    }
+}
+
 struct FireSightWebView: UIViewRepresentable {
     let urlString: String
+    let bridge: WebAppBridge
     @Binding var launcherIsTrailing: Bool
     @Binding var launcherVerticalProgress: Double
     let onOpenRoomScan: () -> Void
@@ -17,6 +34,7 @@ struct FireSightWebView: UIViewRepresentable {
         containerView.coordinator = context.coordinator
         containerView.webView.navigationDelegate = context.coordinator
         containerView.webView.uiDelegate = context.coordinator
+        bridge.webView = containerView.webView
         containerView.load(urlString: urlString)
         containerView.applyLauncherPosition(
             isTrailing: launcherIsTrailing,
@@ -31,6 +49,7 @@ struct FireSightWebView: UIViewRepresentable {
         uiView.coordinator = context.coordinator
         uiView.webView.navigationDelegate = context.coordinator
         uiView.webView.uiDelegate = context.coordinator
+        bridge.webView = uiView.webView
         uiView.load(urlString: urlString)
         uiView.applyLauncherPosition(
             isTrailing: launcherIsTrailing,

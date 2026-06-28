@@ -415,13 +415,23 @@ function RecorderPanel({
               Stop &amp; finish
             </Button>
           ) : (
-            <Button
-              type="button"
-              onClick={() => void guided.advanceRecording()}
-            >
-              Next question
-              <ChevronRight className="ml-2 h-4 w-4" />
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void guided.skipRecording()}
+              >
+                <SkipForward className="mr-2 h-4 w-4" />
+                Skip
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void guided.advanceRecording()}
+              >
+                Next question
+                <ChevronRight className="ml-2 h-4 w-4" />
+              </Button>
+            </>
           )}
           <Button
             type="button"
@@ -437,7 +447,7 @@ function RecorderPanel({
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-3">
+    <div className="flex justify-center">
       <Button
         type="button"
         size="lg"
@@ -454,15 +464,6 @@ function RecorderPanel({
             Record answer
           </>
         )}
-      </Button>
-      <Button
-        type="button"
-        size="lg"
-        variant="outline"
-        onClick={() => (isLast ? onFinish() : guided.next())}
-      >
-        <SkipForward className="mr-2 h-5 w-5" />
-        {isLast ? "Skip & finish" : "Skip question"}
       </Button>
     </div>
   );

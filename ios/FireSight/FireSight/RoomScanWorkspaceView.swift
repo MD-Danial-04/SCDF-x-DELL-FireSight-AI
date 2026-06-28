@@ -26,7 +26,12 @@ struct RoomScanWorkspaceView: View {
     @State private var exportFile = RoomScanJSONFile(document: .blank())
     @State private var alertMessage: WorkspaceAlert?
 
-    init() {
+    /// Delivers the reviewed scan directly to the embedded web app. When nil
+    /// (e.g. previews), only the file-based export is available.
+    private let onDeliver: ((RoomScanDocument) -> Void)?
+
+    init(onDeliver: ((RoomScanDocument) -> Void)? = nil) {
+        self.onDeliver = onDeliver
         _draft = State(initialValue: RoomScanDraftStore.load() ?? .blank())
     }
 
@@ -492,22 +497,47 @@ struct RoomScanWorkspaceView: View {
 
     private var exportCard: some View {
         EditorCard(
-            title: "Export JSON",
-            subtitle: "Export the reviewed draft, then dismiss this screen and upload the JSON inside the embedded web app."
+            title: onDeliver == nil ? "Export JSON" : "Send to report",
+            subtitle: onDeliver == nil
+                ? "Export the reviewed draft, then dismiss this screen and upload the JSON inside the embedded web app."
+                : "Send the reviewed scan straight to the web app's room scan library, where you can drop it onto the floor plan canvas."
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("On iPhone, the export sheet lets you choose Save to Files and pick Downloads if you want the JSON there.")
-                    .font(.subheadline)
-                    .foregroundStyle(WorkspacePalette.secondaryText)
+                if let onDeliver {
+                    Button {
+                        onDeliver(draft.preparedForPersistence())
+                    } label: {
+                        Label("Send to report", systemImage: "paperplane.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryActionButtonStyle())
 
-                Button {
-                    exportFile = RoomScanJSONFile(document: draft.preparedForPersistence())
-                    isExporterPresented = true
-                } label: {
-                    Label("Export reviewed JSON", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
+                    Text("Prefer a file? You can still export the JSON below.")
+                        .font(.footnote)
+                        .foregroundStyle(WorkspacePalette.subtleText)
+
+                    Button {
+                        exportFile = RoomScanJSONFile(document: draft.preparedForPersistence())
+                        isExporterPresented = true
+                    } label: {
+                        Label("Export reviewed JSON", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(SecondaryActionButtonStyle())
+                } else {
+                    Text("On iPhone, the export sheet lets you choose Save to Files and pick Downloads if you want the JSON there.")
+                        .font(.subheadline)
+                        .foregroundStyle(WorkspacePalette.secondaryText)
+
+                    Button {
+                        exportFile = RoomScanJSONFile(document: draft.preparedForPersistence())
+                        isExporterPresented = true
+                    } label: {
+                        Label("Export reviewed JSON", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryActionButtonStyle())
                 }
-                .buttonStyle(PrimaryActionButtonStyle())
 
                 Button {
                     dismiss()
