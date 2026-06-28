@@ -245,6 +245,8 @@ export function TranscriptPageEditor({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isRecordingActive, setIsRecordingActive] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [showLeadingQuestions, setShowLeadingQuestions] = useState(false);
+  const [showFollowUps, setShowFollowUps] = useState(false);
   const [captureMode, setCaptureMode] = useState<"singpass" | "interview">(
     "singpass"
   );
@@ -506,51 +508,100 @@ export function TranscriptPageEditor({
 
       {hasTranscript ? (
         <div className="space-y-4">
+          {transcriptBlock}
+
           {activeLeadingQuestions ? (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-gray-500">
-                  Answers captured during the guided interview, with coverage
-                  status and follow-up prompts.
-                </p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={
-                    !page.transcriptEnglish.trim() ||
-                    isAnalyzing ||
-                    !isCoordinatorConfigured()
-                  }
-                  onClick={onAnalyze}
-                >
-                  {isAnalyzing ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-2 h-4 w-4" />
-                  )}
-                  Re-analyze
-                </Button>
-              </div>
-
-              <LeadingQuestionsPanel
-                title={activeLeadingQuestions.title}
-                questions={leadingQuestions}
-                interviewLanguage={page.interviewLanguage}
-                coverage={coverageMap}
-              />
+              <Collapsible
+                open={showLeadingQuestions}
+                onOpenChange={setShowLeadingQuestions}
+                className="space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <ChevronDown
+                        className={`mr-1 h-4 w-4 transition-transform ${
+                          showLeadingQuestions ? "rotate-180" : ""
+                        }`}
+                      />
+                      {showLeadingQuestions
+                        ? "Hide leading questions"
+                        : "Show leading questions"}
+                    </Button>
+                  </CollapsibleTrigger>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={
+                      !page.transcriptEnglish.trim() ||
+                      isAnalyzing ||
+                      !isCoordinatorConfigured()
+                    }
+                    onClick={onAnalyze}
+                  >
+                    {isAnalyzing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-2 h-4 w-4" />
+                    )}
+                    Re-analyze
+                  </Button>
+                </div>
+                <CollapsibleContent className="space-y-3">
+                  <p className="text-xs text-gray-500">
+                    Answers captured during the guided interview, with coverage
+                    status and follow-up prompts.
+                  </p>
+                  <LeadingQuestionsPanel
+                    title={activeLeadingQuestions.title}
+                    questions={leadingQuestions}
+                    interviewLanguage={page.interviewLanguage}
+                    coverage={coverageMap}
+                  />
+                </CollapsibleContent>
+              </Collapsible>
 
               {analysisResult ? (
-                <FollowUpsPanel
-                  followUps={analysisResult.follow_ups}
-                  interviewLanguage={page.interviewLanguage}
-                  onAddToFacts={onAddFollowUpToFacts}
-                />
+                <Collapsible
+                  open={showFollowUps}
+                  onOpenChange={setShowFollowUps}
+                  className="space-y-3"
+                >
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <ChevronDown
+                        className={`mr-1 h-4 w-4 transition-transform ${
+                          showFollowUps ? "rotate-180" : ""
+                        }`}
+                      />
+                      {showFollowUps
+                        ? "Hide follow-up questions"
+                        : "Show follow-up questions"}
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <FollowUpsPanel
+                      followUps={analysisResult.follow_ups}
+                      interviewLanguage={page.interviewLanguage}
+                      onAddToFacts={onAddFollowUpToFacts}
+                    />
+                  </CollapsibleContent>
+                </Collapsible>
               ) : null}
             </>
           ) : null}
-
-          {transcriptBlock}
         </div>
       ) : (
         <p className="rounded-xl border border-dashed border-gray-200 p-4 text-sm text-gray-500">
