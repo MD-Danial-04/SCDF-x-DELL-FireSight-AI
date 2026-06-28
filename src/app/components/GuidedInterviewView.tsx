@@ -9,6 +9,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  SkipForward,
   Sparkles,
   Square,
   X,
@@ -436,7 +437,7 @@ function RecorderPanel({
   }
 
   return (
-    <div className="flex justify-center">
+    <div className="flex flex-wrap items-center justify-center gap-3">
       <Button
         type="button"
         size="lg"
@@ -453,6 +454,15 @@ function RecorderPanel({
             Record answer
           </>
         )}
+      </Button>
+      <Button
+        type="button"
+        size="lg"
+        variant="outline"
+        onClick={() => (isLast ? onFinish() : guided.next())}
+      >
+        <SkipForward className="mr-2 h-5 w-5" />
+        {isLast ? "Skip & finish" : "Skip question"}
       </Button>
     </div>
   );
