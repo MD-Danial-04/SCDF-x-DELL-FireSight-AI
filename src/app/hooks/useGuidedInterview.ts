@@ -24,6 +24,7 @@ import {
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 90;
 const ANALYSIS_DEBOUNCE_MS = 800;
+const DEMO_TRANSCRIBE_DELAY_MS = 800;
 // Segments shorter than this (e.g. a skipped question) are treated as empty and
 // not sent for transcription, to avoid wasting inference calls.
 const SHORT_SEGMENT_MS = 600;
@@ -59,12 +60,18 @@ export interface GuidedInterviewResult {
   analysis: AnalyzeInterviewResponse | null;
 }
 
+export interface GuidedInterviewDemoMode {
+  fixedAnswers: Record<string, { original: string; english: string }>;
+}
+
 interface UseGuidedInterviewConfig {
   /** Leading questions for the selected set (already filtered, never "none"). */
   questions: LeadingQuestion[];
   interviewLanguage: InterviewLanguage;
   /** Existing per-question answers to resume from. */
   initialResponses?: QuestionResponse[];
+  /** Animation-only recording with pre-seeded answers (no coordinator calls). */
+  demoMode?: GuidedInterviewDemoMode;
 }
 
 function buildSetQueue(
@@ -88,9 +95,12 @@ export function useGuidedInterview({
   questions,
   interviewLanguage,
   initialResponses,
+  demoMode,
 }: UseGuidedInterviewConfig) {
-  const useLiveInference = isInferenceConfigured();
-  const canAnalyze = isCoordinatorConfigured();
+  const isDemoMode = Boolean(demoMode);
+  const useLiveInference = isInferenceConfigured() && !isDemoMode;
+  const useRecordingUi = useLiveInference || isDemoMode;
+  const canAnalyze = isCoordinatorConfigured() && !isDemoMode;
 
   const {
     isRecording,
@@ -140,6 +150,8 @@ export function useGuidedInterview({
     useState<AnalyzeInterviewResponse["source"] | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [demoRecording, setDemoRecording] = useState(false);
+  const [demoPaused, setDemoPaused] = useState(false);
 
   // Refs so async continuations and debounced analysis see the latest state.
   const responsesRef = useRef(responses);
@@ -269,9 +281,26 @@ export function useGuidedInterview({
           isFollowUp: item.isFollowUp,
         },
       }));
-      scheduleAnalysis();
+      if (!isDemoMode) scheduleAnalysis();
     },
-    [scheduleAnalysis]
+    [isDemoMode, scheduleAnalysis]
+  );
+
+  const injectDemoAnswer = useCallback(
+    async (item: GuidedQuestion) => {
+      const fixed = demoMode?.fixedAnswers[item.itemId];
+      if (!fixed) return;
+      setTranscribing(item.itemId, true);
+      setError(null);
+      try {
+        await sleep(DEMO_TRANSCRIBE_DELAY_MS);
+        if (cancelledRef.current) return;
+        applyAnswer(item, fixed.original, fixed.english);
+      } finally {
+        if (!cancelledRef.current) setTranscribing(item.itemId, false);
+      }
+    },
+    [applyAnswer, demoMode, setTranscribing]
   );
 
   const transcribeSegment = useCallback(
@@ -329,20 +358,42 @@ export function useGuidedInterview({
     (item: GuidedQuestion, blob: Blob, startedAt: number | null) => {
       markAsked(item.itemId);
       const durationMs = startedAt ? Date.now() - startedAt : 0;
-      if (durationMs < SHORT_SEGMENT_MS || blob.size === 0) return;
+      if (durationMs < SHORT_SEGMENT_MS) return;
+      if (isDemoMode) {
+        void injectDemoAnswer(item);
+        return;
+      }
+      if (blob.size === 0) return;
       void transcribeSegment(item, blob).catch(() => {});
     },
-    [markAsked, transcribeSegment]
+    [injectDemoAnswer, isDemoMode, markAsked, transcribeSegment]
   );
 
   const startRecording = useCallback(async () => {
+    if (isDemoMode) {
+      startTimer();
+      setDemoRecording(true);
+      setDemoPaused(false);
+      segmentStartRef.current = Date.now();
+      return;
+    }
     if (!useLiveInference) return;
     await startContinuous();
     startTimer();
     segmentStartRef.current = Date.now();
-  }, [startContinuous, startTimer, useLiveInference]);
+  }, [isDemoMode, startContinuous, startTimer, useLiveInference]);
 
   const pauseRecording = useCallback(() => {
+    if (isDemoMode) {
+      if (demoPaused) {
+        resumeTimer();
+        setDemoPaused(false);
+      } else {
+        pauseTimer();
+        setDemoPaused(true);
+      }
+      return;
+    }
     if (isPaused) {
       resumeMedia();
       resumeTimer();
@@ -350,7 +401,7 @@ export function useGuidedInterview({
       pauseMedia();
       pauseTimer();
     }
-  }, [isPaused, pauseMedia, pauseTimer, resumeMedia, resumeTimer]);
+  }, [demoPaused, isDemoMode, isPaused, pauseMedia, pauseTimer, resumeMedia, resumeTimer]);
 
   /** Close the current answer's segment and advance to the next question while
    * keeping the mic live (no re-prompt, no re-pressing record). */
@@ -358,6 +409,16 @@ export function useGuidedInterview({
     const index = currentIndexRef.current;
     const item = queueRef.current[index];
     const startedAt = segmentStartRef.current;
+
+    if (isDemoMode) {
+      segmentStartRef.current = Date.now();
+      if (item) finalizeSegment(item, new Blob(), startedAt);
+      if (index < queueRef.current.length - 1) {
+        setCurrentIndex(index + 1);
+      }
+      return;
+    }
+
     let blob: Blob;
     try {
       blob = await advanceSegment();
@@ -369,13 +430,22 @@ export function useGuidedInterview({
     if (index < queueRef.current.length - 1) {
       setCurrentIndex(index + 1);
     }
-  }, [advanceSegment, finalizeSegment]);
+  }, [advanceSegment, finalizeSegment, isDemoMode]);
 
   /** Skip the current question: roll the segment boundary and discard the
    * captured audio (no transcription) while keeping the mic live, then advance
    * to the next question. */
   const skipRecording = useCallback(async () => {
     const index = currentIndexRef.current;
+
+    if (isDemoMode) {
+      segmentStartRef.current = Date.now();
+      if (index < queueRef.current.length - 1) {
+        setCurrentIndex(index + 1);
+      }
+      return;
+    }
+
     try {
       await advanceSegment();
     } catch {
@@ -385,7 +455,7 @@ export function useGuidedInterview({
     if (index < queueRef.current.length - 1) {
       setCurrentIndex(index + 1);
     }
-  }, [advanceSegment]);
+  }, [advanceSegment, isDemoMode]);
 
   /** Finish the continuous session: finalize the current segment and release
    * the mic, staying on the current question. Used by "Stop & finish", the
@@ -395,6 +465,15 @@ export function useGuidedInterview({
     const item = queueRef.current[index];
     const startedAt = segmentStartRef.current;
     stopTimer();
+
+    if (isDemoMode) {
+      setDemoRecording(false);
+      setDemoPaused(false);
+      segmentStartRef.current = null;
+      if (item) finalizeSegment(item, new Blob(), startedAt);
+      return;
+    }
+
     let blob: Blob;
     try {
       blob = await stopContinuous();
@@ -403,7 +482,7 @@ export function useGuidedInterview({
     }
     segmentStartRef.current = null;
     if (item) finalizeSegment(item, blob, startedAt);
-  }, [finalizeSegment, stopContinuous, stopTimer]);
+  }, [finalizeSegment, isDemoMode, stopContinuous, stopTimer]);
 
   // Alias for call-site clarity when ending the interview.
   const finishRecording = stopRecording;
@@ -424,9 +503,9 @@ export function useGuidedInterview({
           isFollowUp: item.isFollowUp,
         },
       }));
-      scheduleAnalysis();
+      if (!isDemoMode) scheduleAnalysis();
     },
-    [scheduleAnalysis]
+    [isDemoMode, scheduleAnalysis]
   );
 
   /** Edit an already-captured answer's text (keeps the recording job id). */
@@ -457,9 +536,9 @@ export function useGuidedInterview({
           },
         };
       });
-      scheduleAnalysis();
+      if (!isDemoMode) scheduleAnalysis();
     },
-    [scheduleAnalysis]
+    [isDemoMode, scheduleAnalysis]
   );
 
   const goTo = useCallback(
@@ -529,11 +608,17 @@ export function useGuidedInterview({
   const isTranscribingCurrent = current
     ? transcribingItems.has(current.itemId)
     : false;
-  const isBusy = isRecording || transcribingItems.size > 0;
+  const activeRecording = isDemoMode ? demoRecording : isRecording;
+  const activePaused = isDemoMode ? demoPaused : isPaused;
+  const activePauseSupported = isDemoMode ? true : pauseSupported;
+  const activeStream = isDemoMode ? null : stream;
+  const isBusy = activeRecording || transcribingItems.size > 0;
 
   return {
     // config
     useLiveInference,
+    useRecordingUi,
+    isDemoMode,
     canAnalyze,
     interviewLanguage,
     // queue / navigation
@@ -545,10 +630,10 @@ export function useGuidedInterview({
     next,
     prev,
     // recording
-    isRecording,
-    isPaused,
-    pauseSupported,
-    stream,
+    isRecording: activeRecording,
+    isPaused: activePaused,
+    pauseSupported: activePauseSupported,
+    stream: activeStream,
     recordingTime,
     formatTime,
     startRecording,

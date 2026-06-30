@@ -5,6 +5,8 @@ export interface ReportSession {
   incidentType: IncidentType | null;
   stopMessage: string;
   fieldNotes: string;
+  /** Active demo scenario id when report was started from a demo selection. */
+  demoScenarioId?: string;
   premisesOwner?: string;
   premisesUen?: string;
   transcriptionJobId?: string;

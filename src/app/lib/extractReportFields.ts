@@ -20,13 +20,16 @@ export function extractCallSign(text: string): string {
   if (repeated.length > 0) {
     return repeated[repeated.length - 1][1].trim();
   }
+  const stopForAddress = matchOne(text, /^(.+?)\s+stop\s+for\s+\d/i);
+  if (stopForAddress) return stopForAddress;
   return matchOne(text, /^(.+?)\s+stop\s+(?:at|for)\s+location/i);
 }
 
-/** Address after "stop at/for location at …". */
+/** Address after "stop at/for location at …" or "stop for [address] case of". */
 export function extractStopLocationAddress(text: string): string {
   return (
     matchOne(text, /stop\s+(?:at|for)\s+location\s+at\s+(.+?)(?:\.\s|case\s)/i) ||
+    matchOne(text, /stop\s+for\s+(.+?)\s+case\s+of/i) ||
     matchOne(text, /stop\s+at\s+location(?:,\s*)?(.+?)(?:\.|upon)/i)
   );
 }
@@ -96,10 +99,11 @@ export function extractReportFields(
     t,
     /fire found in\s+(.+?)(?:\.|cd\s|case\s)/i
   );
-  const suppression = matchOne(
-    t,
-    /(?:extinguished|CD)\s+.+?(?:using\s+)?(\d+x\s+[\w\s]+?)(?:\.|case\s)/i
-  ) || matchOne(t, /using\s+(\d+x\s+[\w\s]+)/i);
+  const suppression =
+    matchOne(
+      t,
+      /(?:extinguished|(?:CD|Scdf))\s+.+?(?:using\s+)?(\d+x\s+[\w\s]+?)(?:\.|case\s)/i
+    ) || matchOne(t, /using\s+(\d+x\s+[\w\s]+)/i);
   const classification = extractClassification(t);
   const cause = matchOne(t, /due to\s+(.+?)(?:\.|case\s)/i);
   const handoverOfficer = matchOne(t, /handed over to\s+(.+?)(?:\s+from|\s*\.)/i);

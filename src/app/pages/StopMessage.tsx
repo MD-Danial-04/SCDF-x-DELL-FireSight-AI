@@ -37,7 +37,7 @@ import { AudioWaveform } from "../components/AudioWaveform";
 import { isInferenceConfigured } from "../types/inference";
 
 const FAM_DEMO_SELECT_ID = "demo-fam";
-const FAM_TYPEWRITER_DURATION_MS = 2500;
+const DEMO_TYPEWRITER_DURATION_MS = 2500;
 
 const NON_DEMO_STOP_MESSAGE =
   "Red Rhino 1 stop at location, case of fire mod. Upon arrival, white smoke seen in the lift shaft. Upon investigation, fire found in CRC of block 123 involving rubbish contents. CD extinguished fire using 2x hosereel. Case classified as C2 accidental due to naked light. Case handed over to SGT John Tan T123456 from Ang Mo Kio NPC.";
@@ -66,11 +66,11 @@ export function StopMessage() {
   const [fieldNotes, setFieldNotes] = useState("");
   const [showGeneration, setShowGeneration] = useState(false);
   const [documentType, setDocumentType] = useState<"report" | "slides" | null>(null);
-  const [famDemoPending, setFamDemoPending] = useState<{
+  const [recordDemoPending, setRecordDemoPending] = useState<{
     stopMessage: string;
     fieldNotes: string;
   } | null>(null);
-  const [famFieldNotesRevealed, setFamFieldNotesRevealed] = useState(false);
+  const [demoFieldNotesRevealed, setDemoFieldNotesRevealed] = useState(false);
 
   const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -88,11 +88,11 @@ export function StopMessage() {
 
   useEffect(() => () => clearRecordingState(), [clearRecordingState]);
 
-  const startFamTypewriter = useCallback((stopMessage: string) => {
+  const startDemoTypewriter = useCallback((stopMessage: string) => {
     const chunks = stopMessage.split(/\s+/).filter(Boolean);
     if (chunks.length === 0) return;
 
-    const intervalMs = Math.max(50, Math.floor(FAM_TYPEWRITER_DURATION_MS / chunks.length));
+    const intervalMs = Math.max(50, Math.floor(DEMO_TYPEWRITER_DURATION_MS / chunks.length));
     let index = 0;
     setVoiceTranscript("");
 
@@ -116,20 +116,20 @@ export function StopMessage() {
     setIsDemoSelection(true);
     setSelectedIncidentType(type);
 
-    if (selectId === FAM_DEMO_SELECT_ID) {
-      setFamDemoPending({
+    if (scenario.recordFirst) {
+      setRecordDemoPending({
         stopMessage: scenario.stopMessage,
         fieldNotes: scenario.fieldNotes,
       });
-      setFamFieldNotesRevealed(false);
+      setDemoFieldNotesRevealed(false);
       setVoiceTranscript("");
       setAsrActive(false);
       setFieldNotes("");
       return;
     }
 
-    setFamDemoPending(null);
-    setFamFieldNotesRevealed(false);
+    setRecordDemoPending(null);
+    setDemoFieldNotesRevealed(false);
     setVoiceTranscript(scenario.stopMessage);
     setAsrActive(true);
     setFieldNotes(scenario.fieldNotes);
@@ -144,8 +144,8 @@ export function StopMessage() {
         return;
       }
       clearRecordingState();
-      setFamDemoPending(null);
-      setFamFieldNotesRevealed(false);
+      setRecordDemoPending(null);
+      setDemoFieldNotesRevealed(false);
       setIsDemoSelection(false);
       setSelectedSelectValue(value);
       setVoiceTranscript("");
@@ -158,14 +158,14 @@ export function StopMessage() {
 
   const handleFieldNotesFocus = useCallback(() => {
     if (
-      famDemoPending?.fieldNotes &&
-      !famFieldNotesRevealed &&
+      recordDemoPending?.fieldNotes &&
+      !demoFieldNotesRevealed &&
       !fieldNotes.trim()
     ) {
-      setFieldNotes(famDemoPending.fieldNotes);
-      setFamFieldNotesRevealed(true);
+      setFieldNotes(recordDemoPending.fieldNotes);
+      setDemoFieldNotesRevealed(true);
     }
-  }, [famDemoPending, famFieldNotesRevealed, fieldNotes]);
+  }, [recordDemoPending, demoFieldNotesRevealed, fieldNotes]);
 
   useEffect(() => {
     if (selectedIncidentType) {
@@ -221,16 +221,16 @@ export function StopMessage() {
     if (!isRecording) {
       clearTypewriterTimer();
       start();
-      if (famDemoPending) {
+      if (recordDemoPending) {
         setAsrActive(true);
-        startFamTypewriter(famDemoPending.stopMessage);
+        startDemoTypewriter(recordDemoPending.stopMessage);
       }
     } else {
       clearTypewriterTimer();
       stop();
       toast.success("Recording stopped and transcribed");
-      if (famDemoPending) {
-        setVoiceTranscript(famDemoPending.stopMessage);
+      if (recordDemoPending) {
+        setVoiceTranscript(recordDemoPending.stopMessage);
       } else {
         setVoiceTranscript(NON_DEMO_STOP_MESSAGE);
       }
@@ -280,6 +280,10 @@ export function StopMessage() {
     Boolean(selectedIncidentType?.requiresFireReport) ||
     Boolean(activeDemoScenario?.requiresFireReport);
 
+  const demoScenarioId = isDemoSelection
+    ? getDemoScenarioBySelectId(selectedSelectValue)?.id
+    : undefined;
+
   if (showGeneration) {
     if (documentType === "report") {
       return (
@@ -288,6 +292,7 @@ export function StopMessage() {
             incidentType: selectedIncidentType,
             stopMessage: effectiveStopMessage,
             fieldNotes: fieldNotes.trim(),
+            demoScenarioId,
             transcriptionJobId: job?.id,
           }}
         >
@@ -311,6 +316,7 @@ export function StopMessage() {
           incidentType: selectedIncidentType,
           stopMessage: effectiveStopMessage,
           fieldNotes: fieldNotes.trim(),
+          demoScenarioId,
           transcriptionJobId: job?.id,
           premisesOwner: demoScenario?.premisesOwner,
           premisesUen: demoScenario?.premisesUen,
