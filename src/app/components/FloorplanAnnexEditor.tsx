@@ -2268,12 +2268,18 @@ export function FloorplanAnnexEditor({
     };
   }, []);
 
+  function recordPointerSample(clientX: number, clientY: number) {
+    pendingPointerRef.current = { clientX, clientY };
+    scheduleGestureFlush();
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!camera) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     if (event.pointerType === "touch") {
+      event.preventDefault();
       activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (activePointersRef.current.size === 2) {
         const points = Array.from(activePointersRef.current.values());
@@ -2533,18 +2539,34 @@ export function FloorplanAnnexEditor({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === "touch" && activePointersRef.current.has(event.pointerId)) {
-      activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (event.pointerType === "touch") {
+      event.preventDefault();
+      if (activePointersRef.current.has(event.pointerId)) {
+        activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      }
     }
 
     // Two-finger pinch: handled imperatively in the rAF flush.
     if (pinchRef.current && activePointersRef.current.size >= 2) {
+      const coalesced =
+        typeof event.nativeEvent.getCoalescedEvents === "function"
+          ? event.nativeEvent.getCoalescedEvents()
+          : [event.nativeEvent];
+      const last = coalesced[coalesced.length - 1];
+      if (last) {
+        activePointersRef.current.set(event.pointerId, { x: last.clientX, y: last.clientY });
+      }
       scheduleGestureFlush();
       return;
     }
 
     if (editorMode === "placeLine" && lineDraft && !dragState) {
-      const point = getSvgPoint(event.clientX, event.clientY);
+      const coalesced =
+        typeof event.nativeEvent.getCoalescedEvents === "function"
+          ? event.nativeEvent.getCoalescedEvents()
+          : [event.nativeEvent];
+      const last = coalesced[coalesced.length - 1];
+      const point = last ? getSvgPoint(last.clientX, last.clientY) : null;
       if (!point) return;
       setLineDraft((current) => (current ? { ...current, end: point } : current));
       return;
@@ -2552,9 +2574,18 @@ export function FloorplanAnnexEditor({
 
     if (!dragState || dragState.pointerId !== event.pointerId) return;
 
-    // Record the latest pointer and let the rAF flush apply it once per frame.
-    pendingPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
-    scheduleGestureFlush();
+    const coalesced =
+      typeof event.nativeEvent.getCoalescedEvents === "function"
+        ? event.nativeEvent.getCoalescedEvents()
+        : [event.nativeEvent];
+    for (const nativeEvent of coalesced) {
+      recordPointerSample(nativeEvent.clientX, nativeEvent.clientY);
+    }
+  }
+
+  function handlePointerLeave(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") return;
+    clearDragState(event);
   }
 
   function clearDragState(event: ReactPointerEvent<HTMLDivElement>) {
@@ -3532,10 +3563,11 @@ export function FloorplanAnnexEditor({
               onDoubleClick={handleCanvasDoubleClick}
               onPointerMove={handlePointerMove}
               onPointerUp={clearDragState}
-              onPointerLeave={clearDragState}
+              onPointerLeave={handlePointerLeave}
               onWheel={handleWheel}
+              style={{ touchAction: "none" }}
               className={cn(
-                "relative flex-1 min-w-0 min-h-[280px] h-[min(480px,50vh)] max-h-[50vh] overflow-hidden rounded-2xl border border-border bg-white overscroll-contain touch-none",
+                "relative flex-1 min-w-0 min-h-[280px] h-[min(480px,50vh)] max-h-[50vh] overflow-hidden rounded-2xl border border-border bg-white overscroll-contain touch-none transform-gpu will-change-transform max-md:min-h-[360px] max-md:h-[min(60vh,560px)] max-md:max-h-[60vh]",
                 editorMode === "placeObjectBox" || editorMode === "placeText" || editorMode === "placeLine"
                   ? "cursor-crosshair"
                   : dragState?.mode === "pan"
@@ -3552,7 +3584,7 @@ export function FloorplanAnnexEditor({
             )}
             {canvasSvg && (
               <div
-                className="relative z-10 h-full w-full"
+                className="relative z-10 h-full w-full transform-gpu"
                 dangerouslySetInnerHTML={{ __html: canvasSvg }}
               />
             )}
