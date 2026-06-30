@@ -30,7 +30,7 @@ import { useExtractionJob } from "../hooks/useExtractionJob";
 import { isInferenceConfigured } from "../types/inference";
 import type { Interviewee } from "../types/interviewee";
 import { parseSelectedAnnexes } from "../components/AnnexSelector";
-import { validateAnnexPages, getRequiredPageIndices } from "../constants/annexDefinitions";
+import { validateAnnexPages, getRequiredPageIndices, buildAnnexAttachmentList, sortAnnexIds } from "../constants/annexDefinitions";
 import { downloadDocx, generateFireReportDocx } from "../lib/generateFireReportDocx";
 import { generatePrrDocx, getPrrFilename } from "../lib/generatePrrDocx";
 import {
@@ -52,6 +52,10 @@ import { ReportEditorNav } from "../components/ReportEditorNav";
 import { PREVIEW_NAV_ID } from "../lib/reportSectionStatus";
 import { REPORT_FORM_SECTIONS } from "../constants/reportFormSections";
 import { generateAnnexDBlobs, generateAnnexFBlobs } from "../lib/photoLogAnnexes";
+import {
+  getPendingRoomScanDelivery,
+  ROOM_SCAN_DELIVERY_EVENT,
+} from "../lib/roomScanDelivery";
 import {
   createPhotoCopy,
   createPhotoLogEntry,
@@ -159,6 +163,28 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     () => transcriptionJobId ?? null,
     [transcriptionJobId],
   );
+
+  useEffect(() => {
+    const openAnnexSection = () => {
+      setActiveSectionId("8");
+      setReportFields((prev) => {
+        const ids = parseSelectedAnnexes(prev.selectedAnnexes);
+        if (ids.includes("C")) return prev;
+        const nextIds = sortAnnexIds([...ids, "C"]);
+        return {
+          ...prev,
+          selectedAnnexes: nextIds.join(","),
+          annexAttachmentList: buildAnnexAttachmentList(nextIds),
+        };
+      });
+    };
+
+    window.addEventListener(ROOM_SCAN_DELIVERY_EVENT, openAnnexSection);
+    if (getPendingRoomScanDelivery()) {
+      openAnnexSection();
+    }
+    return () => window.removeEventListener(ROOM_SCAN_DELIVERY_EVENT, openAnnexSection);
+  }, []);
 
   const handleAnnexOverrideChange = useCallback((pageIndex: number, blob: Blob | null) => {
     setAnnexImageOverrides((prev) => {

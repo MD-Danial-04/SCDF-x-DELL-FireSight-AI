@@ -498,6 +498,12 @@ export function TranscriptPageEditor({
           interviewLanguage={page.interviewLanguage}
           initialResponses={page.questionResponses}
           demoMode={hasDemoGuidedInterview ? demoGuidedConfig?.demoMode : undefined}
+          onRecordingStart={(startTime) => {
+            if (!page.recordedStartTime) {
+              onRecordingStart(startTime);
+            }
+          }}
+          onRecordingStop={onRecordingStop}
           onComplete={handleGuidedComplete}
           onClose={() => setShowGuided(false)}
         />

@@ -1,10 +1,14 @@
-import { useState } from "react";
-import { Outlet, NavLink, useLocation } from "react-router";
+import { useState, useEffect } from "react";
+import { Outlet, NavLink, useLocation, useNavigate } from "react-router";
 import { LayoutDashboard, FileText, FolderOpen, Flame, Home, Plus, Settings, User } from "lucide-react";
 import { cn } from "./ui/utils";
 import { Button } from "./ui/button";
 import { DevSettingsDialog } from "./DevSettingsDialog";
 import { LayoutHeaderContext } from "../context/LayoutHeaderContext";
+import {
+  getPendingRoomScanDelivery,
+  ROOM_SCAN_DELIVERY_EVENT,
+} from "../lib/roomScanDelivery";
 
 type NavItem = {
   to: string;
@@ -136,6 +140,30 @@ function BottomNav({ onOpenSettings }: { onOpenSettings: () => void }) {
   );
 }
 
+function RoomScanDeliveryNavigator() {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    const navigateToReport = () => {
+      if (pathname === "/report" || pathname === "/slides" || pathname === "/incident") {
+        return;
+      }
+      navigate("/report", {
+        state: { initialSectionId: "8" },
+      });
+    };
+
+    window.addEventListener(ROOM_SCAN_DELIVERY_EVENT, navigateToReport);
+    if (getPendingRoomScanDelivery() && pathname !== "/report" && pathname !== "/incident") {
+      navigateToReport();
+    }
+    return () => window.removeEventListener(ROOM_SCAN_DELIVERY_EVENT, navigateToReport);
+  }, [navigate, pathname]);
+
+  return null;
+}
+
 export function Layout() {
   const location = useLocation();
   const [devSettingsOpen, setDevSettingsOpen] = useState(false);
@@ -168,6 +196,7 @@ export function Layout() {
         setDocumentId,
       }}
     >
+    <RoomScanDeliveryNavigator />
     <div className="min-h-screen flex bg-surface">
       {/* Desktop sidebar */}
       <aside

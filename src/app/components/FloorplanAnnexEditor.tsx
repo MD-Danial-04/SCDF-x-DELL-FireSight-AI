@@ -88,6 +88,11 @@ import {
   subscribeRoomScanLibrary,
   type RoomScanLibraryItem,
 } from "../lib/roomScanLibrary";
+import {
+  clearPendingRoomScanDelivery,
+  getPendingRoomScanDelivery,
+  ROOM_SCAN_DELIVERY_EVENT,
+} from "../lib/roomScanDelivery";
 import { svgStringToAnnexTemplatePngBlob } from "../lib/svgToAnnexPng";
 import {
   createDraft,
@@ -1849,6 +1854,30 @@ export function FloorplanAnnexEditor({
       setImporting(false);
     }
   }
+
+  const processScanItemRef = useRef(processScanItem);
+  processScanItemRef.current = processScanItem;
+
+  useEffect(() => {
+    const tryLoadPending = () => {
+      window.setTimeout(() => {
+        const pending = getPendingRoomScanDelivery();
+        if (!pending) return;
+        const item = getRoomScanLibrary().find((entry) => entry.id === pending.scanId);
+        if (!item) return;
+        clearPendingRoomScanDelivery();
+        void processScanItemRef.current(item).then(() => {
+          requestAnimationFrame(() => {
+            canvasRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        });
+      }, 0);
+    };
+
+    window.addEventListener(ROOM_SCAN_DELIVERY_EVENT, tryLoadPending);
+    tryLoadPending();
+    return () => window.removeEventListener(ROOM_SCAN_DELIVERY_EVENT, tryLoadPending);
+  }, []);
 
   function applyScanFromLibrary(item: RoomScanLibraryItem) {
     if (canvasHasContent()) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -34,6 +34,10 @@ import type { FloorplanDraftPayload } from "../lib/floorplanDrafts";
 import type { AnnexEMarker } from "../lib/annexEMarkers";
 import type { PhotoAnalysisPartialEntry, PhotoAnalysisReportContext } from "../lib/buildPhotoAnalysisContext";
 import type { SuggestedPhotoSection } from "../types/photoAnalysis";
+import {
+  getPendingRoomScanDelivery,
+  ROOM_SCAN_DELIVERY_EVENT,
+} from "../lib/roomScanDelivery";
 
 interface AnnexSelectorProps {
   selectedIds: string[];
@@ -160,6 +164,25 @@ export function AnnexSelector({
     mediaQuery.addEventListener("change", sync);
     return () => mediaQuery.removeEventListener("change", sync);
   }, []);
+
+  const ensureFloorplanEditorOpen = useCallback(() => {
+    if (!getPendingRoomScanDelivery()) return;
+    if (!selectedIds.includes("C")) {
+      const next = sortAnnexIds([...selectedIds, "C"]);
+      onChange(next, buildAnnexAttachmentList(next));
+      return;
+    }
+    setOpenEditorId("C");
+    if (isMobile) {
+      setMobileEditorRowId("C");
+    }
+  }, [isMobile, onChange, selectedIds]);
+
+  useEffect(() => {
+    window.addEventListener(ROOM_SCAN_DELIVERY_EVENT, ensureFloorplanEditorOpen);
+    ensureFloorplanEditorOpen();
+    return () => window.removeEventListener(ROOM_SCAN_DELIVERY_EVENT, ensureFloorplanEditorOpen);
+  }, [ensureFloorplanEditorOpen]);
 
   const toggle = (id: string, checked: boolean) => {
     const next = checked
