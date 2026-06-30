@@ -63,16 +63,16 @@ export const FIRE_MOD_RUBBISH_DEMO_SCENARIO: DemoScenario = {
   label: "Fire (Moderate) — Rubbish Chute — demo",
   incidentTypeId: "fire-moderate-rubbish",
   stopMessage:
-    "PL221 Stop for 7 Ubi Avenue case of fire minor. Fire involved discarded items inside a rubbish bin. Scdf extinguished fire using 1x hosereel, no damages as a result from the fire. Case classified as c2 accidental due to drop light. Case handed over to SSS MICHAEL T03438 jurong west npc",
+    "PL221 Stop for 91 Ubi Avenue 4 case of fire minor. Fire involved discarded items inside a rubbish bin. Scdf extinguished fire using 1x hosereel, no damages as a result from the fire. Case classified as c2 accidental due to drop light. Case handed over to SSS MICHAEL T03438 jurong west npc",
   fieldNotes: "",
   recordFirst: true,
   guidedInterview: {
     title: "Fire witness — Leading questions",
     questions: FIRE_WITNESS_DEMO_QUESTIONS,
     fixedAnswers: [
-      "I saw smoke coming from the rubbish bin near the loading bay. There were small flames inside the bin.",
-      "Around 2pm. I was walking back from lunch when I smelled something burning.",
-      "No, I didn't see anyone nearby. The area was quiet when I passed by.",
+      "Smoke, flames",
+      "2pm lunch",
+      "Nobody",
     ],
   },
 };
