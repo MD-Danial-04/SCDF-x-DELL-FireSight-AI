@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import { addRoomScanFromJson } from "./roomScanLibrary";
+import { requestRoomScanFloorplanDelivery } from "./roomScanDelivery";
 
 /**
  * Bridge that lets the FireSight iOS host (a WKWebView) deliver a captured room
@@ -29,7 +30,8 @@ function decodeBase64Utf8(base64: string): string {
 function deliver(json: string): boolean {
   try {
     const item = addRoomScanFromJson(json);
-    toast.success(`Room scan "${item.name}" added from iPhone`);
+    requestRoomScanFloorplanDelivery(item.id);
+    toast.success(`Room scan "${item.name}" added — opening Annex C floor plan editor`);
     return true;
   } catch (error) {
     const message =

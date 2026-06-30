@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
@@ -35,6 +35,10 @@ import {
 } from "../types/interviewee";
 import { cn } from "./ui/utils";
 
+function formatClockTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
 const STATUS_LABELS: Record<QuestionCoverageStatus, string> = {
   answered: "Answered",
   partial: "Partial",
@@ -56,6 +60,8 @@ interface GuidedInterviewViewProps {
   interviewLanguage: InterviewLanguage;
   initialResponses?: QuestionResponse[];
   demoMode?: GuidedInterviewDemoMode;
+  onRecordingStart?: (startTime: string) => void;
+  onRecordingStop?: (endTime: string) => void;
   onComplete: (result: GuidedInterviewResult) => void;
   onClose: () => void;
 }
@@ -74,6 +80,8 @@ export function GuidedInterviewView({
   interviewLanguage,
   initialResponses,
   demoMode,
+  onRecordingStart,
+  onRecordingStop,
   onComplete,
   onClose,
 }: GuidedInterviewViewProps) {
@@ -84,6 +92,7 @@ export function GuidedInterviewView({
     demoMode,
   });
   const [showSummary, setShowSummary] = useState(false);
+  const sessionStartedRef = useRef(false);
 
   const showBilingual = interviewLanguage !== "en";
   const total = guided.queue.length;
@@ -128,7 +137,16 @@ export function GuidedInterviewView({
   };
 
   const handleConfirm = () => {
+    onRecordingStop?.(formatClockTime(new Date()));
     onComplete(guided.buildResult());
+  };
+
+  const handleStartRecording = async () => {
+    if (!sessionStartedRef.current) {
+      sessionStartedRef.current = true;
+      onRecordingStart?.(formatClockTime(new Date()));
+    }
+    await guided.startRecording();
   };
 
   const overlay = (
@@ -297,6 +315,7 @@ export function GuidedInterviewView({
                     item={current}
                     isLast={guided.currentIndex >= total - 1}
                     onFinish={() => void handleFinish()}
+                    onStartRecording={() => void handleStartRecording()}
                   />
 
                   <AnswerPanel
@@ -344,11 +363,13 @@ function RecorderPanel({
   item,
   isLast,
   onFinish,
+  onStartRecording,
 }: {
   guided: ReturnType<typeof useGuidedInterview>;
   item: GuidedQuestion;
   isLast: boolean;
   onFinish: () => void;
+  onStartRecording: () => void;
 }) {
   const transcribing = guided.transcribingItems.has(item.itemId);
   const hasResponse = hasAnswer(guided.responses[item.itemId]);
@@ -455,7 +476,7 @@ function RecorderPanel({
       <Button
         type="button"
         size="lg"
-        onClick={() => void guided.startRecording()}
+        onClick={onStartRecording}
       >
         {hasResponse ? (
           <>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
@@ -35,9 +35,13 @@ import { useTranscriptionJob } from "../hooks/useTranscriptionJob";
 import { AiProcessingDialog } from "../components/AiProcessingDialog";
 import { AudioWaveform } from "../components/AudioWaveform";
 import { isInferenceConfigured } from "../types/inference";
+import { randomDemoDelayMs } from "../lib/loadingTiming";
 
 const FAM_DEMO_SELECT_ID = "demo-fam";
-const DEMO_TYPEWRITER_DURATION_MS = 2500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const NON_DEMO_STOP_MESSAGE =
   "Red Rhino 1 stop at location, case of fire mod. Upon arrival, white smoke seen in the lift shaft. Upon investigation, fire found in CRC of block 123 involving rubbish contents. CD extinguished fire using 2x hosereel. Case classified as C2 accidental due to naked light. Case handed over to SGT John Tan T123456 from Ang Mo Kio NPC.";
@@ -71,40 +75,13 @@ export function StopMessage() {
     fieldNotes: string;
   } | null>(null);
   const [demoFieldNotesRevealed, setDemoFieldNotesRevealed] = useState(false);
-
-  const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const clearTypewriterTimer = useCallback(() => {
-    if (typewriterTimerRef.current) {
-      clearInterval(typewriterTimerRef.current);
-      typewriterTimerRef.current = null;
-    }
-  }, []);
+  const [demoProcessing, setDemoProcessing] = useState(false);
 
   const clearRecordingState = useCallback(() => {
     stop();
-    clearTypewriterTimer();
-  }, [stop, clearTypewriterTimer]);
+  }, [stop]);
 
   useEffect(() => () => clearRecordingState(), [clearRecordingState]);
-
-  const startDemoTypewriter = useCallback((stopMessage: string) => {
-    const chunks = stopMessage.split(/\s+/).filter(Boolean);
-    if (chunks.length === 0) return;
-
-    const intervalMs = Math.max(50, Math.floor(DEMO_TYPEWRITER_DURATION_MS / chunks.length));
-    let index = 0;
-    setVoiceTranscript("");
-
-    typewriterTimerRef.current = setInterval(() => {
-      index += 1;
-      setVoiceTranscript(chunks.slice(0, index).join(" "));
-      if (index >= chunks.length && typewriterTimerRef.current) {
-        clearInterval(typewriterTimerRef.current);
-        typewriterTimerRef.current = null;
-      }
-    }, intervalMs);
-  }, []);
 
   const loadDemoScenario = useCallback((scenario: DemoScenario, selectId: string) => {
     const type = incidentTypes.find((t) => t.id === scenario.incidentTypeId);
@@ -196,7 +173,6 @@ export function StopMessage() {
   const handleRecord = async () => {
     if (useLiveInference) {
       if (!isMediaRecording) {
-        clearTypewriterTimer();
         try {
           await startMediaRecording();
           start();
@@ -206,7 +182,6 @@ export function StopMessage() {
         return;
       }
 
-      clearTypewriterTimer();
       stop();
       try {
         const blob = await stopMediaRecording();
@@ -219,27 +194,23 @@ export function StopMessage() {
     }
 
     if (!isRecording) {
-      clearTypewriterTimer();
       start();
-      if (recordDemoPending) {
-        setAsrActive(true);
-        startDemoTypewriter(recordDemoPending.stopMessage);
-      }
     } else {
-      clearTypewriterTimer();
       stop();
-      toast.success("Recording stopped and transcribed");
-      if (recordDemoPending) {
-        setVoiceTranscript(recordDemoPending.stopMessage);
-      } else {
-        setVoiceTranscript(NON_DEMO_STOP_MESSAGE);
+      const stopMessage = recordDemoPending?.stopMessage ?? NON_DEMO_STOP_MESSAGE;
+      setDemoProcessing(true);
+      try {
+        await sleep(randomDemoDelayMs());
+        setVoiceTranscript(stopMessage);
+        setAsrActive(true);
+        toast.success("Recording transcribed");
+      } finally {
+        setDemoProcessing(false);
       }
-      setAsrActive(true);
     }
   };
 
   const handleResetTemplate = () => {
-    clearTypewriterTimer();
     setVoiceTranscript("");
     setAsrActive(false);
     if (selectedIncidentType) {
@@ -337,7 +308,7 @@ export function StopMessage() {
 
   return (
     <div className="space-y-8">
-      <AiProcessingDialog open={isProcessing} kind="transcription" />
+      <AiProcessingDialog open={isProcessing || demoProcessing} kind="transcription" />
       <PageHeader
         title="Incident report / slides"
         description="Select incident type, capture your stop message, then generate a report or slides."
@@ -458,7 +429,7 @@ export function StopMessage() {
                         {formatTime(recordingTime)}
                       </span>
                     )}
-                    {isProcessing && (
+                    {(isProcessing || demoProcessing) && (
                       <span className="text-sm text-muted-foreground flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Transcribing…
@@ -468,7 +439,7 @@ export function StopMessage() {
                       onClick={handleRecord}
                       size="lg"
                       variant={isActivelyRecording ? "secondary" : "default"}
-                      disabled={isProcessing || !selectedIncidentType}
+                      disabled={isProcessing || demoProcessing || !selectedIncidentType}
                     >
                       {isActivelyRecording ? (
                         <>
