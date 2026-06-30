@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Textarea } from "./ui/textarea";
 import {
   useGuidedInterview,
+  type GuidedInterviewDemoMode,
   type GuidedInterviewResult,
   type GuidedQuestion,
 } from "../hooks/useGuidedInterview";
@@ -54,6 +55,7 @@ interface GuidedInterviewViewProps {
   questions: LeadingQuestion[];
   interviewLanguage: InterviewLanguage;
   initialResponses?: QuestionResponse[];
+  demoMode?: GuidedInterviewDemoMode;
   onComplete: (result: GuidedInterviewResult) => void;
   onClose: () => void;
 }
@@ -71,6 +73,7 @@ export function GuidedInterviewView({
   questions,
   interviewLanguage,
   initialResponses,
+  demoMode,
   onComplete,
   onClose,
 }: GuidedInterviewViewProps) {
@@ -78,6 +81,7 @@ export function GuidedInterviewView({
     questions,
     interviewLanguage,
     initialResponses,
+    demoMode,
   });
   const [showSummary, setShowSummary] = useState(false);
 
@@ -349,7 +353,7 @@ function RecorderPanel({
   const transcribing = guided.transcribingItems.has(item.itemId);
   const hasResponse = hasAnswer(guided.responses[item.itemId]);
 
-  if (!guided.useLiveInference) {
+  if (!guided.useRecordingUi) {
     return (
       <p className="rounded-xl border border-dashed border-gray-300 bg-white p-3 text-xs text-gray-500">
         Live transcription is not configured. Type the interviewee's answer in the
@@ -480,7 +484,7 @@ function AnswerPanel({
   response: QuestionResponse | undefined;
   showBilingual: boolean;
 }) {
-  if (!guided.useLiveInference) {
+  if (!guided.useRecordingUi) {
     return (
       <div>
         <Textarea

@@ -40,6 +40,11 @@ import {
   type LeadingQuestion,
 } from "../constants/leadingQuestions";
 import {
+  buildDemoGuidedInterviewMode,
+  getDemoScenarioById,
+} from "../constants/demoScenarios";
+import { useOptionalReportSession } from "../context/ReportSessionContext";
+import {
   INTERVIEW_SECTIONS,
   getInterviewSection,
   type InterviewSection,
@@ -236,6 +241,17 @@ export function TranscriptPageEditor({
   onRemoveInterviewerQuestions,
   onRevertClean,
 }: TranscriptPageEditorProps) {
+  const session = useOptionalReportSession();
+  const demoScenario = session?.demoScenarioId
+    ? getDemoScenarioById(session.demoScenarioId)
+    : undefined;
+  const demoGuidedConfig = demoScenario
+    ? buildDemoGuidedInterviewMode(demoScenario)
+    : undefined;
+  const hasDemoGuidedInterview = Boolean(
+    demoGuidedConfig && Object.keys(demoGuidedConfig.demoMode.fixedAnswers).length > 0
+  );
+
   const section = getInterviewSection(page.sectionId);
   const isLeadingQuestions = section.kind === "leading-questions";
   const isProfile = section.kind === "profile";
@@ -245,7 +261,14 @@ export function TranscriptPageEditor({
   const activeLeadingQuestions = LEADING_QUESTION_SETS.find(
     (option) => option.id === page.leadingQuestionSet
   );
-  const leadingQuestions: LeadingQuestion[] = activeLeadingQuestions?.questions ?? [];
+  const guidedQuestionSetTitle =
+    hasDemoGuidedInterview && demoGuidedConfig
+      ? demoGuidedConfig.title
+      : (activeLeadingQuestions?.title ?? "");
+  const leadingQuestions: LeadingQuestion[] =
+    hasDemoGuidedInterview && demoGuidedConfig
+      ? demoGuidedConfig.questions
+      : (activeLeadingQuestions?.questions ?? []);
   const coverageMap = analysisResult
     ? new Map(analysisResult.coverage.map((item) => [item.id, item]))
     : undefined;
@@ -262,7 +285,7 @@ export function TranscriptPageEditor({
   );
   const [showGuided, setShowGuided] = useState(false);
 
-  const canRunGuided = page.leadingQuestionSet !== "none";
+  const canRunGuided = page.leadingQuestionSet !== "none" || hasDemoGuidedInterview;
   const hasGuidedResponses = (page.questionResponses?.length ?? 0) > 0;
 
   const handleGuidedComplete = (result: GuidedInterviewResult) => {
@@ -467,16 +490,24 @@ export function TranscriptPageEditor({
 
   return (
     <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
-      {showGuided && activeLeadingQuestions ? (
+      {showGuided && (activeLeadingQuestions || hasDemoGuidedInterview) ? (
         <GuidedInterviewView
           intervieweeName={interviewee.name}
-          questionSetTitle={activeLeadingQuestions.title}
+          questionSetTitle={guidedQuestionSetTitle}
           questions={leadingQuestions}
           interviewLanguage={page.interviewLanguage}
           initialResponses={page.questionResponses}
+          demoMode={hasDemoGuidedInterview ? demoGuidedConfig?.demoMode : undefined}
           onComplete={handleGuidedComplete}
           onClose={() => setShowGuided(false)}
         />
+      ) : null}
+
+      {hasDemoGuidedInterview ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Demo interview — answers are pre-seeded. Recording animations run without
+          calling transcription or analysis.
+        </p>
       ) : null}
 
       <InterviewProgress stage={isAnalyzing ? "analyzing" : null} />
@@ -532,7 +563,9 @@ export function TranscriptPageEditor({
           </p>
           <p className="text-xs text-gray-500">
             {canRunGuided
-              ? "Step through each leading question, record answers one at a time, and get AI follow-ups as you go."
+              ? hasDemoGuidedInterview
+                ? "Step through 3 demo witness questions. Record each answer to see the animation; fixed transcripts are injected automatically."
+                : "Step through each leading question, record answers one at a time, and get AI follow-ups as you go."
               : "Select a leading question set above to run the guided interview."}
           </p>
         </div>
@@ -557,7 +590,7 @@ export function TranscriptPageEditor({
         <div className="space-y-4">
           {transcriptBlock}
 
-          {activeLeadingQuestions ? (
+          {activeLeadingQuestions || hasDemoGuidedInterview ? (
             <>
               <Collapsible
                 open={showLeadingQuestions}
@@ -582,24 +615,26 @@ export function TranscriptPageEditor({
                         : "Show leading questions"}
                     </Button>
                   </CollapsibleTrigger>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={
-                      !page.transcriptEnglish.trim() ||
-                      isAnalyzing ||
-                      !isCoordinatorConfigured()
-                    }
-                    onClick={onAnalyze}
-                  >
-                    {isAnalyzing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="mr-2 h-4 w-4" />
-                    )}
-                    Re-analyze
-                  </Button>
+                  {!hasDemoGuidedInterview ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={
+                        !page.transcriptEnglish.trim() ||
+                        isAnalyzing ||
+                        !isCoordinatorConfigured()
+                      }
+                      onClick={onAnalyze}
+                    >
+                      {isAnalyzing ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-2 h-4 w-4" />
+                      )}
+                      Re-analyze
+                    </Button>
+                  ) : null}
                 </div>
                 <CollapsibleContent className="space-y-3">
                   <p className="text-xs text-gray-500">
@@ -607,7 +642,7 @@ export function TranscriptPageEditor({
                     status and follow-up prompts.
                   </p>
                   <LeadingQuestionsPanel
-                    title={activeLeadingQuestions.title}
+                    title={guidedQuestionSetTitle}
                     questions={leadingQuestions}
                     interviewLanguage={page.interviewLanguage}
                     coverage={coverageMap}
@@ -615,7 +650,7 @@ export function TranscriptPageEditor({
                 </CollapsibleContent>
               </Collapsible>
 
-              {analysisResult ? (
+              {analysisResult && !hasDemoGuidedInterview ? (
                 <Collapsible
                   open={showFollowUps}
                   onOpenChange={setShowFollowUps}
