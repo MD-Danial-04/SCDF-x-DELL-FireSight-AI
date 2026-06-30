@@ -4,7 +4,9 @@ import {
   ClipboardCopy,
   Loader2,
   Plus,
+  Scissors,
   Sparkles,
+  Undo2,
   Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -190,6 +192,8 @@ interface TranscriptPageEditorProps {
   analysisResult?: AnalyzeInterviewResponse;
   isAnalyzing: boolean;
   isExtracting: boolean;
+  isCleaning: boolean;
+  canRevertClean: boolean;
   onSectionChange: (sectionId: InterviewSectionId) => void;
   onLeadingSetChange: (set: LeadingQuestionSet) => void;
   onLanguageChange: (language: InterviewLanguage) => void;
@@ -203,6 +207,8 @@ interface TranscriptPageEditorProps {
   onAddFollowUpToFacts: (text: string) => void;
   onSingpassRetrieved: (person: MyInfoPerson) => void;
   onGuidedComplete: (result: GuidedInterviewResult) => void;
+  onRemoveInterviewerQuestions: () => void;
+  onRevertClean: () => void;
 }
 
 export function TranscriptPageEditor({
@@ -212,6 +218,8 @@ export function TranscriptPageEditor({
   analysisResult,
   isAnalyzing,
   isExtracting,
+  isCleaning,
+  canRevertClean,
   onSectionChange,
   onLeadingSetChange,
   onLanguageChange,
@@ -225,6 +233,8 @@ export function TranscriptPageEditor({
   onAddFollowUpToFacts,
   onSingpassRetrieved,
   onGuidedComplete,
+  onRemoveInterviewerQuestions,
+  onRevertClean,
 }: TranscriptPageEditorProps) {
   const section = getInterviewSection(page.sectionId);
   const isLeadingQuestions = section.kind === "leading-questions";
@@ -260,9 +270,46 @@ export function TranscriptPageEditor({
     setShowGuided(false);
   };
 
+  const hasAnyTranscript =
+    page.transcriptEnglish.trim().length > 0 ||
+    page.transcriptOriginal.trim().length > 0;
+
   const transcriptBlock = (
     <div>
-      <Label>{transcriptLabel}</Label>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label>{transcriptLabel}</Label>
+        {hasAnyTranscript ? (
+          <div className="flex items-center gap-2">
+            {canRevertClean ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onRevertClean}
+                disabled={isCleaning}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <Undo2 className="mr-1 h-3.5 w-3.5" />
+                Undo
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onRemoveInterviewerQuestions}
+              disabled={isCleaning}
+            >
+              {isCleaning ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Scissors className="mr-1 h-3.5 w-3.5" />
+              )}
+              Remove interviewer questions
+            </Button>
+          </div>
+        ) : null}
+      </div>
       <Tabs defaultValue="english" className="mt-2">
         <TabsList>
           <TabsTrigger value="original">Original</TabsTrigger>

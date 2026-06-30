@@ -54,6 +54,7 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { cn } from "./ui/utils";
 import {
+  buildAmendmentTransform,
   createBlankFloorplan,
   createDefaultObjectBox,
   extractImportedObjectBoxElements,
@@ -644,12 +645,25 @@ export function FloorplanAnnexEditor({
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [fileName, setFileName] = useState(initialEditorState.fileName);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  // True while a pointer gesture (pan/pinch/move/rotate/resize) is in flight.
+  // While gesturing we mutate the live SVG imperatively and skip overlay
+  // reflow; React state is committed once on release.
+  const [gesturing, setGesturing] = useState(false);
   const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{
     startDist: number;
     startCamera: FloorplanViewBox;
     anchor: { x: number; y: number };
   } | null>(null);
+  // Live-gesture plumbing: dragState mirror (so the rAF flush reads the latest
+  // value regardless of closure), latest pointer position, snapshot of each
+  // target's amendment at gesture start, the rAF handle, and the imperatively
+  // computed camera awaiting commit.
+  const dragStateRef = useRef<DragState | null>(null);
+  const pendingPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const gestureBaseAmendmentsRef = useRef<Record<string, FloorplanAmendment>>({});
+  const gestureRafRef = useRef<number | null>(null);
+  const liveCameraRef = useRef<FloorplanViewBox | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [history, setHistory] = useState<FloorplanHistoryEntry[]>([]);
   const [textEditState, setTextEditState] = useState<TextEditState | null>(null);
@@ -1867,7 +1881,7 @@ export function FloorplanAnnexEditor({
     setHistory([]);
     setTextEditState(null);
     setLineDraft(null);
-    setDragState(null);
+    updateDragState(null);
     setEditorMode("select");
     setClearDialogOpen(false);
     requestAnimationFrame(() => {
@@ -1908,28 +1922,6 @@ export function FloorplanAnnexEditor({
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
     return clientToSvg(clientX, clientY, computeSvgViewportMapping(rect, camera), camera);
-  }
-
-  function applyPinchZoom(
-    startCamera: FloorplanViewBox,
-    anchor: { x: number; y: number },
-    startDist: number,
-    currentDist: number,
-  ) {
-    if (!baseViewBox || startDist <= 0 || currentDist <= 0) return;
-    const minWidth = baseViewBox.width * 0.03;
-    const maxWidth = baseViewBox.width * 6;
-    const factor = startDist / currentDist;
-    const nextWidth = clamp(startCamera.width * factor, minWidth, maxWidth);
-    const nextHeight = (nextWidth / startCamera.width) * startCamera.height;
-    const ratioX = (anchor.x - startCamera.x) / startCamera.width;
-    const ratioY = (anchor.y - startCamera.y) / startCamera.height;
-    setCamera({
-      x: anchor.x - ratioX * nextWidth,
-      y: anchor.y - ratioY * nextHeight,
-      width: nextWidth,
-      height: nextHeight,
-    });
   }
 
   function applyZoom(factor: number, clientX?: number, clientY?: number) {
@@ -2062,6 +2054,191 @@ export function FloorplanAnnexEditor({
     return selectedIds.includes(layerId) && selectedIds.length > 1 ? selectedIds : [layerId];
   }
 
+  // Keep a ref mirror of dragState so the rAF flush always reads the latest
+  // value, independent of which render's closure scheduled it.
+  function updateDragState(next: DragState | null) {
+    dragStateRef.current = next;
+    setDragState(next);
+  }
+
+  // Snapshot the amendments for the gesture targets and flag the gesture so the
+  // render path can skip overlay reflow while we mutate the live SVG.
+  function beginGesture(targetIds: string[]) {
+    const snapshot: Record<string, FloorplanAmendment> = {};
+    for (const id of targetIds) {
+      snapshot[id] = { ...amendments[id] };
+    }
+    gestureBaseAmendmentsRef.current = snapshot;
+    pendingPointerRef.current = null;
+    liveCameraRef.current = null;
+    setGesturing(true);
+  }
+
+  function getGestureNode(id: string): SVGGraphicsElement | null {
+    return (
+      canvasRef.current?.querySelector<SVGGraphicsElement>(
+        `[data-fs-node-id="${CSS.escape(id)}"]`,
+      ) ?? null
+    );
+  }
+
+  function computeMoveAmendments(
+    clientX: number,
+    clientY: number,
+    ds: Extract<DragState, { mode: "move-layer" }>,
+  ): { id: string; amendment: FloorplanAmendment }[] | null {
+    const point = getSvgPoint(clientX, clientY);
+    if (!point) return null;
+    const deltaX = point.x - ds.startPoint.x;
+    const deltaY = point.y - ds.startPoint.y;
+    return ds.targetIds.map((id) => ({
+      id,
+      amendment: {
+        ...gestureBaseAmendmentsRef.current[id],
+        translateX: ds.startTranslations[id].x + deltaX,
+        translateY: ds.startTranslations[id].y + deltaY,
+      },
+    }));
+  }
+
+  function computeRotateAmendment(
+    clientX: number,
+    clientY: number,
+    ds: Extract<DragState, { mode: "rotate-layer" }>,
+  ): { id: string; amendment: FloorplanAmendment } | null {
+    const point = getSvgPoint(clientX, clientY);
+    if (!point) return null;
+    const angle = Math.atan2(point.y - ds.center.y, point.x - ds.center.x);
+    const nextRotation = ds.startRotation + ((angle - ds.startAngle) * 180) / Math.PI;
+    return {
+      id: ds.targetId,
+      amendment: {
+        ...gestureBaseAmendmentsRef.current[ds.targetId],
+        rotation: Number(nextRotation.toFixed(1)),
+      },
+    };
+  }
+
+  function computePanCamera(
+    clientX: number,
+    clientY: number,
+    ds: Extract<DragState, { mode: "pan" }>,
+  ): FloorplanViewBox | null {
+    const scale = getViewportScale();
+    if (!scale) return null;
+    return {
+      ...ds.startCamera,
+      x: ds.startCamera.x - (clientX - ds.startX) / scale,
+      y: ds.startCamera.y - (clientY - ds.startY) / scale,
+    };
+  }
+
+  function computePinchCamera(
+    pinch: { startDist: number; startCamera: FloorplanViewBox; anchor: { x: number; y: number } },
+    currentDist: number,
+  ): FloorplanViewBox | null {
+    if (!baseViewBox || pinch.startDist <= 0 || currentDist <= 0) return null;
+    const minWidth = baseViewBox.width * 0.03;
+    const maxWidth = baseViewBox.width * 6;
+    const factor = pinch.startDist / currentDist;
+    const nextWidth = clamp(pinch.startCamera.width * factor, minWidth, maxWidth);
+    const nextHeight = (nextWidth / pinch.startCamera.width) * pinch.startCamera.height;
+    const ratioX = (pinch.anchor.x - pinch.startCamera.x) / pinch.startCamera.width;
+    const ratioY = (pinch.anchor.y - pinch.startCamera.y) / pinch.startCamera.height;
+    return {
+      x: pinch.anchor.x - ratioX * nextWidth,
+      y: pinch.anchor.y - ratioY * nextHeight,
+      width: nextWidth,
+      height: nextHeight,
+    };
+  }
+
+  // Apply a camera imperatively to the live <svg> viewBox (no React render) and
+  // stash it so it can be committed to state on release.
+  function applyLiveCamera(next: FloorplanViewBox) {
+    liveCameraRef.current = next;
+    const svg = getFloorplanSvg();
+    if (svg) {
+      svg.setAttribute("viewBox", `${next.x} ${next.y} ${next.width} ${next.height}`);
+    }
+  }
+
+  function scheduleGestureFlush() {
+    if (gestureRafRef.current != null) return;
+    gestureRafRef.current = requestAnimationFrame(flushGesture);
+  }
+
+  function cancelGestureFlush() {
+    if (gestureRafRef.current != null) {
+      cancelAnimationFrame(gestureRafRef.current);
+      gestureRafRef.current = null;
+    }
+  }
+
+  // Runs at most once per frame. Reads the latest pointer + dragState from refs
+  // and mutates the live SVG directly. Move/rotate set a node transform;
+  // pan/pinch set the viewBox; resize falls back to coalesced React state.
+  function flushGesture() {
+    gestureRafRef.current = null;
+
+    if (pinchRef.current && activePointersRef.current.size >= 2) {
+      const points = Array.from(activePointersRef.current.values());
+      const dist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      const nextCamera = computePinchCamera(pinchRef.current, dist);
+      if (nextCamera) applyLiveCamera(nextCamera);
+      return;
+    }
+
+    const ds = dragStateRef.current;
+    const pending = pendingPointerRef.current;
+    if (!ds || !pending) return;
+
+    switch (ds.mode) {
+      case "pan": {
+        const nextCamera = computePanCamera(pending.clientX, pending.clientY, ds);
+        if (nextCamera) applyLiveCamera(nextCamera);
+        return;
+      }
+      case "move-layer": {
+        const updates = computeMoveAmendments(pending.clientX, pending.clientY, ds);
+        if (!updates) return;
+        for (const { id, amendment } of updates) {
+          const node = getGestureNode(id);
+          if (!node) continue;
+          const transform = buildAmendmentTransform(node, amendment);
+          if (transform) node.setAttribute("transform", transform);
+          else node.removeAttribute("transform");
+        }
+        return;
+      }
+      case "rotate-layer": {
+        const update = computeRotateAmendment(pending.clientX, pending.clientY, ds);
+        if (!update) return;
+        const node = getGestureNode(update.id);
+        if (!node) return;
+        const transform = buildAmendmentTransform(node, update.amendment);
+        if (transform) node.setAttribute("transform", transform);
+        else node.removeAttribute("transform");
+        return;
+      }
+      case "resize-layer": {
+        applyResizeAt(pending.clientX, pending.clientY, ds);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (gestureRafRef.current != null) {
+        cancelAnimationFrame(gestureRafRef.current);
+        gestureRafRef.current = null;
+      }
+    };
+  }, []);
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!camera) return;
     const canvas = canvasRef.current;
@@ -2076,8 +2253,9 @@ export function FloorplanAnnexEditor({
         const midY = (points[0].y + points[1].y) / 2;
         const anchor = getSvgPoint(midX, midY);
         if (anchor) {
-          setDragState(null);
+          updateDragState(null);
           pinchRef.current = { startDist: dist || 1, startCamera: camera, anchor };
+          beginGesture([]);
         }
         return;
       }
@@ -2177,25 +2355,27 @@ export function FloorplanAnnexEditor({
         targetIds.map((id) => [id, { x: amendments[id]?.translateX ?? 0, y: amendments[id]?.translateY ?? 0 }])
       );
       captureHistory();
-      setDragState({
+      updateDragState({
         mode: "move-layer",
         pointerId: event.pointerId,
         targetIds,
         startPoint: point,
         startTranslations,
       });
+      beginGesture(targetIds);
     } else {
       if (!(event.shiftKey || event.ctrlKey || event.metaKey)) {
         setSingleSelection(null);
         setSelectedGroupId(null);
       }
-      setDragState({
+      updateDragState({
         mode: "pan",
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
         startCamera: camera,
       });
+      beginGesture([]);
     }
     if (shouldCapturePointer) {
       canvas.setPointerCapture(event.pointerId);
@@ -2218,20 +2398,119 @@ export function FloorplanAnnexEditor({
     setTextEditState((current) => (current ? { ...current, value: nextValue } : current));
   }
 
+  // Resize math (kept on React state, but rAF-coalesced to one update/frame).
+  function applyResizeAt(
+    clientX: number,
+    clientY: number,
+    ds: Extract<DragState, { mode: "resize-layer" }>,
+  ) {
+    const point = getSvgPoint(clientX, clientY);
+    if (!point) return;
+    const deltaX = point.x - ds.startPoint.x;
+    const deltaY = point.y - ds.startPoint.y;
+    const objectBoxDefaults =
+      ds.targetTag === "objectBox" && baseViewBox
+        ? inferObjectBoxDefaults(baseViewBox, svgText)
+        : null;
+    const imageMinWidth = baseViewBox
+      ? Math.max(baseViewBox.width * 0.01, ds.startSize.width * 0.1)
+      : Math.max(0.25, ds.startSize.width * 0.1);
+    const imageMinHeight = baseViewBox
+      ? Math.max(baseViewBox.height * 0.01, ds.startSize.height * 0.1)
+      : Math.max(0.25, ds.startSize.height * 0.1);
+    const minWidth =
+      ds.targetTag === "image"
+        ? imageMinWidth
+        : objectBoxDefaults
+          ? objectBoxDefaults.width * 0.15
+          : 20;
+    const minHeight =
+      ds.targetTag === "image"
+        ? imageMinHeight
+        : objectBoxDefaults
+          ? objectBoxDefaults.height * 0.15
+          : 20;
+    let nextWidth = Math.max(minWidth, ds.startSize.width + deltaX);
+    let nextHeight = Math.max(minHeight, ds.startSize.height + deltaY);
+
+    if (ds.targetTag === "image") {
+      const startAspectRatio = ds.startSize.width / Math.max(1, ds.startSize.height);
+      const viewportScale = Math.max(getViewportScale() ?? 1, 0.0001);
+      const startScreenWidth = Math.max(12, ds.startSize.width * viewportScale);
+      const startScreenHeight = Math.max(12, ds.startSize.height * viewportScale);
+      const deltaClientX = clientX - ds.startClientX;
+      const deltaClientY = clientY - ds.startClientY;
+      const scaleFromWidth = (startScreenWidth + deltaClientX) / startScreenWidth;
+      const scaleFromHeight = (startScreenHeight + deltaClientY) / startScreenHeight;
+      const widthDominant =
+        Math.abs(deltaClientX / startScreenWidth) >= Math.abs(deltaClientY / startScreenHeight);
+      const scale = Math.max(0.1, widthDominant ? scaleFromWidth : scaleFromHeight);
+      nextWidth = Math.max(minWidth, ds.startSize.width * scale);
+      nextHeight = Math.max(minHeight, nextWidth / Math.max(0.01, startAspectRatio));
+    }
+
+    setAmendments((current) => {
+      const next = { ...current };
+      const currentEntry = { ...next[ds.targetId] };
+      const useScaleResize =
+        !ds.targetIsGenerated &&
+        (ds.targetTag === "rect" ||
+          ds.targetTag === "path" ||
+          ds.targetTag === "polyline" ||
+          ds.targetTag === "polygon");
+
+      if (useScaleResize) {
+        currentEntry.scaleX = Math.max(0.1, ds.startScaleX * (nextWidth / Math.max(1, ds.startSize.width)));
+        currentEntry.scaleY = Math.max(0.1, ds.startScaleY * (nextHeight / Math.max(1, ds.startSize.height)));
+        delete currentEntry.width;
+        delete currentEntry.height;
+        next[ds.targetId] = currentEntry;
+        return next;
+      }
+
+      switch (ds.targetTag) {
+        case "image":
+        case "rect":
+        case "objectBox":
+          currentEntry.width = nextWidth;
+          currentEntry.height = nextHeight;
+          delete currentEntry.scaleX;
+          delete currentEntry.scaleY;
+          break;
+        case "circle":
+          currentEntry.radius = Math.max(10, Math.max(nextWidth, nextHeight) / 2);
+          break;
+        case "ellipse":
+          currentEntry.radiusX = Math.max(10, nextWidth / 2);
+          currentEntry.radiusY = Math.max(10, nextHeight / 2);
+          break;
+        case "line":
+          currentEntry.x2 = (ds.startMetrics.x2 ?? ds.startMetrics.centerX) + deltaX;
+          currentEntry.y2 = (ds.startMetrics.y2 ?? ds.startMetrics.centerY) + deltaY;
+          break;
+        case "polyline":
+        case "polygon":
+          currentEntry.width = nextWidth;
+          currentEntry.height = nextHeight;
+          break;
+        case "path":
+          currentEntry.scaleX = Math.max(0.2, ds.startScaleX * (nextWidth / Math.max(1, ds.startSize.width)));
+          currentEntry.scaleY = Math.max(0.2, ds.startScaleY * (nextHeight / Math.max(1, ds.startSize.height)));
+          break;
+      }
+      next[ds.targetId] = currentEntry;
+      return next;
+    });
+  }
+
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType === "touch" && activePointersRef.current.has(event.pointerId)) {
       activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     }
 
+    // Two-finger pinch: handled imperatively in the rAF flush.
     if (pinchRef.current && activePointersRef.current.size >= 2) {
-      const points = Array.from(activePointersRef.current.values());
-      const dist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
-      applyPinchZoom(
-        pinchRef.current.startCamera,
-        pinchRef.current.anchor,
-        pinchRef.current.startDist,
-        dist,
-      );
+      scheduleGestureFlush();
       return;
     }
 
@@ -2244,201 +2523,110 @@ export function FloorplanAnnexEditor({
 
     if (!dragState || dragState.pointerId !== event.pointerId) return;
 
-    if (dragState.mode === "pan") {
-      const startPoint = getSvgPoint(dragState.startX, dragState.startY);
-      const currentPoint = getSvgPoint(event.clientX, event.clientY);
-      if (!startPoint || !currentPoint) return;
-      setCamera({
-        ...dragState.startCamera,
-        x: dragState.startCamera.x - (currentPoint.x - startPoint.x),
-        y: dragState.startCamera.y - (currentPoint.y - startPoint.y),
-      });
-      return;
-    }
-
-    const point = getSvgPoint(event.clientX, event.clientY);
-    if (!point) return;
-
-    if (dragState.mode === "move-layer") {
-      const deltaX = point.x - dragState.startPoint.x;
-      const deltaY = point.y - dragState.startPoint.y;
-      setAmendments((current) => {
-        const next = { ...current };
-        for (const id of dragState.targetIds) {
-          next[id] = {
-            ...next[id],
-            translateX: dragState.startTranslations[id].x + deltaX,
-            translateY: dragState.startTranslations[id].y + deltaY,
-          };
-        }
-        return next;
-      });
-      return;
-    }
-
-    if (dragState.mode === "resize-layer") {
-      const deltaX = point.x - dragState.startPoint.x;
-      const deltaY = point.y - dragState.startPoint.y;
-      const objectBoxDefaults =
-        dragState.targetTag === "objectBox" && baseViewBox
-          ? inferObjectBoxDefaults(baseViewBox, svgText)
-          : null;
-      const imageMinWidth = baseViewBox
-        ? Math.max(baseViewBox.width * 0.01, dragState.startSize.width * 0.1)
-        : Math.max(0.25, dragState.startSize.width * 0.1);
-      const imageMinHeight = baseViewBox
-        ? Math.max(baseViewBox.height * 0.01, dragState.startSize.height * 0.1)
-        : Math.max(0.25, dragState.startSize.height * 0.1);
-      const minWidth =
-        dragState.targetTag === "image"
-          ? imageMinWidth
-          : objectBoxDefaults
-            ? objectBoxDefaults.width * 0.15
-            : 20;
-      const minHeight =
-        dragState.targetTag === "image"
-          ? imageMinHeight
-          : objectBoxDefaults
-            ? objectBoxDefaults.height * 0.15
-            : 20;
-      let nextWidth = Math.max(minWidth, dragState.startSize.width + deltaX);
-      let nextHeight = Math.max(minHeight, dragState.startSize.height + deltaY);
-
-      if (dragState.targetTag === "image") {
-        const startAspectRatio = dragState.startSize.width / Math.max(1, dragState.startSize.height);
-        const viewportScale = Math.max(getViewportScale() ?? 1, 0.0001);
-        const startScreenWidth = Math.max(12, dragState.startSize.width * viewportScale);
-        const startScreenHeight = Math.max(12, dragState.startSize.height * viewportScale);
-        const deltaClientX = event.clientX - dragState.startClientX;
-        const deltaClientY = event.clientY - dragState.startClientY;
-        const scaleFromWidth = (startScreenWidth + deltaClientX) / startScreenWidth;
-        const scaleFromHeight = (startScreenHeight + deltaClientY) / startScreenHeight;
-        const widthDominant =
-          Math.abs(deltaClientX / startScreenWidth) >= Math.abs(deltaClientY / startScreenHeight);
-        const scale = Math.max(0.1, widthDominant ? scaleFromWidth : scaleFromHeight);
-        nextWidth = Math.max(minWidth, dragState.startSize.width * scale);
-        nextHeight = Math.max(minHeight, nextWidth / Math.max(0.01, startAspectRatio));
-      }
-
-      setAmendments((current) => {
-        const next = { ...current };
-        const currentEntry = { ...next[dragState.targetId] };
-        const useScaleResize =
-          !dragState.targetIsGenerated &&
-          (dragState.targetTag === "rect" ||
-            dragState.targetTag === "path" ||
-            dragState.targetTag === "polyline" ||
-            dragState.targetTag === "polygon");
-
-        if (useScaleResize) {
-          currentEntry.scaleX = Math.max(
-            0.1,
-            dragState.startScaleX * (nextWidth / Math.max(1, dragState.startSize.width)),
-          );
-          currentEntry.scaleY = Math.max(
-            0.1,
-            dragState.startScaleY * (nextHeight / Math.max(1, dragState.startSize.height)),
-          );
-          delete currentEntry.width;
-          delete currentEntry.height;
-          next[dragState.targetId] = currentEntry;
-          return next;
-        }
-
-        switch (dragState.targetTag) {
-          case "image":
-          case "rect":
-          case "objectBox":
-            currentEntry.width = nextWidth;
-            currentEntry.height = nextHeight;
-            delete currentEntry.scaleX;
-            delete currentEntry.scaleY;
-            break;
-          case "circle":
-            currentEntry.radius = Math.max(10, Math.max(nextWidth, nextHeight) / 2);
-            break;
-          case "ellipse":
-            currentEntry.radiusX = Math.max(10, nextWidth / 2);
-            currentEntry.radiusY = Math.max(10, nextHeight / 2);
-            break;
-          case "line":
-            currentEntry.x2 = (dragState.startMetrics.x2 ?? dragState.startMetrics.centerX) + deltaX;
-            currentEntry.y2 = (dragState.startMetrics.y2 ?? dragState.startMetrics.centerY) + deltaY;
-            break;
-          case "polyline":
-          case "polygon":
-            currentEntry.width = nextWidth;
-            currentEntry.height = nextHeight;
-            break;
-          case "path":
-            currentEntry.scaleX = Math.max(
-              0.2,
-              dragState.startScaleX * (nextWidth / Math.max(1, dragState.startSize.width)),
-            );
-            currentEntry.scaleY = Math.max(
-              0.2,
-              dragState.startScaleY * (nextHeight / Math.max(1, dragState.startSize.height)),
-            );
-            break;
-        }
-        next[dragState.targetId] = currentEntry;
-        return next;
-      });
-      return;
-    }
-
-    if (dragState.mode === "rotate-layer") {
-      const angle = Math.atan2(point.y - dragState.center.y, point.x - dragState.center.x);
-      const nextRotation = dragState.startRotation + ((angle - dragState.startAngle) * 180) / Math.PI;
-      setAmendments((current) => ({
-        ...current,
-        [dragState.targetId]: {
-          ...current[dragState.targetId],
-          rotation: Number(nextRotation.toFixed(1)),
-        },
-      }));
-    }
+    // Record the latest pointer and let the rAF flush apply it once per frame.
+    pendingPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
+    scheduleGestureFlush();
   }
 
   function clearDragState(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType === "touch") {
       activePointersRef.current.delete(event.pointerId);
-      if (activePointersRef.current.size < 2) {
-        pinchRef.current = null;
-      }
+    }
+
+    // Pinch end: commit the imperatively-applied camera once the second finger lifts.
+    if (pinchRef.current && activePointersRef.current.size < 2) {
+      pinchRef.current = null;
+      cancelGestureFlush();
+      const committed = liveCameraRef.current;
+      liveCameraRef.current = null;
+      pendingPointerRef.current = null;
+      if (committed) setCamera(committed);
+      setGesturing(false);
     }
 
     if (!dragState || dragState.pointerId !== event.pointerId) return;
     const finishedDrag = dragState;
-    setDragState(null);
+    updateDragState(null);
+    cancelGestureFlush();
     if (canvasRef.current?.hasPointerCapture(event.pointerId)) {
       canvasRef.current.releasePointerCapture(event.pointerId);
     }
 
-    if (finishedDrag.mode !== "move-layer" || !baseViewBox) return;
+    const lastPointer = pendingPointerRef.current ?? {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    pendingPointerRef.current = null;
 
-    const generatedObjectBoxIds = new Set(
-      generatedElements.filter((element) => element.type === "objectBox").map((element) => element.id),
-    );
-    if (!finishedDrag.targetIds.some((id) => generatedObjectBoxIds.has(id))) return;
+    const finish = () => {
+      gestureBaseAmendmentsRef.current = {};
+      setGesturing(false);
+    };
 
-    const point = getSvgPoint(event.clientX, event.clientY);
-    if (!point) return;
-
-    const deltaX = point.x - finishedDrag.startPoint.x;
-    const deltaY = point.y - finishedDrag.startPoint.y;
-    const nextAmendments = { ...amendments };
-    for (const id of finishedDrag.targetIds) {
-      nextAmendments[id] = {
-        ...nextAmendments[id],
-        translateX: finishedDrag.startTranslations[id].x + deltaX,
-        translateY: finishedDrag.startTranslations[id].y + deltaY,
-      };
+    if (finishedDrag.mode === "pan") {
+      const committed =
+        liveCameraRef.current ??
+        computePanCamera(lastPointer.clientX, lastPointer.clientY, finishedDrag);
+      liveCameraRef.current = null;
+      if (committed) setCamera(committed);
+      finish();
+      return;
     }
 
-    const layout = runObjectBoxLayout(generatedElements, nextAmendments);
-    setAmendments(layout.amendments);
-    setGeneratedElements(layout.generatedElements);
+    if (finishedDrag.mode === "move-layer") {
+      if (!baseViewBox) {
+        finish();
+        return;
+      }
+      const point = getSvgPoint(lastPointer.clientX, lastPointer.clientY);
+      if (!point) {
+        finish();
+        return;
+      }
+      const deltaX = point.x - finishedDrag.startPoint.x;
+      const deltaY = point.y - finishedDrag.startPoint.y;
+      const nextAmendments = { ...amendments };
+      for (const id of finishedDrag.targetIds) {
+        nextAmendments[id] = {
+          ...nextAmendments[id],
+          translateX: finishedDrag.startTranslations[id].x + deltaX,
+          translateY: finishedDrag.startTranslations[id].y + deltaY,
+        };
+      }
+
+      const generatedObjectBoxIds = new Set(
+        generatedElements.filter((element) => element.type === "objectBox").map((element) => element.id),
+      );
+      if (finishedDrag.targetIds.some((id) => generatedObjectBoxIds.has(id))) {
+        const layout = runObjectBoxLayout(generatedElements, nextAmendments);
+        setAmendments(layout.amendments);
+        setGeneratedElements(layout.generatedElements);
+      } else {
+        setAmendments(nextAmendments);
+      }
+      finish();
+      return;
+    }
+
+    if (finishedDrag.mode === "rotate-layer") {
+      const update = computeRotateAmendment(lastPointer.clientX, lastPointer.clientY, finishedDrag);
+      if (update) {
+        setAmendments((current) => ({
+          ...current,
+          [update.id]: { ...current[update.id], rotation: update.amendment.rotation },
+        }));
+      }
+      finish();
+      return;
+    }
+
+    if (finishedDrag.mode === "resize-layer") {
+      applyResizeAt(lastPointer.clientX, lastPointer.clientY, finishedDrag);
+      finish();
+      return;
+    }
+
+    finish();
   }
 
   function applyCanvasWheel(deltaX: number, deltaY: number, clientX: number, clientY: number, isZoomGesture: boolean) {
@@ -2636,7 +2824,7 @@ export function FloorplanAnnexEditor({
         }
       : null;
   const selectedNodeBounds =
-    selectedId && canvasRef.current
+    !gesturing && selectedId && canvasRef.current
       ? (() => {
           const node = canvasRef.current.querySelector<SVGGraphicsElement>(`[data-fs-node-id="${selectedId}"]`);
           return node ? getScreenBounds(node) : null;
@@ -2664,7 +2852,7 @@ export function FloorplanAnnexEditor({
     if (!point) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    setDragState({
+    updateDragState({
       mode: "resize-layer",
       pointerId: event.pointerId,
       targetId: selectedId,
@@ -2678,6 +2866,7 @@ export function FloorplanAnnexEditor({
       startMetrics: JSON.parse(JSON.stringify(activeMetrics)),
       startSize: { width: activeMetrics.width, height: activeMetrics.height },
     });
+    beginGesture([selectedId]);
     canvas.setPointerCapture(event.pointerId);
   }
 
@@ -2697,7 +2886,7 @@ export function FloorplanAnnexEditor({
     const startAngle = Math.atan2(point.y - center.y, point.x - center.x);
     const canvas = canvasRef.current;
     if (!canvas) return;
-    setDragState({
+    updateDragState({
       mode: "rotate-layer",
       pointerId: event.pointerId,
       startAngle,
@@ -2705,6 +2894,7 @@ export function FloorplanAnnexEditor({
       startRotation: amendments[selectedId]?.rotation ?? generatedElement?.rotation ?? 0,
       targetId: selectedId,
     });
+    beginGesture([selectedId]);
     canvas.setPointerCapture(event.pointerId);
   }
 
@@ -3325,7 +3515,7 @@ export function FloorplanAnnexEditor({
                 (editorMode === "placeObjectBox" || editorMode === "placeText" || editorMode === "placeLine") && "ring-2 ring-sky-200",
               )}
             >
-            {showGrid && (
+            {showGrid && !gesturing && (
               <div
                 className="pointer-events-none absolute inset-0 z-0"
                 style={gridStyle}

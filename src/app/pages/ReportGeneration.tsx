@@ -2,7 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { FileText, Download, Loader2, RefreshCw, X, Eye } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import { DocxPreviewSurface } from "../components/DocxPreviewSurface";
+import { FileText, Download, Loader2, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { StatusBanner } from "../components/StatusBanner";
@@ -72,10 +81,6 @@ type ReportView = "fir" | "prr";
 /** Static annex template pages (A/B/C/E/G) that receive header value overlays. */
 const STATIC_HEADER_PAGE_INDICES = [0, 1, 2, 4, 8];
 const PRR_SECTION_IDS = ["1", "2", "6"] as const;
-
-/** Default preview zoom: render the fitted page ~1.4x larger for readability
- * (the page scrolls horizontally when it exceeds the viewport width). */
-const DEFAULT_PREVIEW_ZOOM = 1.4;
 
 /** PRR sections derived from the full report config, with photo-reference fields removed. */
 const PRR_SECTION_CONFIGS = REPORT_FORM_SECTIONS
@@ -706,7 +711,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const schedulePreviewFit = useCallback(() => {
     const elements = getPreviewElements();
     if (!elements) return;
-    scheduleDocxPreviewFit(elements, DEFAULT_PREVIEW_ZOOM);
+    scheduleDocxPreviewFit(elements);
   }, [getPreviewElements]);
 
   const renderPreview = useCallback(async (blob: Blob) => {
@@ -751,7 +756,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     if (previewVersion === 0) return;
     const elements = getPreviewElements();
     if (!elements) return;
-    return observeDocxPreviewFit(elements, DEFAULT_PREVIEW_ZOOM);
+    return observeDocxPreviewFit(elements);
   }, [getPreviewElements, previewVersion]);
 
   const handleGenerate = async () => {
@@ -1041,94 +1046,76 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         </Card>
       )}
 
-      {activeSectionId === PREVIEW_NAV_ID && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background">
-          <div className="flex items-center justify-between gap-3 border-b bg-surface-elevated px-4 py-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] shadow-sm">
-            <div className="flex min-w-0 items-center gap-2">
-              <Eye className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate text-sm font-semibold">Document preview</span>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {docBlob && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={reportView === "prr" ? handleUpdatePreviewPrr : handleUpdatePreview}
-                    disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
-                  >
-                    {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
-                      <Loader2 className="h-4 w-4 animate-spin sm:mr-2" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4 sm:mr-2" />
-                    )}
-                    <span className="hidden sm:inline">Update preview</span>
-                  </Button>
-                  <Button size="sm" onClick={handleDownload}>
-                    <Download className="h-4 w-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Download DOCX</span>
-                  </Button>
-                </>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label="Close preview"
-                onClick={() => setActiveSectionId(navVisibleSectionIds[0] ?? "1")}
-              >
-                <X className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Close</span>
-              </Button>
-            </div>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col p-2 sm:p-3">
-            {!docBlob ? (
-              <div className="flex flex-1 items-center justify-center">
-                <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-10 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    No document generated yet. Open the menu and choose
-                    <span className="font-medium text-foreground">
-                      {reportView === "prr" ? " Generate PRR " : " Generate Word Report "}
-                    </span>
-                    to build a preview.
-                  </p>
-                  <Button
-                    className="mt-4"
-                    onClick={reportView === "prr" ? handleGeneratePrr : handleGenerate}
-                    disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
-                  >
-                    {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <FileText className="mr-2 h-4 w-4" />
-                    )}
-                    {reportView === "prr" ? "Generate PRR" : "Generate Word Report"}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <>
-                {previewError && (
-                  <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                    {previewError}
-                  </p>
-                )}
-                {!previewError && previewVersion === 0 && (
-                  <p className="mb-3 text-sm text-muted-foreground">Rendering preview…</p>
-                )}
-                <div
-                  ref={previewViewportRef}
-                  className="docx-preview-viewport min-h-0 flex-1 overflow-auto border rounded-xl bg-muted/40 p-3"
+      <Dialog
+        open={activeSectionId === PREVIEW_NAV_ID}
+        onOpenChange={(open) => {
+          if (!open) setActiveSectionId(navVisibleSectionIds[0] ?? "1");
+        }}
+      >
+        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-3xl xl:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Document preview</DialogTitle>
+            <DialogDescription>
+              This matches the document that will be downloaded.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!docBlob ? (
+            <div className="flex items-center justify-center py-6">
+              <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-10 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No document generated yet. Open the menu and choose
+                  <span className="font-medium text-foreground">
+                    {reportView === "prr" ? " Generate PRR " : " Generate Word Report "}
+                  </span>
+                  to build a preview.
+                </p>
+                <Button
+                  className="mt-4"
+                  onClick={reportView === "prr" ? handleGeneratePrr : handleGenerate}
+                  disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
                 >
-                  <div ref={previewScalerRef} className="docx-preview-scaler mx-auto">
-                    <div ref={previewRef} className="docx-preview-host bg-white" />
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+                  {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  {reportView === "prr" ? "Generate PRR" : "Generate Word Report"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <DocxPreviewSurface
+                viewportRef={previewViewportRef}
+                scalerRef={previewScalerRef}
+                hostRef={previewRef}
+                isRendering={previewVersion === 0}
+                error={previewError}
+              />
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={reportView === "prr" ? handleUpdatePreviewPrr : handleUpdatePreview}
+                  disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
+                >
+                  {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Update preview
+                </Button>
+                <Button onClick={handleDownload}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download DOCX
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {reportView === "prr" && activeSectionId !== PREVIEW_NAV_ID && (
         <Card className="rounded-xl shadow-sm">

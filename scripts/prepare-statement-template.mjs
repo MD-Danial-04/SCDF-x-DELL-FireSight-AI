@@ -121,6 +121,43 @@ function lastParagraphStart(xml, beforeIdx) {
   return last;
 }
 
+// The statement narrative is enclosed in a full-width, page-height bordered box
+// that begins on its own page (matching the SCDF interview statement form). The
+// single-row table is allowed to break across pages so long statements flow on.
+const STATEMENT_BORDER =
+  '<w:top w:val="single" w:sz="8" w:space="0" w:color="000000"/>' +
+  '<w:left w:val="single" w:sz="8" w:space="0" w:color="000000"/>' +
+  '<w:bottom w:val="single" w:sz="8" w:space="0" w:color="000000"/>' +
+  '<w:right w:val="single" w:sz="8" w:space="0" w:color="000000"/>';
+
+const STATEMENT_BOX_BLOCK =
+  // Page break so the boxed statement starts on its own page (tiny font, so the
+  // break paragraph itself adds no visible space).
+  '<w:p><w:pPr><w:spacing w:after="0"/><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr><w:r><w:br w:type="page"/></w:r></w:p>' +
+  '<w:tbl>' +
+  '<w:tblPr>' +
+  '<w:tblW w:w="11520" w:type="dxa"/>' +
+  '<w:tblBorders>' +
+  STATEMENT_BORDER +
+  '<w:insideH w:val="single" w:sz="8" w:space="0" w:color="000000"/>' +
+  '<w:insideV w:val="single" w:sz="8" w:space="0" w:color="000000"/>' +
+  '</w:tblBorders>' +
+  '<w:tblLayout w:type="fixed"/>' +
+  '</w:tblPr>' +
+  '<w:tblGrid><w:gridCol w:w="11520"/></w:tblGrid>' +
+  '<w:tr>' +
+  '<w:trPr><w:trHeight w:val="9000" w:hRule="atLeast"/></w:trPr>' +
+  '<w:tc>' +
+  '<w:tcPr><w:tcW w:w="11520" w:type="dxa"/>' +
+  '<w:tcMar>' +
+  '<w:top w:w="120" w:type="dxa"/><w:left w:w="120" w:type="dxa"/>' +
+  '<w:bottom w:w="120" w:type="dxa"/><w:right w:w="120" w:type="dxa"/>' +
+  '</w:tcMar></w:tcPr>' +
+  '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:sz w:val="24"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>{facts}</w:t></w:r></w:p>' +
+  '</w:tc>' +
+  '</w:tr>' +
+  '</w:tbl>';
+
 function injectFactsBody(xml) {
   const necessaryIdx = xml.indexOf("<w:t>necessary</w:t>");
   if (necessaryIdx === -1) {
@@ -145,16 +182,13 @@ function injectFactsBody(xml) {
     return xml;
   }
 
-  const factsPara =
-    '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:sz w:val="24"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>{facts}</w:t></w:r></w:p>';
-
   const before = xml.slice(0, paraEnd);
   const middle = xml.slice(paraEnd, declParaStart);
   const after = xml.slice(declParaStart);
 
   const cleanedMiddle = middle.replace(/<w:p[^>]*>[\s\S]*?<\/w:p>/g, "");
 
-  return before + cleanedMiddle + factsPara + after;
+  return before + cleanedMiddle + STATEMENT_BOX_BLOCK + after;
 }
 
 // The signature marker uses [[ ]] rather than { } so docxtemplater leaves it

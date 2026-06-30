@@ -20,8 +20,10 @@ import { cn } from "./ui/utils";
 import {
   ANNEX_DEFINITIONS,
   buildAnnexAttachmentList,
+  getAnnexById,
   sortAnnexIds,
 } from "../constants/annexDefinitions";
+import { getDefaultPagePreviewUrl } from "../lib/annexImageAssets";
 import { FloorplanAnnexEditor } from "./FloorplanAnnexEditor";
 import { AnnexImageUploadEditor } from "./AnnexImageUploadEditor";
 import { AnnexEEditor } from "./AnnexEEditor";
@@ -388,6 +390,34 @@ export function AnnexSelector({
     selectedIds,
   ]);
 
+  const annexPreviews = useMemo(() => {
+    const resolvePageImage = (pageIndex: number): string | null =>
+      overrides[pageIndex] ??
+      headerPreviewUrls[pageIndex] ??
+      getDefaultPagePreviewUrl(pageIndex);
+
+    return sortAnnexIds(selectedIds)
+      .map((id) => getAnnexById(id))
+      .filter((annex): annex is (typeof ANNEX_DEFINITIONS)[number] => Boolean(annex))
+      .map((annex) => {
+        const photoLogImages =
+          annex.id === "D"
+            ? photoLogAnnexPreviewUrls.D ?? []
+            : annex.id === "F"
+              ? photoLogAnnexPreviewUrls.F ?? []
+              : [];
+
+        const images =
+          photoLogImages.length > 0
+            ? photoLogImages
+            : annex.pageIndices
+                .map(resolvePageImage)
+                .filter((url): url is string => Boolean(url));
+
+        return { annex, images };
+      });
+  }, [selectedIds, overrides, headerPreviewUrls, photoLogAnnexPreviewUrls]);
+
   const cardsByRow = useMemo(() => {
     const map: Record<string, EditorCardDefinition[]> = {};
     for (const [rowId, cardIds] of Object.entries(ROW_CARD_IDS)) {
@@ -526,6 +556,54 @@ export function AnnexSelector({
             );
           })}
         </Accordion>
+      </div>
+
+      <div className="rounded-xl border border-border bg-white p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-gray-900">Preview all annexes</h3>
+          {photoLogPreviewLoading && (
+            <span className="text-xs text-gray-500">Updating photo log previews…</span>
+          )}
+        </div>
+
+        {annexPreviews.length === 0 ? (
+          <p className="text-xs text-gray-500">
+            Select one or more annexes above to preview them here.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {annexPreviews.map(({ annex, images }) => (
+              <div key={annex.id} className="space-y-2">
+                <p className="text-sm font-medium text-gray-800">
+                  Annex {annex.id} – {formatAnnexTitle(annex.title)}
+                </p>
+                {images.length === 0 ? (
+                  <p className="text-xs text-gray-500">
+                    {(annex.id === "D" || annex.id === "F") && photoLogPreviewLoading
+                      ? "Generating preview…"
+                      : "No preview available yet."}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {images.map((src, index) => (
+                      <div
+                        key={`${annex.id}-${index}`}
+                        className="overflow-hidden rounded-lg border border-slate-200 bg-white"
+                      >
+                        <img
+                          src={src}
+                          alt={`Annex ${annex.id} preview ${index + 1}`}
+                          loading="lazy"
+                          className="block w-full"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {isMobile && (

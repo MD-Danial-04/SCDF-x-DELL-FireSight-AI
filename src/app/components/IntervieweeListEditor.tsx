@@ -35,9 +35,11 @@ import {
 } from "../constants/interviewSections";
 import { useInterviewAnalysis } from "../hooks/useInterviewAnalysis";
 import { useExtractionJob } from "../hooks/useExtractionJob";
+import { useTranscriptCleanup } from "../hooks/useTranscriptCleanup";
 import type { GuidedInterviewResult } from "../hooks/useGuidedInterview";
 import { extractInterviewFields } from "../lib/extractInterviewFields";
 import { mergeIntervieweeFields } from "../lib/mergeIntervieweeFields";
+import { stripQuestionLines } from "../lib/stripInterviewerQuestions";
 import { personToInterviewDetails } from "../lib/singpass/mapMyInfoPerson";
 import { isCoordinatorConfigured } from "../types/inference";
 import type { MyInfoPerson } from "../types/myinfo";
@@ -119,6 +121,7 @@ export function IntervieweeListEditor({
 }: IntervieweeListEditorProps) {
   const { runAnalysis } = useInterviewAnalysis();
   const { runExtraction } = useExtractionJob();
+  const { runCleanup } = useTranscriptCleanup();
   const [analysisResults, setAnalysisResults] = useState<
     Record<string, AnalyzeInterviewResponse>
   >({});
@@ -127,6 +130,10 @@ export function IntervieweeListEditor({
   >({});
   const [analyzingPageId, setAnalyzingPageId] = useState<string | null>(null);
   const [extractingPageId, setExtractingPageId] = useState<string | null>(null);
+  const [cleaningPageId, setCleaningPageId] = useState<string | null>(null);
+  const [preCleanSnapshots, setPreCleanSnapshots] = useState<
+    Record<string, { original: string; english: string }>
+  >({});
   const [previewIntervieweeId, setPreviewIntervieweeId] = useState<string | null>(
     null
   );
@@ -195,6 +202,12 @@ export function IntervieweeListEditor({
       return next;
     });
     setExtractedFieldKeys((prev) => {
+      const next = { ...prev };
+      delete next[pageId];
+      return next;
+    });
+    setPreCleanSnapshots((prev) => {
+      if (!(pageId in prev)) return prev;
       const next = { ...prev };
       delete next[pageId];
       return next;
@@ -307,6 +320,87 @@ export function IntervieweeListEditor({
     } finally {
       setExtractingPageId(null);
     }
+  };
+
+  const cleanPage = async (intervieweeId: string, pageId: string) => {
+    const interviewee = intervieweesRef.current.find(
+      (item) => item.id === intervieweeId
+    );
+    const page = interviewee?.transcriptPages.find((item) => item.id === pageId);
+    if (!interviewee || !page) return;
+
+    const original = page.transcriptOriginal;
+    const english = page.transcriptEnglish;
+    if (!original.trim() && !english.trim()) {
+      toast.error("Add a transcript before removing interviewer questions");
+      return;
+    }
+
+    // Guided transcripts use explicit Q:/A: markers, so we can strip them
+    // locally without a round-trip. Free-form prose needs the coordinator.
+    const hasQAMarkers = /(^|\n)\s*Q:\s/i.test(english || original);
+
+    setCleaningPageId(pageId);
+    try {
+      let cleaned: { original: string; english: string };
+      if (hasQAMarkers || !isCoordinatorConfigured()) {
+        cleaned = {
+          original: stripQuestionLines(original),
+          english: stripQuestionLines(english),
+        };
+      } else {
+        try {
+          cleaned = await runCleanup(original, english, page.interviewLanguage);
+        } catch (err) {
+          toast.warning(
+            err instanceof Error
+              ? `Cleanup service failed (${err.message}); used local fallback`
+              : "Cleanup service failed; used local fallback"
+          );
+          cleaned = {
+            original: stripQuestionLines(original),
+            english: stripQuestionLines(english),
+          };
+        }
+      }
+
+      if (
+        cleaned.original.trim() === original.trim() &&
+        cleaned.english.trim() === english.trim()
+      ) {
+        toast.info("No interviewer questions found to remove");
+        return;
+      }
+
+      setPreCleanSnapshots((prev) => ({
+        ...prev,
+        [pageId]: { original, english },
+      }));
+      patchPage(intervieweeId, pageId, (current) => ({
+        ...current,
+        transcriptOriginal: cleaned.original,
+        transcriptEnglish: cleaned.english,
+      }));
+      toast.success("Interviewer questions removed — tap Undo to restore");
+    } finally {
+      setCleaningPageId(null);
+    }
+  };
+
+  const revertClean = (intervieweeId: string, pageId: string) => {
+    const snapshot = preCleanSnapshots[pageId];
+    if (!snapshot) return;
+    patchPage(intervieweeId, pageId, (current) => ({
+      ...current,
+      transcriptOriginal: snapshot.original,
+      transcriptEnglish: snapshot.english,
+    }));
+    setPreCleanSnapshots((prev) => {
+      const next = { ...prev };
+      delete next[pageId];
+      return next;
+    });
+    toast.success("Transcript restored");
   };
 
   const handleTranscriptsComplete = async (
@@ -556,6 +650,8 @@ export function IntervieweeListEditor({
                         analysisResult={analysisResults[activePage.id]}
                         isAnalyzing={analyzingPageId === activePage.id}
                         isExtracting={extractingPageId === activePage.id}
+                        isCleaning={cleaningPageId === activePage.id}
+                        canRevertClean={Boolean(preCleanSnapshots[activePage.id])}
                         onSectionChange={(sectionId) => {
                           clearPageState(activePage.id);
                           patchPage(interviewee.id, activePage.id, (current) => ({
@@ -631,6 +727,12 @@ export function IntervieweeListEditor({
                             activePage.id,
                             result
                           )
+                        }
+                        onRemoveInterviewerQuestions={() =>
+                          void cleanPage(interviewee.id, activePage.id)
+                        }
+                        onRevertClean={() =>
+                          revertClean(interviewee.id, activePage.id)
                         }
                       />
                     )}
