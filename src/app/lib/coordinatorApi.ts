@@ -1,4 +1,9 @@
-import type { ExtractJobRequest, InferenceJob, InterviewLanguage, MessageType } from "../types/inference";
+import type {
+  ExtractJobRequest,
+  InferenceJob,
+  InterviewLanguage,
+  MessageType,
+} from "../types/inference";
 import type { InterviewQuestionInput } from "../types/interviewAnalysis";
 
 const coordinatorUrl = () =>
@@ -132,6 +137,43 @@ export async function createAnalyzeInterviewJob(
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Failed to create analysis job (${response.status}): ${detail}`);
+  }
+
+  return response.json() as Promise<InferenceJob>;
+}
+
+/**
+ * Create a transcript-cleanup job that removes the interviewer's questions,
+ * keeping the interviewee's words verbatim. Like analyze-interview, this is a
+ * job processed by the worker; poll getInferenceJob until it completes.
+ */
+export async function createCleanTranscriptJob(
+  original: string,
+  english: string,
+  interviewLanguage: InterviewLanguage = "en"
+): Promise<InferenceJob> {
+  const base = coordinatorUrl();
+  const key = webApiKey();
+  if (!base || !key) {
+    throw new Error("Coordinator is not configured (VITE_COORDINATOR_URL / VITE_WEB_API_KEY)");
+  }
+
+  const response = await fetch(`${base}/v1/clean-transcript`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      transcript_original: original,
+      transcript_english: english,
+      interview_language: interviewLanguage,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to create transcript cleanup job (${response.status}): ${detail}`);
   }
 
   return response.json() as Promise<InferenceJob>;

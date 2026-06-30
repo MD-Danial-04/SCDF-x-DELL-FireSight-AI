@@ -100,6 +100,11 @@ export interface ExtractJobRequest {
   incidentTypeName?: string;
 }
 
+export interface CleanTranscriptResult {
+  original: string;
+  english: string;
+}
+
 export function isCoordinatorConfigured(): boolean {
   return Boolean(import.meta.env.VITE_COORDINATOR_URL && import.meta.env.VITE_WEB_API_KEY);
 }

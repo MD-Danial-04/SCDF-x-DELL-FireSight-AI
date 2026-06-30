@@ -799,6 +799,25 @@ function applyAmendmentToNode(node: Element, amendment?: FloorplanAmendment) {
     if (scaledPoints.length > 0) node.setAttribute("points", formatPoints(scaledPoints));
   }
 
+  const transform = buildAmendmentTransform(node, amendment);
+  if (transform) {
+    node.setAttribute("transform", transform);
+  } else {
+    node.removeAttribute("transform");
+  }
+}
+
+/**
+ * Build the SVG transform string for a node + amendment, matching the exact
+ * composition used by the committed render (translate, rotate-about-center,
+ * scale-about-center, then the node's base transform). Shared with the live
+ * drag path so imperative updates during a gesture match the committed result
+ * with no visual jump on release. Returns null when no transform is needed.
+ */
+export function buildAmendmentTransform(
+  node: Element,
+  amendment: FloorplanAmendment,
+): string | null {
   const bounds = getNodeBounds(node);
   const baseTransform = node.getAttribute("data-fs-base-transform")?.trim() ?? "";
   const translateX = amendment.translateX ?? 0;
@@ -823,11 +842,7 @@ function applyAmendmentToNode(node: Element, amendment?: FloorplanAmendment) {
   if (baseTransform) {
     parts.push(baseTransform);
   }
-  if (parts.length > 0) {
-    node.setAttribute("transform", parts.join(" "));
-  } else {
-    node.removeAttribute("transform");
-  }
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 function withAmendment(
