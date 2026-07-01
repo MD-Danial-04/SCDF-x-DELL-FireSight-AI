@@ -18,6 +18,9 @@ export const INTERVIEW_NAV_LABEL = "Interview / Interviewees";
 export const PREVIEW_NAV_ID = "document-preview";
 export const PREVIEW_NAV_LABEL = "Document preview";
 
+/** Nav id when no section is open — show navigation only (e.g. after switching drafts). */
+export const MENU_NAV_ID = "navigation-menu";
+
 /** Context needed to evaluate a section's completion status. */
 export interface SectionStatusContext {
   fields: FireReportData;

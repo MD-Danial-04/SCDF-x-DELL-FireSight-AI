@@ -163,7 +163,7 @@ export function buildSvg(
   if (roomLabel?.text) {
     layers.push(
       `  <g data-layer="labels" fill="#000000" stroke="none">`,
-      `    <text x="${fmt(roomLabel.center.x)}" y="${fmt(roomLabel.center.z)}" text-anchor="middle" dominant-baseline="middle" font-family="Arial, Helvetica, sans-serif" font-size="${fmt(roomLabel.fontSizeM)}">${escapeSvgText(roomLabel.text)}</text>`,
+      `    <text x="${fmt(roomLabel.center.x)}" y="${fmt(roomLabel.center.z)}" text-anchor="middle" dominant-baseline="central" font-family="Arial, Helvetica, sans-serif" font-size="${fmt(roomLabel.fontSizeM)}" fill="#000000">${escapeSvgText(roomLabel.text)}</text>`,
       `  </g>`,
     );
   }
