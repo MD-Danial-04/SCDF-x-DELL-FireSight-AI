@@ -971,7 +971,7 @@ function createGeneratedNode(doc: XMLDocument, element: FloorplanGeneratedElemen
       node.setAttribute("x", String(element.x));
       node.setAttribute("y", String(element.y));
       node.setAttribute("text-anchor", "middle");
-      node.setAttribute("dominant-baseline", "middle");
+      node.setAttribute("dominant-baseline", "central");
       node.setAttribute("font-family", element.fontFamily ?? "Arial, sans-serif");
       node.setAttribute("font-weight", element.fontWeight ?? "400");
       node.setAttribute("font-style", element.fontStyle ?? "normal");
@@ -1070,7 +1070,7 @@ function createGeneratedNode(doc: XMLDocument, element: FloorplanGeneratedElemen
         text.setAttribute("x", String(centerX));
         text.setAttribute("y", String(centerY));
         text.setAttribute("text-anchor", "middle");
-        text.setAttribute("dominant-baseline", "middle");
+        text.setAttribute("dominant-baseline", "central");
         text.setAttribute("font-family", "Arial, Helvetica, sans-serif");
         text.setAttribute("font-size", String(labelFontSize));
         text.setAttribute("fill", "#000000");
@@ -1363,6 +1363,62 @@ export function isFloorplanBackgroundElement(element: Element, viewBox: Floorpla
   return isFullViewBoxBackground(rect, viewBox);
 }
 
+function resolveInheritedFill(element: Element): string {
+  const ownFill = element.getAttribute("fill")?.trim();
+  if (ownFill && ownFill !== "none") return ownFill;
+
+  let parent: Element | null = element.parentElement;
+  while (parent && parent.tagName !== "svg") {
+    const fill = parent.getAttribute("fill")?.trim();
+    if (fill && fill !== "none") return fill;
+    parent = parent.parentElement;
+  }
+
+  return "#000000";
+}
+
+function estimateTextBounds(text: Element): FloorplanViewBox | null {
+  const x = parseNumericLength(text.getAttribute("x"));
+  const y = parseNumericLength(text.getAttribute("y"));
+  const fontSize = parseNumericLength(text.getAttribute("font-size"));
+  if (x == null || y == null || fontSize == null || fontSize <= 0) return null;
+
+  const content = text.textContent ?? "";
+  const width = Math.max(fontSize, content.length * fontSize * 0.55);
+  const anchor = text.getAttribute("text-anchor") ?? "start";
+  const baseline = text.getAttribute("dominant-baseline") ?? "auto";
+
+  let minX = x;
+  if (anchor === "middle") minX = x - width / 2;
+  else if (anchor === "end") minX = x - width;
+
+  let minY = y - fontSize;
+  if (baseline === "middle" || baseline === "central") minY = y - fontSize / 2;
+
+  return { x: minX, y: minY, width, height: fontSize };
+}
+
+function readElementBounds(node: Element, viewBox: FloorplanViewBox): FloorplanViewBox | null {
+  if (isFullViewBoxBackground(node, viewBox)) return null;
+
+  if (node instanceof SVGGraphicsElement) {
+    try {
+      const box = node.getBBox();
+      if (Number.isFinite(box.width) && Number.isFinite(box.height) && (box.width > 0 || box.height > 0)) {
+        return { x: box.x, y: box.y, width: box.width, height: box.height };
+      }
+    } catch {
+      // Fall through to text estimation.
+    }
+  }
+
+  if (node.tagName === "text") {
+    return estimateTextBounds(node);
+  }
+
+  return null;
+}
+
 function measureGraphicsBounds(svgRoot: SVGSVGElement, viewBox: FloorplanViewBox): FloorplanViewBox | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -1370,13 +1426,10 @@ function measureGraphicsBounds(svgRoot: SVGSVGElement, viewBox: FloorplanViewBox
   let maxY = -Infinity;
 
   for (const node of svgRoot.querySelectorAll(MEASURE_GRAPHICS_SELECTOR)) {
-    if (!(node instanceof SVGGraphicsElement)) continue;
     if (node.closest("defs,clipPath,mask,pattern,marker,symbol,style")) continue;
-    if (isFullViewBoxBackground(node, viewBox)) continue;
 
-    const box = node.getBBox();
-    if (!Number.isFinite(box.width) || !Number.isFinite(box.height)) continue;
-    if (box.width === 0 && box.height === 0) continue;
+    const box = readElementBounds(node, viewBox);
+    if (!box || box.width <= 0 || box.height <= 0) continue;
 
     minX = Math.min(minX, box.x);
     minY = Math.min(minY, box.y);
@@ -1392,6 +1445,42 @@ function measureGraphicsBounds(svgRoot: SVGSVGElement, viewBox: FloorplanViewBox
     width: maxX - minX,
     height: maxY - minY,
   };
+}
+
+/** Normalize SVG for canvas/Image rasterization (annex previews and exports). */
+export function prepareSvgForRasterization(
+  svgText: string,
+  options?: { pixelWidth?: number },
+): string {
+  if (typeof document === "undefined") return svgText;
+
+  const { doc, svg } = parseSvgDocument(svgText);
+  const viewBox = inferViewBox(svg);
+  const pixelWidth = options?.pixelWidth ?? 1160;
+  const pixelHeight = Math.max(
+    1,
+    Math.round(pixelWidth * (viewBox.height / Math.max(viewBox.width, 1e-6))),
+  );
+
+  svg.setAttribute("width", String(pixelWidth));
+  svg.setAttribute("height", String(pixelHeight));
+  svg.setAttribute("overflow", "visible");
+
+  for (const style of [...svg.querySelectorAll(":scope > style")]) {
+    style.remove();
+  }
+
+  for (const text of svg.querySelectorAll("text")) {
+    if (!text.getAttribute("fill") || text.getAttribute("fill") === "none") {
+      text.setAttribute("fill", resolveInheritedFill(text));
+    }
+    const baseline = text.getAttribute("dominant-baseline");
+    if (!baseline || baseline === "middle") {
+      text.setAttribute("dominant-baseline", "central");
+    }
+  }
+
+  return new XMLSerializer().serializeToString(doc);
 }
 
 /** Tighten viewBox to actual floorplan geometry so annex compositing centers content. */

@@ -49,7 +49,7 @@ import {
 } from "../lib/fitDocxPreviewToViewport";
 import { ReportFormFields } from "../components/ReportFormFields";
 import { ReportEditorNav } from "../components/ReportEditorNav";
-import { PREVIEW_NAV_ID } from "../lib/reportSectionStatus";
+import { MENU_NAV_ID, PREVIEW_NAV_ID } from "../lib/reportSectionStatus";
 import { REPORT_FORM_SECTIONS } from "../constants/reportFormSections";
 import { generateAnnexDBlobs, generateAnnexFBlobs } from "../lib/photoLogAnnexes";
 import {
@@ -128,9 +128,11 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   } = useReportSession();
   const { runExtraction, error: extractionError } = useExtractionJob();
   const [reportView, setReportView] = useState<ReportView>("fir");
-  const [activeSectionId, setActiveSectionId] = useState<string>(
-    initialSectionId ?? REPORT_FORM_SECTIONS[0]?.id ?? "1"
-  );
+  const [activeSectionId, setActiveSectionId] = useState<string>(() => {
+    if (initialSectionId) return initialSectionId;
+    if (resumeDraftIncidentNo) return MENU_NAV_ID;
+    return REPORT_FORM_SECTIONS[0]?.id ?? "1";
+  });
   const [reportFields, setReportFields] = useState<FireReportData>(() =>
     applyOfficerProfile(createEmptyReportFields())
   );
@@ -968,7 +970,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
 
   const handleReportViewChange = (view: ReportView) => {
     setReportView(view);
-    setActiveSectionId(view === "prr" ? PRR_SECTION_IDS[0] : REPORT_FORM_SECTIONS[0]?.id ?? "1");
+    setActiveSectionId(MENU_NAV_ID);
     setDocBlob(null);
     setPreviewVersion(0);
     setPreviewError(null);
@@ -1025,7 +1027,19 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         )}
       </StatusBanner>}
 
-      {reportView === "fir" && activeSectionId !== PREVIEW_NAV_ID && (
+      {reportView === "fir" && activeSectionId === MENU_NAV_ID && (
+        <Card className="rounded-xl border-dashed shadow-sm">
+          <CardContent className="py-10 text-center">
+            <p className="text-sm text-muted-foreground">
+              Select a report section from the navigation menu to begin editing.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {reportView === "fir" &&
+        activeSectionId !== PREVIEW_NAV_ID &&
+        activeSectionId !== MENU_NAV_ID && (
         <Card className="rounded-xl shadow-sm">
           <CardContent className="space-y-6 pt-6">
             <ReportFormFields
@@ -1075,7 +1089,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
       <Dialog
         open={activeSectionId === PREVIEW_NAV_ID}
         onOpenChange={(open) => {
-          if (!open) setActiveSectionId(navVisibleSectionIds[0] ?? "1");
+          if (!open) setActiveSectionId(MENU_NAV_ID);
         }}
       >
         <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-3xl xl:max-w-4xl">
@@ -1143,7 +1157,19 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         </DialogContent>
       </Dialog>
 
-      {reportView === "prr" && activeSectionId !== PREVIEW_NAV_ID && (
+      {reportView === "prr" && activeSectionId === MENU_NAV_ID && (
+        <Card className="rounded-xl border-dashed shadow-sm">
+          <CardContent className="py-10 text-center">
+            <p className="text-sm text-muted-foreground">
+              Select a report section from the navigation menu to begin editing.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {reportView === "prr" &&
+        activeSectionId !== PREVIEW_NAV_ID &&
+        activeSectionId !== MENU_NAV_ID && (
         <Card className="rounded-xl shadow-sm">
           <CardContent className="space-y-6 pt-6">
             <ReportFormFields

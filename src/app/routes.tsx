@@ -32,9 +32,14 @@ function getRouteSessionValue(state: unknown): ReportSession {
 
 function ReportRoute() {
   const location = useLocation();
+  const session = getRouteSessionValue(location.state);
+  const remountKey =
+    session.resumeDraftIncidentNo ??
+    session.transcriptionJobId ??
+    (session.stopMessage.slice(0, 64) || "new-report");
   return (
-    <ReportSessionProvider value={getRouteSessionValue(location.state)}>
-      <ReportGeneration />
+    <ReportSessionProvider value={session}>
+      <ReportGeneration key={remountKey} />
     </ReportSessionProvider>
   );
 }

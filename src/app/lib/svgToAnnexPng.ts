@@ -1,13 +1,14 @@
 import {
   computeFloorplanFrameFillRect,
   getAnnexAFloorplanFrameRect,
+  ANNEX_A_FLOORPLAN_FRAME,
   ANNEX_A_HEIGHT,
   ANNEX_A_RENDER_SCALE,
   ANNEX_A_WIDTH,
 } from "./annexTemplateLayout";
 import { drawHeaderValuesOnCanvas } from "./annexHeaderOverlay";
 import { getDefaultPagePreviewUrl } from "./annexImageAssets";
-import { normalizeSvgViewBoxToContent } from "./floorplanEditor";
+import { normalizeSvgViewBoxToContent, prepareSvgForRasterization } from "./floorplanEditor";
 import type { PhotoLogHeaderInfo } from "../types/photoLog";
 
 export { ANNEX_A_HEIGHT, ANNEX_A_RENDER_SCALE, ANNEX_A_WIDTH } from "./annexTemplateLayout";
@@ -76,7 +77,10 @@ function encodeCanvasPng(canvas: HTMLCanvasElement): Promise<Blob> {
 export async function svgStringToAnnexPngBlob(svg: string): Promise<Blob> {
   const canvasWidth = ANNEX_A_WIDTH * ANNEX_A_RENDER_SCALE;
   const canvasHeight = ANNEX_A_HEIGHT * ANNEX_A_RENDER_SCALE;
-  const viewBox = parseSvgViewBox(svg);
+  const rasterSvg = prepareSvgForRasterization(normalizeSvgViewBoxToContent(svg), {
+    pixelWidth: canvasWidth,
+  });
+  const viewBox = parseSvgViewBox(rasterSvg);
   const contentWidth = viewBox?.width ?? ANNEX_A_WIDTH;
   const contentHeight = viewBox?.height ?? ANNEX_A_HEIGHT;
 
@@ -87,7 +91,7 @@ export async function svgStringToAnnexPngBlob(svg: string): Promise<Blob> {
     canvasHeight,
   });
 
-  const blob = new Blob([svg], { type: "image/svg+xml" });
+  const blob = new Blob([rasterSvg], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
 
   try {
@@ -128,7 +132,10 @@ export async function svgStringToAnnexTemplatePngBlob(
     throw new Error(`Annex template image not found for page ${templatePageIndex}`);
   }
 
-  const normalizedSvg = normalizeSvgViewBoxToContent(svg);
+  const normalizedSvg = prepareSvgForRasterization(
+    normalizeSvgViewBoxToContent(svg),
+    { pixelWidth: ANNEX_A_FLOORPLAN_FRAME.width * scale },
+  );
   const viewBox = parseSvgViewBox(normalizedSvg);
   const contentWidth = viewBox?.width ?? 1;
   const contentHeight = viewBox?.height ?? 1;

@@ -26,6 +26,7 @@ import { REPORT_FORM_SECTIONS } from "../constants/reportFormSections";
 import {
   INTERVIEW_NAV_ID,
   INTERVIEW_NAV_LABEL,
+  MENU_NAV_ID,
   PREVIEW_NAV_ID,
   PREVIEW_NAV_LABEL,
   countAutoFilled,
@@ -127,6 +128,12 @@ export function ReportEditorNav({
   const setDocumentId = layoutHeader?.setDocumentId;
 
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (activeSectionId !== MENU_NAV_ID) return;
+    const mobileQuery = window.matchMedia("(max-width: 767px)");
+    if (mobileQuery.matches) setOpen(true);
+  }, [activeSectionId]);
 
   useEffect(() => {
     if (!setHasMenu) return;
