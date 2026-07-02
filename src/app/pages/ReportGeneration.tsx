@@ -43,10 +43,7 @@ import {
   hasHeaderValues,
 } from "../lib/annexHeaderOverlay";
 import { getDefaultPagePreviewUrl } from "../lib/annexImageAssets";
-import {
-  observeDocxPreviewFit,
-  scheduleDocxPreviewFit,
-} from "../lib/fitDocxPreviewToViewport";
+import { useDocxPreviewFitWithZoom } from "../hooks/useDocxPreviewFitWithZoom";
 import { ReportFormFields } from "../components/ReportFormFields";
 import { ReportEditorNav } from "../components/ReportEditorNav";
 import { MENU_NAV_ID, PREVIEW_NAV_ID } from "../lib/reportSectionStatus";
@@ -736,11 +733,14 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     return { viewport, host, scaler };
   }, []);
 
-  const schedulePreviewFit = useCallback(() => {
-    const elements = getPreviewElements();
-    if (!elements) return;
-    scheduleDocxPreviewFit(elements);
-  }, [getPreviewElements]);
+  const { scheduleFit: schedulePreviewFit } = useDocxPreviewFitWithZoom(
+    getPreviewElements,
+    previewViewportRef,
+    {
+      active: previewVersion > 0,
+      resetKey: previewVersion,
+    },
+  );
 
   const renderPreview = useCallback(async (blob: Blob) => {
     setPreviewError(null);
@@ -779,13 +779,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     if (activeSectionId !== PREVIEW_NAV_ID || !docBlob) return;
     void renderPreview(docBlob);
   }, [activeSectionId, docBlob, renderPreview]);
-
-  useEffect(() => {
-    if (previewVersion === 0) return;
-    const elements = getPreviewElements();
-    if (!elements) return;
-    return observeDocxPreviewFit(elements);
-  }, [getPreviewElements, previewVersion]);
 
   const handleGenerate = async () => {
     const selected = parseSelectedAnnexes(reportFields.selectedAnnexes);

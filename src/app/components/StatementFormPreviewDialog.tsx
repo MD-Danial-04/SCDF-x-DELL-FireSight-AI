@@ -11,10 +11,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { DocxPreviewSurface } from "./DocxPreviewSurface";
-import {
-  observeDocxPreviewFit,
-  scheduleDocxPreviewFit,
-} from "../lib/fitDocxPreviewToViewport";
+import { useDocxPreviewFitWithZoom } from "../hooks/useDocxPreviewFitWithZoom";
 import type { Interviewee } from "../types/interviewee";
 
 interface StatementFormPreviewDialogProps {
@@ -47,6 +44,11 @@ export function StatementFormPreviewDialog({
     if (!viewport || !host || !scaler) return null;
     return { viewport, host, scaler };
   }, []);
+
+  const { scheduleFit } = useDocxPreviewFitWithZoom(getPreviewElements, viewportRef, {
+    active: open && previewVersion > 0,
+    resetKey: previewVersion,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -95,7 +97,7 @@ export function StatementFormPreviewDialog({
         });
         if (cancelled) return;
         const elements = getPreviewElements();
-        if (elements) scheduleDocxPreviewFit(elements);
+        if (elements) scheduleFit();
         setPreviewVersion((v) => v + 1);
       } catch (err) {
         if (cancelled) return;
@@ -115,14 +117,7 @@ export function StatementFormPreviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, getBlob, getPreviewElements]);
-
-  useEffect(() => {
-    if (!open || previewVersion === 0) return;
-    const elements = getPreviewElements();
-    if (!elements) return;
-    return observeDocxPreviewFit(elements);
-  }, [open, previewVersion, getPreviewElements]);
+  }, [open, getBlob, getPreviewElements, scheduleFit]);
 
   const intervieweeName = interviewee.name.trim() || "Interviewee";
 

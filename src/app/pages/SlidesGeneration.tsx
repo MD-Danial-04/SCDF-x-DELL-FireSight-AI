@@ -482,7 +482,7 @@ export function SlidesGeneration({ onBack }: SlidesGenerationProps) {
       <CardContent className="p-0">
         <div
           ref={previewViewportRef}
-          className="slide-preview-viewport flex items-center justify-center overflow-hidden border rounded-xl bg-muted/40 h-[min(70vh,720px)] xl:h-[min(calc(100vh-7rem),720px)]"
+          className="slide-preview-viewport flex items-center justify-center overflow-auto border rounded-xl bg-muted/40 h-[min(70vh,720px)] xl:h-[min(calc(100vh-7rem),720px)]"
         >
           <ActivationSlidesPreview
             viewportRef={previewViewportRef}

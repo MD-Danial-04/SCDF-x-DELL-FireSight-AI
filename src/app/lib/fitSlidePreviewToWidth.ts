@@ -2,6 +2,7 @@ export const SLIDE_DESIGN_WIDTH = 960;
 
 const FIT_MARGIN = 0;
 const MIN_SCALE = 0.25;
+type ZoomSource = number | (() => number);
 
 export interface FitSlidePreviewElements {
   viewport: HTMLElement;
@@ -14,7 +15,7 @@ export function fitSlidePreviewToViewport({
   viewport,
   host,
   scaler,
-}: FitSlidePreviewElements): boolean {
+}: FitSlidePreviewElements, zoomMultiplier = 1): boolean {
   host.style.transform = "";
   host.style.width = "";
   host.style.height = "";
@@ -35,13 +36,14 @@ export function fitSlidePreviewToViewport({
 
   const scale = Math.min(availW / naturalWidth, availH / naturalHeight, 1);
   const clampedScale = Math.max(scale, MIN_SCALE);
+  const finalScale = clampedScale * Math.max(zoomMultiplier, 1);
 
   host.style.width = `${naturalWidth}px`;
-  host.style.setProperty("--slide-fit-scale", String(clampedScale));
-  host.style.transform = `scale(${clampedScale})`;
+  host.style.setProperty("--slide-fit-scale", String(finalScale));
+  host.style.transform = `scale(${finalScale})`;
   host.style.transformOrigin = "top left";
-  scaler.style.width = `${naturalWidth * clampedScale}px`;
-  scaler.style.height = `${naturalHeight * clampedScale}px`;
+  scaler.style.width = `${naturalWidth * finalScale}px`;
+  scaler.style.height = `${naturalHeight * finalScale}px`;
 
   return true;
 }
@@ -51,10 +53,11 @@ export const fitSlidePreviewToWidth = fitSlidePreviewToViewport;
 
 export function scheduleSlidePreviewFit(
   elements: FitSlidePreviewElements,
+  zoomMultiplier = 1,
   onFit?: () => void
 ): () => void {
   const run = () => {
-    fitSlidePreviewToViewport(elements);
+    fitSlidePreviewToViewport(elements, zoomMultiplier);
     onFit?.();
   };
 
@@ -68,9 +71,12 @@ export function scheduleSlidePreviewFit(
 }
 
 export function observeSlidePreviewFit(
-  elements: FitSlidePreviewElements
+  elements: FitSlidePreviewElements,
+  zoomSource: ZoomSource = 1,
 ): () => void {
-  const run = () => fitSlidePreviewToViewport(elements);
+  const getZoomMultiplier = () =>
+    typeof zoomSource === "function" ? zoomSource() : zoomSource;
+  const run = () => fitSlidePreviewToViewport(elements, getZoomMultiplier());
 
   const viewportObserver = new ResizeObserver(run);
   viewportObserver.observe(elements.viewport);

@@ -1,6 +1,10 @@
 import type { IncidentCategory } from "./incidentTemplates";
+import {
+  AMD_LEADING_QUESTIONS,
+  AMD_LEADING_QUESTIONS_TITLE,
+} from "./leadingQuestions/amd";
 import type { LeadingQuestion } from "./leadingQuestions/types";
-import { loc } from "./leadingQuestions/types";
+import { buildPmdFollowUpAfterAnswer } from "../lib/buildGeneratedLeadingQuestion";
 
 export interface DemoGuidedInterview {
   title: string;
@@ -25,55 +29,18 @@ export interface DemoScenario {
   guidedInterview?: DemoGuidedInterview;
 }
 
-const FIRE_WITNESS_DEMO_QUESTIONS: LeadingQuestion[] = [
-  {
-    id: "witness-what-saw",
-    section: loc("Witness account", "Keterangan saksi", "சாட்சியாளர்", "目击者陈述"),
-    prompt: loc(
-      "What did you see when you noticed the fire?",
-      "Apa yang anda lihat apabila anda perasan kebakaran?",
-      "What did you see when you noticed the fire?",
-      "What did you see when you noticed the fire?"
-    ),
-  },
-  {
-    id: "witness-when-doing",
-    section: loc("Witness account", "Keterangan saksi", "சாட்சியாளர்", "目击者陈述"),
-    prompt: loc(
-      "When did you first notice the fire and what were you doing at the time?",
-      "Bilakah anda mula-mula perasan kebakaran dan apa yang anda lakukan pada masa itu?",
-      "When did you first notice the fire and what were you doing at the time?",
-      "When did you first notice the fire and what were you doing at the time?"
-    ),
-  },
-  {
-    id: "witness-anyone-nearby",
-    section: loc("Witness account", "Keterangan saksi", "சாட்சியாளர்", "目击者陈述"),
-    prompt: loc(
-      "Did you see anyone near the rubbish bin before the fire started?",
-      "Adakah anda nampak sesiapa berhampiran tong sampah sebelum kebakaran bermula?",
-      "Did you see anyone near the rubbish bin before the fire started?",
-      "Did you see anyone near the rubbish bin before the fire started?"
-    ),
-  },
-];
-
 export const FIRE_MOD_RUBBISH_DEMO_SCENARIO: DemoScenario = {
   id: "fire-mod-rubbish",
-  label: "Fire (Moderate) — Rubbish Chute — demo",
+  label: "Fire — PMD — demo",
   incidentTypeId: "fire-moderate-rubbish",
   stopMessage:
-    "PL221 Stop for 91 Ubi Avenue 4 case of fire minor. Fire involved discarded items inside a rubbish bin. Scdf extinguished fire using 1x hosereel, no damages as a result from the fire. Case classified as c2 accidental due to drop light. Case handed over to SSS MICHAEL T03438 jurong west npc",
+    "PL221 Stop for 91 Ubi Avenue 4 case of fire minor. Fire involved PMD. Scdf extinguished fire using 1x hosereel, no damages as a result from the fire. Case classified as c2 accidental due to battery failure. Case handed over to SSS MICHAEL T03438 jurong west npc",
   fieldNotes: "",
   recordFirst: true,
   guidedInterview: {
-    title: "Fire witness — Leading questions",
-    questions: FIRE_WITNESS_DEMO_QUESTIONS,
-    fixedAnswers: [
-      "Smoke, flames",
-      "2pm lunch",
-      "Nobody",
-    ],
+    title: AMD_LEADING_QUESTIONS_TITLE,
+    questions: AMD_LEADING_QUESTIONS,
+    fixedAnswers: ["PMD", "Ninebot E25", "Lithium-ion"],
   },
 };
 
@@ -122,11 +89,12 @@ export function getDemoScenarioById(id: string): DemoScenario | undefined {
 
 export function buildDemoGuidedInterviewMode(
   scenario: DemoScenario
-): { questions: LeadingQuestion[]; title: string; demoMode: { fixedAnswers: Record<string, { original: string; english: string }> } } | undefined {
+): { questions: LeadingQuestion[]; title: string; demoMode: { fixedAnswers: Record<string, { original: string; english: string }>; generateFollowUp?: typeof buildPmdFollowUpAfterAnswer } } | undefined {
   const guided = scenario.guidedInterview;
   if (!guided || guided.questions.length === 0) return undefined;
 
   const fixedAnswers: Record<string, { original: string; english: string }> = {};
+
   guided.questions.forEach((question, index) => {
     const answer = guided.fixedAnswers[index]?.trim() ?? "";
     if (!answer) return;
@@ -136,6 +104,9 @@ export function buildDemoGuidedInterviewMode(
   return {
     questions: guided.questions,
     title: guided.title,
-    demoMode: { fixedAnswers },
+    demoMode: {
+      fixedAnswers,
+      generateFollowUp: buildPmdFollowUpAfterAnswer,
+    },
   };
 }

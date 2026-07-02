@@ -509,13 +509,6 @@ export function TranscriptPageEditor({
         />
       ) : null}
 
-      {hasDemoGuidedInterview ? (
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Demo interview — answers are pre-seeded. Recording animations run without
-          calling transcription or analysis.
-        </p>
-      ) : null}
-
       <InterviewProgress stage={isAnalyzing ? "analyzing" : null} />
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -569,9 +562,7 @@ export function TranscriptPageEditor({
           </p>
           <p className="text-xs text-gray-500">
             {canRunGuided
-              ? hasDemoGuidedInterview
-                ? "Step through 3 demo witness questions. Record each answer to see the animation; fixed transcripts are injected automatically."
-                : "Step through each leading question, record answers one at a time, and get AI follow-ups as you go."
+              ? "Step through each leading question, record answers one at a time, and get follow-ups as you go."
               : "Select a leading question set above to run the guided interview."}
           </p>
         </div>
