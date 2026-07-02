@@ -9,6 +9,10 @@ import {
   toEnglishQuestionInput,
   type LeadingQuestion,
 } from "../constants/leadingQuestions";
+import {
+  randomDemoFollowUpDelayMs,
+  randomDemoSeededTranscribeDelayMs,
+} from "../lib/loadingTiming";
 import { isInferenceConfigured, isCoordinatorConfigured } from "../types/inference";
 import type {
   AnalyzeInterviewResponse,
@@ -24,7 +28,6 @@ import {
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 90;
 const ANALYSIS_DEBOUNCE_MS = 800;
-const DEMO_TRANSCRIBE_DELAY_MS = 800;
 // Segments shorter than this (e.g. a skipped question) are treated as empty and
 // not sent for transcription, to avoid wasting inference calls.
 const SHORT_SEGMENT_MS = 600;
@@ -62,6 +65,10 @@ export interface GuidedInterviewResult {
 
 export interface GuidedInterviewDemoMode {
   fixedAnswers: Record<string, { original: string; english: string }>;
+  generateFollowUp?: (
+    answers: Record<string, string>,
+    lastQuestionId: string
+  ) => { question: LeadingQuestion; demoAnswer: string } | null;
 }
 
 interface UseGuidedInterviewConfig {
@@ -164,6 +171,8 @@ export function useGuidedInterview({
   const analysisInFlightRef = useRef(false);
   const analysisDirtyRef = useRef(false);
   const cancelledRef = useRef(false);
+  const demoFixedAnswersRef = useRef(demoMode?.fixedAnswers ?? {});
+  const demoFollowUpsGeneratedRef = useRef(new Set<string>());
   // Wall-clock time the current continuous segment began recording, used to
   // gate out near-empty (skipped) segments.
   const segmentStartRef = useRef<number | null>(null);
@@ -180,6 +189,11 @@ export function useGuidedInterview({
     },
     []
   );
+
+  useEffect(() => {
+    demoFixedAnswersRef.current = { ...(demoMode?.fixedAnswers ?? {}) };
+    demoFollowUpsGeneratedRef.current = new Set();
+  }, [demoMode]);
 
   const setTranscribing = useCallback((itemId: string, active: boolean) => {
     setTranscribingItems((prev) => {
@@ -268,6 +282,52 @@ export function useGuidedInterview({
     }, ANALYSIS_DEBOUNCE_MS);
   }, [canAnalyze, runAnalysisNow]);
 
+  const appendDemoFollowUp = useCallback(
+    async (item: GuidedQuestion, answersByQuestionId: Record<string, string>) => {
+      if (!isDemoMode || item.isFollowUp || !demoMode?.generateFollowUp) return;
+      if (demoFollowUpsGeneratedRef.current.has(item.questionId)) return;
+
+      const result = demoMode.generateFollowUp(
+        answersByQuestionId,
+        item.questionId
+      );
+      if (!result) return;
+
+      demoFollowUpsGeneratedRef.current.add(item.questionId);
+
+      const itemId = createClientId();
+      const guidedQuestion: GuidedQuestion = {
+        itemId,
+        questionId: result.question.id,
+        promptConduct: getLocalizedText(result.question.prompt, interviewLanguage),
+        promptEnglish: result.question.prompt.en,
+        hintConduct: result.question.hint
+          ? getLocalizedText(result.question.hint, interviewLanguage)
+          : undefined,
+        hintEnglish: result.question.hint?.en,
+        section: result.question.section.en,
+        isFollowUp: true,
+        relatedQuestionId: item.questionId,
+        reason: "Generated from previous answer",
+      };
+
+      demoFixedAnswersRef.current[itemId] = {
+        original: result.demoAnswer,
+        english: result.demoAnswer,
+      };
+
+      setIsAnalyzing(true);
+      try {
+        await sleep(randomDemoFollowUpDelayMs());
+        if (cancelledRef.current) return;
+        setQueue((prevQueue) => [...prevQueue, guidedQuestion]);
+      } finally {
+        if (!cancelledRef.current) setIsAnalyzing(false);
+      }
+    },
+    [demoMode, interviewLanguage, isDemoMode]
+  );
+
   const applyAnswer = useCallback(
     (item: GuidedQuestion, original: string, english: string, jobId?: string) => {
       setResponses((prev) => ({
@@ -281,19 +341,36 @@ export function useGuidedInterview({
           isFollowUp: item.isFollowUp,
         },
       }));
+
+      if (isDemoMode && !item.isFollowUp) {
+        const answersByQuestionId: Record<string, string> = {};
+        for (const queueItem of queueRef.current) {
+          if (queueItem.isFollowUp) continue;
+          const response = responsesRef.current[queueItem.itemId];
+          const text =
+            queueItem.itemId === item.itemId
+              ? english
+              : response?.transcriptEnglish.trim() ||
+                response?.transcriptOriginal.trim() ||
+                "";
+          if (text) answersByQuestionId[queueItem.questionId] = text;
+        }
+        void appendDemoFollowUp(item, answersByQuestionId);
+      }
+
       if (!isDemoMode) scheduleAnalysis();
     },
-    [isDemoMode, scheduleAnalysis]
+    [appendDemoFollowUp, isDemoMode, scheduleAnalysis]
   );
 
   const injectDemoAnswer = useCallback(
     async (item: GuidedQuestion) => {
-      const fixed = demoMode?.fixedAnswers[item.itemId];
+      const fixed = demoFixedAnswersRef.current[item.itemId];
       if (!fixed) return;
       setTranscribing(item.itemId, true);
       setError(null);
       try {
-        await sleep(DEMO_TRANSCRIBE_DELAY_MS);
+        await sleep(randomDemoSeededTranscribeDelayMs());
         if (cancelledRef.current) return;
         applyAnswer(item, fixed.original, fixed.english);
       } finally {

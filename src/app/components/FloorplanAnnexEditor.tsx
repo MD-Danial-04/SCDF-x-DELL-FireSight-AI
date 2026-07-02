@@ -3489,6 +3489,16 @@ export function FloorplanAnnexEditor({
                 <MousePointer2 className="h-4 w-4" />
                 Select
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!selectedId && selectedIds.length === 0}
+                onClick={deleteSelectedNodes}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
               <div className="overflow-x-auto">
                 <div className="flex w-max flex-nowrap gap-2 rounded-xl border border-border bg-white p-1">
                 {OBJECT_BOX_SHAPE_OPTIONS.filter((option) => option.value !== "line").map((option) => {

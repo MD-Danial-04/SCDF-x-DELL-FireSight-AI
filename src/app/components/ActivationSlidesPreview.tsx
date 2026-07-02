@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import {
   ACTIVATION_SLIDE_TEMPLATE_ROWS,
   SLIDE1_TITLE,
@@ -9,8 +9,10 @@ import type { SlidePhotoInput } from "../lib/generateActivationSlides";
 import {
   observeSlidePreviewFit,
   scheduleSlidePreviewFit,
+  fitSlidePreviewToViewport,
   SLIDE_DESIGN_WIDTH,
 } from "../lib/fitSlidePreviewToWidth";
+import { usePreviewPinchZoom } from "../hooks/usePreviewPinchZoom";
 import { Camera } from "lucide-react";
 import slideBackgroundUrl from "../../assets/slides/slide-background.png?url";
 
@@ -147,21 +149,38 @@ export function ActivationSlidesPreview({
   const hostRef = useRef<HTMLDivElement>(null);
   const scalerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const getElements = useCallback(() => {
     const viewport = viewportRef.current;
     const host = hostRef.current;
     const scaler = scalerRef.current;
-    if (!viewport || !host || !scaler) return;
+    if (!viewport || !host || !scaler) return null;
+    return { viewport, host, scaler };
+  }, [viewportRef]);
 
-    const elements = { viewport, host, scaler };
-    const cancelSchedule = scheduleSlidePreviewFit(elements);
-    const unobserve = observeSlidePreviewFit(elements);
+  const getZoomRef = useRef(() => 1);
+
+  const refit = useCallback(() => {
+    const elements = getElements();
+    if (elements) fitSlidePreviewToViewport(elements, getZoomRef.current());
+  }, [getElements]);
+
+  const { getZoom } = usePreviewPinchZoom(viewportRef, refit, {
+    enabled: true,
+  });
+  getZoomRef.current = getZoom;
+
+  useEffect(() => {
+    const elements = getElements();
+    if (!elements) return;
+
+    const cancelSchedule = scheduleSlidePreviewFit(elements, getZoom);
+    const unobserve = observeSlidePreviewFit(elements, getZoom);
 
     return () => {
       cancelSchedule();
       unobserve();
     };
-  }, [viewportRef, data, photos]);
+  }, [getElements, getZoom, data, photos]);
 
   return (
     <div ref={scalerRef} className="mx-auto">

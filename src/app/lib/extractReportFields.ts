@@ -92,6 +92,10 @@ export function extractReportFields(
 
   const applianceCallSign = extractCallSign(t);
   const caseType = matchOne(t, /case of\s+(.+?)(?:\.|upon arrival)/i);
+  const fireInvolvedClause = matchOne(
+    t,
+    /fire involved\s+(.+?)(?:\.|scdf|case\s)/i
+  );
   const stopAddress = extractStopLocationAddress(t);
   const blockNumber = matchOne(t, /block\s+(\d+)/i);
   const smoke = matchOne(t, /(white smoke|black smoke)/i);
@@ -133,7 +137,7 @@ export function extractReportFields(
   return {
     applianceCallSign,
     locationOfFire,
-    fireInvolved: caseType || incidentTypeName || "",
+    fireInvolved: fireInvolvedClause || caseType || incidentTypeName || "",
     methodOfExtinguishment,
     damagesSustained: fireLocation ? `${fireLocation} contents` : "",
     probableCause: classification || cause,
