@@ -1,4 +1,5 @@
 import { defaultCaseId } from "../lib/caseId";
+import { ANNEX_REFERENCE_SOURCE, buildAnnexAttachmentList, getAnnexById } from "../constants/annexDefinitions";
 import { createEmptyInterviewee, type Interviewee } from "./interviewee";
 import type { SuggestedPhotoSection } from "./photoAnalysis";
 
@@ -140,11 +141,11 @@ export function createEmptyReportFields(): FireReportData {
     injuryAddress: "Nil",
     injuryType: "Nil",
     otherInformation: "",
-    annexReferenceSource: "Annexes (A-G).pptx",
+    annexReferenceSource: ANNEX_REFERENCE_SOURCE,
     selectedAnnexes: "A,B",
-    annexAttachmentList: "Annex A – Location Plan\nAnnex B – Site Plan",
-    annexLayoutPlan: "Annex A – Location Plan",
-    annexPhotographs: "Annex B – Site Plan",
+    annexAttachmentList: buildAnnexAttachmentList(["A", "B"]),
+    annexLayoutPlan: getAnnexById("A")!.title,
+    annexPhotographs: getAnnexById("F")!.title,
     preparedBy: "",
     vettedBy: "",
     approvedBy: "",

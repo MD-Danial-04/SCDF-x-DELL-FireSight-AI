@@ -20,8 +20,8 @@ import { getRequiredPageIndices } from "../constants/annexDefinitions";
 import type { PhotoLogEntry } from "../types/photoLog";
 import templateUrl from "../../assets/templates/fire-investigation-report.docx?url";
 
-/** Static annex template pages (A/B/C/E/G) that receive header value overlays on export. */
-const STATIC_HEADER_PAGE_INDICES = [0, 1, 2, 4, 8];
+/** Legacy C/E/G pages retain incident headers; demo A/B have no header fields. */
+const STATIC_HEADER_PAGE_INDICES = [2, 4, 8];
 
 function escapeXml(text: string): string {
   return text

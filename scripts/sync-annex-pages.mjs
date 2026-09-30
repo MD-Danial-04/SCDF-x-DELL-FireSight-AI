@@ -31,6 +31,9 @@ fs.mkdirSync(outDir, { recursive: true });
 
 let copied = 0;
 for (const { exportName, pageIndex } of mappings) {
+  // These pages now come from Demo Report_Final.pptx. Never restore the old
+  // A/B/D/F artwork over the demo templates when syncing legacy annexes.
+  if ([0, 1, 3, 5, 6, 7].includes(pageIndex)) continue;
   const src = path.join(sourceDir, exportName);
   const dest = path.join(outDir, `page-${pageIndex}.png`);
   if (!fs.existsSync(src)) {

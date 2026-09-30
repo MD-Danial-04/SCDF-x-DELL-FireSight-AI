@@ -164,7 +164,9 @@ export async function svgStringToAnnexTemplatePngBlob(
 
     ctx.drawImage(svgImg, fill.x, fill.y, fill.width, fill.height);
 
-    drawHeaderValuesOnCanvas(ctx, header, canvasWidth, canvasHeight);
+    if (templatePageIndex !== 0 && templatePageIndex !== 1) {
+      drawHeaderValuesOnCanvas(ctx, header, canvasWidth, canvasHeight);
+    }
 
     return encodeCanvasPng(canvas);
   } finally {
@@ -214,7 +216,9 @@ export async function imageBlobToAnnexTemplatePngBlob(
     );
     ctx.drawImage(uploadImg, fill.x, fill.y, fill.width, fill.height);
 
-    drawHeaderValuesOnCanvas(ctx, header, canvasWidth, canvasHeight);
+    if (templatePageIndex !== 0 && templatePageIndex !== 1) {
+      drawHeaderValuesOnCanvas(ctx, header, canvasWidth, canvasHeight);
+    }
 
     return encodeCanvasPng(canvas);
   } finally {

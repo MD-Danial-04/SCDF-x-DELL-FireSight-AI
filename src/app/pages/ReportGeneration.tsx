@@ -79,8 +79,8 @@ import type { AnnexGEditorState } from "../components/AnnexGBurnChartEditor";
 
 type ReportView = "fir" | "prr";
 
-/** Static annex template pages (A/B/C/E/G) that receive header value overlays. */
-const STATIC_HEADER_PAGE_INDICES = [0, 1, 2, 4, 8];
+/** Legacy C/E/G pages retain incident headers; demo A/B have no header fields. */
+const STATIC_HEADER_PAGE_INDICES = [2, 4, 8];
 const PRR_SECTION_IDS = ["1", "2", "6"] as const;
 
 /** PRR sections derived from the full report config, with photo-reference fields removed. */

@@ -7,16 +7,18 @@ export interface AnnexDefinition {
   pageIndices: number[];
 }
 
-/** Annex letters A–G; pages 0–4 = A–E, 5–7 = F, 8 = G */
+/** Stable page slots: A=0, B=1, C=2, D=3, E=4, F=5, G=8.
+ * Demo sections 1/2/3/4 replace A/B/F/D; legacy F slots 6/7 are unused.
+ */
 export const ANNEX_DEFINITIONS: AnnexDefinition[] = [
   {
     id: "A",
-    title: "Annex A – Location Plan",
+    title: "Section 1 – Location Plan (Annex A)",
     pageIndices: [0],
   },
   {
     id: "B",
-    title: "Annex B – Site Plan",
+    title: "Section 2 – Site Layout Plan (Annex B)",
     pageIndices: [1],
   },
   {
@@ -26,7 +28,7 @@ export const ANNEX_DEFINITIONS: AnnexDefinition[] = [
   },
   {
     id: "D",
-    title: "Annex D – Table of Photo Log",
+    title: "Section 4 – Photo Description (Annex D)",
     pageIndices: [3],
   },
   {
@@ -36,8 +38,8 @@ export const ANNEX_DEFINITIONS: AnnexDefinition[] = [
   },
   {
     id: "F",
-    title: "Annex F – Photographs",
-    pageIndices: [5, 6, 7],
+    title: "Section 3 – Photo Repository (Annex F)",
+    pageIndices: [5],
   },
   {
     id: "G",
@@ -46,7 +48,7 @@ export const ANNEX_DEFINITIONS: AnnexDefinition[] = [
   },
 ];
 
-export const ANNEX_REFERENCE_SOURCE = "Annexes (A-G).pptx";
+export const ANNEX_REFERENCE_SOURCE = "Demo Report_Final.pptx (Sections 1–4); Annexes (A-G).pptx (C/E/G)";
 
 export const DEFAULT_SELECTED_ANNEXES = ["A", "B"];
 
