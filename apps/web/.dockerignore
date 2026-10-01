@@ -1,5 +1,4 @@
 node_modules/
-dist/
 .vite/
 .env
 .env.*
@@ -7,5 +6,20 @@ dist/
 .git/
 ios/
 Documents/
+src/
+scripts/
+public/
 *.log
 README.md
+package.json
+package-lock.json
+tsconfig.json
+vite.config.ts
+vitest.config.ts
+postcss.config.mjs
+pnpm-workspace.yaml
+index.html
+default_shadcn_theme.css
+ATTRIBUTIONS.md
+guidelines/
+docs/

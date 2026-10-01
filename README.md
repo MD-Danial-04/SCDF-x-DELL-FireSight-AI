@@ -52,7 +52,7 @@ make down
 | Worker       | http://localhost:8000   |
 | Ollama       | http://localhost:11434  |
 
-Compose file: [`docker-compose.yml`](docker-compose.yml). Worker talks to coordinator/Ollama on the internal Docker network; the browser still calls `http://localhost:8080`.
+Compose file: [`docker-compose.yml`](docker-compose.yml). The web image serves a prebuilt `apps/web/dist` via nginx (`make up` builds it first if missing). Worker talks to coordinator/Ollama on the internal Docker network; the browser still calls `http://localhost:8080`.
 
 ### Native (no Docker)
 

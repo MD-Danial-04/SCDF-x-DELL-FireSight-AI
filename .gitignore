@@ -27,3 +27,5 @@ dist/
 xcuserdata/
 *.xcuserstate
 DerivedData/
+.docker-data/
+.docker-run/

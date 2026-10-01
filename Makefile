@@ -2,6 +2,7 @@
 
 # Docker Compose stack (default)
 up:
+	@test -d apps/web/dist || (cd apps/web && npm run build)
 	docker compose up -d --build
 	@echo
 	@echo "Waiting for health..."
