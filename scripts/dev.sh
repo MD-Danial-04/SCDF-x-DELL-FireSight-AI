@@ -85,8 +85,8 @@ start_ollama() {
 
 start_coordinator() {
   local dir="$ROOT/apps/coordinator"
-  if [[ ! -x "$dir/.venv/bin/uvicorn" ]]; then
-    echo "error: missing $dir/.venv/bin/uvicorn — create the venv and pip install -r requirements.txt" >&2
+  if [[ ! -x "$dir/.venv/bin/python" ]]; then
+    echo "error: missing $dir/.venv/bin/python — create the venv and pip install -r requirements.txt" >&2
     exit 1
   fi
   if is_listening 8080; then
@@ -96,7 +96,7 @@ start_coordinator() {
   echo "Starting coordinator..."
   (
     cd "$dir"
-    nohup .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8080 \
+    nohup .venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8080 \
       >"$LOG_DIR/coordinator.log" 2>&1 &
     echo $! >"$PID_DIR/coordinator.pid"
   )
@@ -105,8 +105,8 @@ start_coordinator() {
 
 start_worker() {
   local dir="$ROOT/apps/worker"
-  if [[ ! -x "$dir/.venv/bin/uvicorn" ]]; then
-    echo "error: missing $dir/.venv/bin/uvicorn — create the venv and pip install -r requirements.txt" >&2
+  if [[ ! -x "$dir/.venv/bin/python" ]]; then
+    echo "error: missing $dir/.venv/bin/python — create the venv and pip install -r requirements.txt" >&2
     exit 1
   fi
   if is_listening 8000; then
@@ -116,7 +116,7 @@ start_worker() {
   echo "Starting worker (Whisper may take a while on first load)..."
   (
     cd "$dir"
-    nohup .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 \
+    nohup .venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 \
       >"$LOG_DIR/worker.log" 2>&1 &
     echo $! >"$PID_DIR/worker.pid"
   )
