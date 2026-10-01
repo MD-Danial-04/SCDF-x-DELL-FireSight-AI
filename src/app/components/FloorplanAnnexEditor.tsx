@@ -2964,12 +2964,12 @@ export function FloorplanAnnexEditor({
         <div>
           <div className="flex items-center gap-2">
             <MapIcon className="h-4 w-4 text-primary" />
-            <p className="font-semibold text-foreground">Floorplan editor (Annex C &amp; E)</p>
+            <p className="font-semibold text-foreground">Floorplan editor (Sections 3 and 5)</p>
             <Badge
               variant={enabled ? "secondary" : "outline"}
               className={enabled ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""}
             >
-              {enabled ? "Included in report" : "Select Annex C to attach"}
+              {enabled ? "Included in report" : "Select Section 3 to attach"}
             </Badge>
           </div>
         </div>

@@ -32,7 +32,7 @@ function mergeIncidentRef(currentValue: string, photoNumber: number): string {
   const token = photoRefToken(photoNumber);
 
   if (!trimmed || trimmed === placeholder) {
-    return `See Annex A and ${token}`;
+    return `See Section 1 and ${token}`;
   }
 
   if (alreadyReferencesPhoto(trimmed, photoNumber)) {

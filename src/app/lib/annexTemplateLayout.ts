@@ -1,17 +1,15 @@
-/** Annex A slide dimensions (matches page-0.png and AnnexPageEditor). */
-export const ANNEX_A_WIDTH = 719;
-export const ANNEX_A_HEIGHT = 1058;
+/** Supplied section slide dimensions, normalized to a 720 x 1040 page. */
+export const ANNEX_A_WIDTH = 720;
+export const ANNEX_A_HEIGHT = 1040;
 export const ANNEX_A_RENDER_SCALE = 2;
 
 /**
- * Fixed floorplan slot on the Annex A template — centered on the page, sized to
- * sit in the main sketch area above the SKETCH/LEGEND footer row.
+ * Main sketch frame shared by Sections 1, 2, 3, and 5.
  */
 export const ANNEX_A_FLOORPLAN_FRAME = {
-  width: 580,
-  height: 510,
-  /** Nudge up from geometric page center to balance header vs footer chrome. */
-  centerYOffset: -28,
+  width: 658,
+  height: 892,
+  centerYOffset: 24,
 } as const;
 
 export interface SketchRect {

@@ -102,7 +102,7 @@ export async function appendAnnexImagesToDocx(
     zip.file("[Content_Types].xml")?.asText() ??
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>`;
 
-  const annexBlock: string[] = [buildPageBreak(), buildHeading("ANNEXES")];
+  const annexBlock: string[] = [buildPageBreak(), buildHeading("REPORT SECTIONS")];
   const relIdRef = { value: nextRelId(relsXml) };
   const mediaIndexRef = { value: nextMediaIndex(zip) };
   const docPrIdRef = { value: 1000 };

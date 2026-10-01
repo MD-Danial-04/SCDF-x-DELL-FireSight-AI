@@ -58,20 +58,20 @@ export const incidentTypes: IncidentType[] = [
 
 Fire extinguished with [Number]x [Size, e.g., 38mm/70mm] jet. [No forcible entry conducted / Forcible entry conducted]. No injury reported.
 
-Case classified as [Classification Code, e.g., C2 accidental] due to [Cause, e.g., live firing / naked light]. Case handed over to [Rank & Name] [Tango ID] from [NPC Name] NPC.`,
+Case classified as [Accidental or Intentional] due to [Cause, e.g., live firing / naked light]. Case handed over to [Rank & Name] from [NPC Name] NPC.`,
   },
   {
     id: "fire-moderate-rubbish",
-    name: "Fire (Moderate) — Rubbish Chute",
+    name: "Rubbish Chute Fire",
     category: "fire",
     requiresFireReport: true,
-    template: `[Appliance Call Sign] stop at location, case of fire mod.
+    template: `[Appliance Call Sign] stop at location, case of fire.
 
 Upon arrival, [white smoke / black smoke] seen in the lift shaft. Upon investigation, fire found in CRC of block [Block Number] involving rubbish contents. CD extinguished fire using [Number]x [hosereel / 38mm jet].
 
-Case classified as [Classification Code, e.g., C2 accidental] due to [Cause, e.g., naked light].
+Case classified as [Accidental or Intentional] due to [Cause, e.g., naked light].
 
-Case handed over to [Rank & Name] [Tango ID] from [NPC Name] NPC.`,
+Case handed over to [Rank & Name] from [NPC Name] NPC.`,
   },
   {
     id: "vehicle-container-fire",
@@ -82,9 +82,9 @@ Case handed over to [Rank & Name] [Tango ID] from [NPC Name] NPC.`,
 
 Fire involving [Description of asset, e.g., an 3x5m open container comprising of disposed paint tins / engine compartment of car]. CD at work with [Number]x [Size, e.g., 38mm] jet.
 
-Case classified as [Classification Code, e.g., C2 accidental] due to [Cause, e.g., naked light]. No injuries reported. No forcible entry conducted.
+Case classified as [Accidental or Intentional] due to [Cause, e.g., naked light]. No injuries reported. No forcible entry conducted.
 
-Case handed to [Rank & Name] [Tango ID] from [NPC Name] NPC.`,
+Case handed to [Rank & Name] from [NPC Name] NPC.`,
   },
   {
     id: "rescue-suicide",
@@ -97,7 +97,7 @@ Upon arrival, subject ([Gender]/[Race]/[Age]) apprehended by SPF. Subject sustai
 
 [No forcible entry conducted / Forcible entry conducted by CD using hydraulic tools].
 
-Case handed over to [Rank & Name] [Tango ID] from [NPC Name] NPC.`,
+Case handed over to [Rank & Name] from [NPC Name] NPC.`,
   },
   {
     id: "height-rescue",
@@ -108,7 +108,7 @@ Case handed over to [Rank & Name] [Tango ID] from [NPC Name] NPC.`,
 
 Upon arrival, SCDF accessed patient at [Location, e.g., 2nd floor roof shelter] through [Access point, e.g., level 2 corridor parapet]. [Appliance Call Sign] assisted [Ambulance Call Sign] from level [Floor] parapet using 1x spinal board.
 
-Case handed over to [Rank & Name/Tango ID] from [NPC Name] NPC.`,
+Case handed over to [Rank & Name] from [NPC Name] NPC.`,
   },
   {
     id: "lift-rescue",
@@ -130,7 +130,7 @@ No forcible entry conducted. No injury reported. [No SPF on scene / SPF present]
 
 [Number]x casualties self-evacuated prior to SCDF arrival. No rescue was conducted and no persons were trapped.
 
-Casualties being assessed by [Ambulance Call Sign] crew. Case handed to [Rank & Name/Tango ID] from TP (Traffic Police).`,
+Casualties being assessed by [Ambulance Call Sign] crew. Case handed to [Rank & Name] from TP (Traffic Police).`,
   },
   {
     id: "cardiac-arrest-active",
@@ -165,7 +165,7 @@ Upon arrival, patient found unconscious and [Ambulance Call Sign] paramedic pron
 
 No sign of reading on gas detectors.
 
-Case handed over to [Rank & Name] [Tango ID] from [NPC Name] NPC.`,
+Case handed over to [Rank & Name] from [NPC Name] NPC.`,
   },
   {
     id: "false-alarm-malfunction",
@@ -187,7 +187,7 @@ CD liaised with [Title & Name, e.g., Mr Chella Supervisor / FCC Security].`,
 
 Upon arrival, no smoke, no fire, and no casualties. No sign of reading from gas detector & [Hazmat Detector, e.g., G999].
 
-Case classified as false alarm good intent. Case handed to [Rank & Name] [Tango ID] from [NPC Name] NPC.`,
+Case classified as false alarm good intent. Case handed to [Rank & Name] from [NPC Name] NPC.`,
   },
 ];
 
@@ -197,6 +197,7 @@ export function getIncidentTypesByCategory(): {
   types: IncidentType[];
 }[] {
   return incidentCategoryOrder
+    .filter((category) => category === "fire")
     .map((category) => ({
       category,
       label: incidentCategoryMeta[category].label,

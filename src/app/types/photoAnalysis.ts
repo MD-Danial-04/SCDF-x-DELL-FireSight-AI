@@ -55,7 +55,7 @@ export const SECTION_LINK_BUTTON_LABELS: Record<SuggestedPhotoSection, string> =
 
 /** Default placeholder text for each *PhotoRef field in a new report. */
 export const DEFAULT_PHOTO_REF_PLACEHOLDERS: Record<SuggestedPhotoSection, string> = {
-  incident: "See Annex A and Photos X to XX",
+  incident: "See Section 1 and Photos X to XX",
   damages: "See Photo X",
   area_of_origin: "See Photo X",
   burn_patterns: "See Photo X",
@@ -64,7 +64,7 @@ export const DEFAULT_PHOTO_REF_PLACEHOLDERS: Record<SuggestedPhotoSection, strin
 
 /** Default free-text lead-in for each *PhotoRef field when photos are linked. */
 export const DEFAULT_PHOTO_REF_NOTES: Record<SuggestedPhotoSection, string> = {
-  incident: "See Annex A and",
+  incident: "See Section 1 and",
   damages: "See",
   area_of_origin: "See",
   burn_patterns: "See",

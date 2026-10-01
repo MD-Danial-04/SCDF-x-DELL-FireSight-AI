@@ -18,7 +18,6 @@ import {
   REPORT_FORM_SECTIONS,
   getDefaultOpenSections,
   type ReportFormFieldConfig,
-  type ReportFormSectionConfig,
 } from "../constants/reportFormSections";
 import {
   INTERVIEW_NAV_ID,
@@ -53,17 +52,13 @@ import { PhotoRefChips } from "./PhotoRefChips";
 import type { Interviewee } from "../types/interviewee";
 import type { FloorplanDraftPayload } from "../lib/floorplanDrafts";
 import type { AnnexEMarker } from "../lib/annexEMarkers";
-import type { AnnexGEditorState } from "./AnnexGBurnChartEditor";
 
 interface ReportFormFieldsProps {
   fields: FireReportData;
   extractedKeys: Set<string>;
   onChange: (key: FireReportFieldKey, value: string) => void;
-  visibleSectionIds?: string[];
-  sectionConfigs?: ReportFormSectionConfig[];
   displayMode?: "accordion" | "tabs";
   annexPreviewUrls?: Record<number, string>;
-  annexHeaderPreviewUrls?: Record<number, string>;
   onAnnexOverrideChange?: (pageIndex: number, blob: Blob | null) => void;
   photos?: PhotoLogEntry[];
   photoPreviewUrls?: Record<string, string>;
@@ -86,8 +81,6 @@ interface ReportFormFieldsProps {
   onFloorplanDraftStateChange?: (payload: FloorplanDraftPayload) => void;
   annexEMarkers?: AnnexEMarker[] | null;
   onAnnexEMarkersChange?: (markers: AnnexEMarker[]) => void;
-  annexGState?: AnnexGEditorState | null;
-  onAnnexGStateChange?: (state: AnnexGEditorState) => void;
   onIntervieweesChange?: (interviewees: Interviewee[]) => void;
   onGenerateStatement?: (intervieweeId: string) => void;
   onGenerateAllStatements?: () => void;
@@ -274,11 +267,8 @@ export function ReportFormFields({
   fields,
   extractedKeys,
   onChange,
-  visibleSectionIds,
-  sectionConfigs = REPORT_FORM_SECTIONS,
   displayMode = "accordion",
   annexPreviewUrls = {},
-  annexHeaderPreviewUrls = {},
   onAnnexOverrideChange,
   photos = [],
   photoPreviewUrls = {},
@@ -301,8 +291,6 @@ export function ReportFormFields({
   onFloorplanDraftStateChange,
   annexEMarkers = null,
   onAnnexEMarkersChange,
-  annexGState = null,
-  onAnnexGStateChange,
   onIntervieweesChange,
   onGenerateStatement,
   onGenerateAllStatements,
@@ -314,9 +302,7 @@ export function ReportFormFields({
 }: ReportFormFieldsProps) {
   const statusCtx = { fields, floorplanSvg, photos, annexPreviewUrls };
 
-  const visibleSections = visibleSectionIds
-    ? sectionConfigs.filter((section) => visibleSectionIds.includes(section.id))
-    : sectionConfigs;
+  const visibleSections = REPORT_FORM_SECTIONS;
 
   // The interview editor is surfaced as its own nav sub-item under section 5
   // (tabs mode only); accordion mode keeps it inline within section 5.
@@ -385,10 +371,7 @@ export function ReportFormFields({
               selectedIds={parseSelectedAnnexes(fields.selectedAnnexes)}
               incidentNo={fields.incidentNo}
               locationOfFire={fields.locationOfFire}
-              nameOfVictim={fields.injuryName}
-              nricFinNumber={fields.injuryPin}
               overrides={annexPreviewUrls}
-              headerPreviewUrls={annexHeaderPreviewUrls}
               onOverrideChange={onAnnexOverrideChange}
               photos={photos}
               photoPreviewUrls={photoPreviewUrls}
@@ -409,8 +392,6 @@ export function ReportFormFields({
               onFloorplanDraftStateChange={onFloorplanDraftStateChange}
               annexEMarkers={annexEMarkers}
               onAnnexEMarkersChange={onAnnexEMarkersChange}
-              annexGState={annexGState}
-              onAnnexGStateChange={onAnnexGStateChange}
               onChange={(ids, attachmentList) => {
                 onChange("selectedAnnexes", ids.join(","));
                 onChange("annexAttachmentList", attachmentList);

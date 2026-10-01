@@ -32,18 +32,20 @@ function mockCanvas() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("demo annex replacement", () => {
-  it("maps all four sections and removes the two obsolete F pages", () => {
+  it("maps the six supplied sections and omits Annex G", () => {
     expect(getAnnexById("A")?.title).toContain("Section 1");
     expect(getAnnexById("B")?.title).toContain("Section 2");
-    expect(getAnnexById("F")?.title).toContain("Section 3");
+    expect(getAnnexById("C")?.title).toContain("Section 3");
     expect(getAnnexById("D")?.title).toContain("Section 4");
-    expect(getRequiredPageIndices(["A", "B", "D", "F"])).toEqual([0, 1, 3, 5]);
-    expect(getRequiredPageIndices(["C", "E", "G"])).toEqual([2, 4, 8]);
+    expect(getAnnexById("E")?.title).toContain("Section 5");
+    expect(getAnnexById("F")?.title).toContain("Section 6");
+    expect(getAnnexById("G")).toBeUndefined();
+    expect(getRequiredPageIndices(["A", "B", "C", "D", "E", "F", "G"])).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
   it("generates three photos per repository page with live labels", async () => {
     const text = mockCanvas();
-    const result = await generateAnnexFBlobs(photos(4));
+    const result = await generateAnnexDBlobs(photos(4));
     expect(result).toHaveLength(2);
     expect(text).toContain("3 - 02");
     expect(text).toContain("PHOTO 04:");
@@ -55,7 +57,7 @@ describe("demo annex replacement", () => {
     const text = mockCanvas();
     const data = photos(6);
     data[0].caption = Array.from({ length: 150 }, (_, i) => `word${i}`).join(" ");
-    const result = await generateAnnexDBlobs(data);
+    const result = await generateAnnexFBlobs(data);
     expect(result.length).toBeGreaterThan(2);
     expect(text.join(" ")).toContain("word149");
     for (let i = 0; i < 6; i++) expect(text).toContain(`LIVE_${i}`);

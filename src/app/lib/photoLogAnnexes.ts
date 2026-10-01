@@ -1,6 +1,6 @@
 import { getDefaultPagePreviewUrl } from "./annexImageAssets";
 import { computeContainFitRect } from "./svgToAnnexPng";
-import { getPhotoLogDisplayInfo, type PhotoLogEntry, type PhotoLogHeaderInfo } from "../types/photoLog";
+import { getPhotoLogDisplayInfo, type PhotoLogEntry } from "../types/photoLog";
 
 // Coordinates measured from the supplied deck's 762 x 1100 preview. Render at
 // twice that resolution; retain its native proportions and all page furniture.
@@ -65,10 +65,10 @@ export function wrapPhotoText(ctx: Pick<CanvasRenderingContext2D, "measureText">
   return lines;
 }
 
-/** Section 4 replaces Annex D. Full captions flow onto continuation rows/pages. */
-export async function generateAnnexDBlobs(photos: PhotoLogEntry[], _header?: PhotoLogHeaderInfo): Promise<Blob[]> {
+/** Section 6 supplies Annex F's photo-description table. */
+export async function generateAnnexFBlobs(photos: PhotoLogEntry[]): Promise<Blob[]> {
   if (!photos.length) return [];
-  const template = await loadImage(getDefaultPagePreviewUrl(3)!);
+  const template = await loadImage(getDefaultPagePreviewUrl(5)!);
   const measure = createPage(template, 4, 1).ctx;
   measure.font = "18px Arial";
   const rows: { columns: string[][]; height: number }[] = [];
@@ -91,7 +91,7 @@ export async function generateAnnexDBlobs(photos: PhotoLogEntry[], _header?: Pho
   let current: typeof rows = [];
   let height = 0;
   for (const row of rows) {
-    if (current.length && (height + row.height > 445 || current.length === 5)) {
+    if (current.length && (height + row.height > 410 || current.length === 5)) {
       pages.push(current); current = []; height = 0;
     }
     current.push(row); height += row.height;
@@ -103,13 +103,13 @@ export async function generateAnnexDBlobs(photos: PhotoLogEntry[], _header?: Pho
     const { canvas, ctx } = createPage(template, 4, page + 1);
     // Retain the supplied table header and replace all sample photo IDs/rows.
     ctx.fillStyle = "white";
-    ctx.fillRect(55, 274, 659, 446);
+    ctx.fillRect(55, 274, 659, 412);
     ctx.font = "18px Arial";
     ctx.strokeStyle = "black";
     ctx.lineWidth = 1;
     let y = 274;
     const entries = [...pages[page]];
-    while (entries.length < 5 && entries.reduce((sum, row) => sum + row.height, 0) + 82 <= 445) {
+    while (entries.length < 5 && entries.reduce((sum, row) => sum + row.height, 0) + 82 <= 410) {
       entries.push({ columns: [[], [], []], height: 82 });
     }
     for (const row of entries) {
@@ -126,10 +126,10 @@ export async function generateAnnexDBlobs(photos: PhotoLogEntry[], _header?: Pho
   return output;
 }
 
-/** Section 3 replaces Annex F, with three photographs per supplied slide. */
-export async function generateAnnexFBlobs(photos: PhotoLogEntry[], _header?: PhotoLogHeaderInfo): Promise<Blob[]> {
+/** Section 4 supplies Annex D's photo repository, with three photos per page. */
+export async function generateAnnexDBlobs(photos: PhotoLogEntry[]): Promise<Blob[]> {
   if (!photos.length) return [];
-  const template = await loadImage(getDefaultPagePreviewUrl(5)!);
+  const template = await loadImage(getDefaultPagePreviewUrl(3)!);
   const info = getPhotoLogDisplayInfo(photos);
   const output: Blob[] = [];
   for (let start = 0; start < info.length; start += 3) {
@@ -151,7 +151,7 @@ export async function generateAnnexFBlobs(photos: PhotoLogEntry[], _header?: Pho
       ctx.font = "16px Arial";
       wrapPhotoText(ctx, item.entry.uid, 220).slice(0, 10).forEach((line, i) =>
         ctx.fillText(line, 505, top[slot] + 22 + (labelLines.length + i) * 21));
-      // Captions are shown in full in Section 4's matching photo-description rows.
+      // Captions are shown in full in Section 6's matching photo-description rows.
     }
     output.push(await encode(canvas));
   }

@@ -85,18 +85,12 @@ function PageCard({
   };
 
   const label = getPageLabel(pageIndex, annexId, subIndex);
-  const annexLabel =
-    annexId === "F" && subIndex !== undefined
-      ? ` · F-${subIndex + 1}`
-      : annexId === "D" && subIndex !== undefined
-        ? ` · D-${subIndex + 1}`
-        : ` · Page ${pageIndex}`;
+
 
   return (
     <div className="flex flex-col w-full min-w-0">
       <p className="text-[10px] text-gray-600 mb-0.5 truncate" title={label}>
-        Annex {annexId}
-        {annexLabel}
+        {label}
       </p>
       <div
         tabIndex={readOnly ? undefined : 0}
@@ -105,7 +99,7 @@ function PageCard({
         onBlur={readOnly ? undefined : () => setFocused(false)}
         onPaste={handlePaste}
         onClick={readOnly ? undefined : () => fileRef.current?.click()}
-        className={`relative rounded-md border-2 overflow-hidden aspect-[719/1058] bg-gray-100 transition-colors ${
+        className={`relative rounded-md border-2 overflow-hidden aspect-[720/1040] bg-gray-100 transition-colors ${
           readOnly
             ? "border-gray-200"
             : `cursor-pointer ${focused ? "border-red-500 ring-2 ring-red-200" : "border-gray-200 hover:border-gray-300"}`
@@ -136,10 +130,8 @@ function PageCard({
             (annexId === "A" && pageIndex === 0
               ? "Edited in layout plan editor above"
               : annexId === "E" && pageIndex === 4
-                ? "Edited in Annex E photo-log editor above"
-                : annexId === "G" && pageIndex === 8
-                  ? "Edited in Annex G burn-chart editor above"
-                  : "Read-only preview")}
+                ? "Edited in the Section 5 layout editor above"
+                : "Read-only preview")}
         </p>
       ) : (
         <>
@@ -246,8 +238,7 @@ export function AnnexPageEditor({
       subIndex: annexId === "F" ? subIndex : undefined,
       readOnly:
         (annexId === "A" && pageIndex === 0) ||
-        (annexId === "E" && pageIndex === 4) ||
-        (annexId === "G" && pageIndex === 8),
+        (annexId === "E" && pageIndex === 4),
     }));
   });
 
@@ -261,13 +252,13 @@ export function AnnexPageEditor({
 
   return (
     <div className="space-y-4 mt-4 border-t pt-4">
-      <p className="text-sm font-medium">Annex page images</p>
+      <p className="text-sm font-medium">Section page images</p>
       <p className="text-xs text-gray-500">
-        Paste or upload an image for each selected annex page. Annex D and F update
+        Paste or upload an image for each selected section. Sections 4 and 6 update
         automatically from the photo log.
       </p>
       <p className="text-xs font-semibold text-gray-700">
-        Annexes {selectedIds.join(", ")}
+        Sections {selectedIds.map((id) => "ABCDEF".indexOf(id) + 1).join(", ")}
         <span className="font-normal text-gray-500 ml-1">
           ({totalPages} page{totalPages !== 1 ? "s" : ""})
         </span>
@@ -294,8 +285,7 @@ export function AnnexPageEditor({
               readOnly={
                 readOnly ??
                 ((annexId === "A" && pageIndex === 0) ||
-                  (annexId === "E" && pageIndex === 4) ||
-                  (annexId === "G" && pageIndex === 8))
+                  (annexId === "E" && pageIndex === 4))
               }
               readOnlyCaption={readOnlyCaption}
               loading={showPhotoLogLoading && (annexId === "D" || annexId === "F")}

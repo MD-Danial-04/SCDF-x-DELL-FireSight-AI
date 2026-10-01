@@ -169,10 +169,6 @@ export function getAttachmentsEditorStatus({
     editorRequirements.push(photos.length > 0);
   }
 
-  if (selectedAnnexes.includes("G")) {
-    editorRequirements.push(Boolean(annexPreviewUrls[8]));
-  }
-
   if (editorRequirements.length === 0) {
     return "complete";
   }

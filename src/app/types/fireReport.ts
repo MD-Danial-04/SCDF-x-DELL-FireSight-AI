@@ -103,7 +103,7 @@ export function createEmptyReportFields(): FireReportData {
     station: "",
     coverage: "",
     fireInvolved: "",
-    incidentPhotosRef: "See Annex A and Photos X to XX",
+    incidentPhotosRef: "See Section 1 and Photos X to XX",
     methodOfExtinguishment: "",
     damagesSustained: "",
     damagesPhotoRef: "See Photo X",

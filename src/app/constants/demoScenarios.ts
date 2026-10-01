@@ -31,7 +31,7 @@ export interface DemoScenario {
 
 export const FIRE_MOD_RUBBISH_DEMO_SCENARIO: DemoScenario = {
   id: "fire-mod-rubbish",
-  label: "Fire — PMD — demo",
+  label: "Mobility Device - demo",
   incidentTypeId: "fire-moderate-rubbish",
   stopMessage:
     "PL221 Stop for 91 Ubi Avenue 4 case of fire minor. Fire involved PMD. Scdf extinguished fire using 1x hosereel, no damages as a result from the fire. Case classified as c2 accidental due to battery failure. Case handed over to SSS MICHAEL T03438 jurong west npc",

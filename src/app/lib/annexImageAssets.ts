@@ -6,9 +6,6 @@ import page2 from "../../assets/annexes/page-2.png?url";
 import page3 from "../../assets/annexes/page-3.png?url";
 import page4 from "../../assets/annexes/page-4.png?url";
 import page5 from "../../assets/annexes/page-5.png?url";
-import page6 from "../../assets/annexes/page-6.png?url";
-import page7 from "../../assets/annexes/page-7.png?url";
-import page8 from "../../assets/annexes/page-8.png?url";
 
 const DEFAULT_PAGE_URLS: Record<number, string> = {
   0: page0,
@@ -17,9 +14,6 @@ const DEFAULT_PAGE_URLS: Record<number, string> = {
   3: page3,
   4: page4,
   5: page5,
-  6: page6,
-  7: page7,
-  8: page8,
 };
 
 export type AnnexImageExtension = "png" | "jpeg";

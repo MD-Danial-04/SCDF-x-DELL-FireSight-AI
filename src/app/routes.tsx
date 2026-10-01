@@ -7,7 +7,6 @@ import { ReportGeneration } from "./pages/ReportGeneration";
 import { SlidesGeneration } from "./pages/SlidesGeneration";
 import { Records } from "./pages/Records";
 import { NotFound } from "./pages/NotFound";
-import { AnnexGBurnChartPreview } from "./pages/AnnexGBurnChartPreview";
 import {
   ReportSessionProvider,
   type ReportSession,
@@ -64,7 +63,6 @@ export const router = createBrowserRouter([
       { path: "stop-message", Component: StopMessageRedirect },
       { path: "report", Component: ReportRoute },
       { path: "slides", Component: SlidesRoute },
-      { path: "preview/annex-g", Component: AnnexGBurnChartPreview },
       { path: "*", Component: NotFound },
     ],
   },

@@ -255,11 +255,11 @@ export function PhotoLogEditor({
         progress={progress ?? undefined}
       />
       <div>
-        <p className="text-sm font-medium">Photo log (Annex D &amp; F)</p>
+        <p className="text-sm font-medium">Photo log (Sections 4 &amp; 6)</p>
         <p className="text-xs text-gray-500 mt-1">
           Upload fire-scene photos. Each photo is numbered in order; the UID is taken from the
-          file name (without extension). Add a caption to fill Annex D and show below each photo
-          in Annex F. Use Copy to add a &quot;Copy of photo&quot; entry in both annexes.
+          file name (without extension). Add a caption to fill Section 6 and show beside each photo
+          in Section 4. Use Copy to add a &quot;Copy of photo&quot; entry in both sections.
           Removing a photo renumbers the rest.
         </p>
       </div>
@@ -497,7 +497,7 @@ function PhotoLogRow({
           value={photo.caption ?? ""}
           onChange={(e) => onUpdatePhotoCaption(photo.id, e.target.value)}
           rows={2}
-          placeholder="Description for Annex D & F"
+            placeholder="Description for Section 6"
           className="text-sm"
         />
       </div>

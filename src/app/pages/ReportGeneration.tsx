@@ -32,17 +32,10 @@ import type { Interviewee } from "../types/interviewee";
 import { parseSelectedAnnexes } from "../components/AnnexSelector";
 import { validateAnnexPages, getRequiredPageIndices, buildAnnexAttachmentList, sortAnnexIds } from "../constants/annexDefinitions";
 import { downloadDocx, generateFireReportDocx } from "../lib/generateFireReportDocx";
-import { generatePrrDocx, getPrrFilename } from "../lib/generatePrrDocx";
 import {
   generateStatementDocx,
   getStatementFilename,
 } from "../lib/generateStatementDocx";
-import {
-  compositeHeaderValuesOntoTemplate,
-  ANNEX_E_PAGE_INDEX,
-  hasHeaderValues,
-} from "../lib/annexHeaderOverlay";
-import { getDefaultPagePreviewUrl } from "../lib/annexImageAssets";
 import { useDocxPreviewFitWithZoom } from "../hooks/useDocxPreviewFitWithZoom";
 import { ReportFormFields } from "../components/ReportFormFields";
 import { ReportEditorNav } from "../components/ReportEditorNav";
@@ -75,23 +68,6 @@ import {
 import { loadPhotos, savePhotos } from "../lib/photoDraftStore";
 import type { FloorplanDraftPayload } from "../lib/floorplanDrafts";
 import type { AnnexEMarker } from "../lib/annexEMarkers";
-import type { AnnexGEditorState } from "../components/AnnexGBurnChartEditor";
-
-type ReportView = "fir" | "prr";
-
-/** Legacy C/E/G pages retain incident headers; demo A/B have no header fields. */
-const STATIC_HEADER_PAGE_INDICES = [2, 4, 8];
-const PRR_SECTION_IDS = ["1", "2", "6"] as const;
-
-/** PRR sections derived from the full report config, with photo-reference fields removed. */
-const PRR_SECTION_CONFIGS = REPORT_FORM_SECTIONS
-  .filter((section) =>
-    PRR_SECTION_IDS.includes(section.id as (typeof PRR_SECTION_IDS)[number])
-  )
-  .map((section) => ({
-    ...section,
-    fields: section.fields?.filter((field) => !PHOTO_REF_FIELD_TO_SECTION[field.key]),
-  }));
 
 /**
  * Prefills the author fields from the saved officer profile, but only when they
@@ -124,7 +100,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     initialSectionId,
   } = useReportSession();
   const { runExtraction, error: extractionError } = useExtractionJob();
-  const [reportView, setReportView] = useState<ReportView>("fir");
   const [activeSectionId, setActiveSectionId] = useState<string>(() => {
     if (initialSectionId) return initialSectionId;
     if (resumeDraftIncidentNo) return MENU_NAV_ID;
@@ -136,7 +111,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<"loading" | "ready">("loading");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isGeneratingPrr, setIsGeneratingPrr] = useState(false);
   const [generatingStatementId, setGeneratingStatementId] = useState<string | null>(null);
   const [isGeneratingAllStatements, setIsGeneratingAllStatements] = useState(false);
   const [docBlob, setDocBlob] = useState<Blob | null>(null);
@@ -144,7 +118,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     () => new Map()
   );
   const [annexPreviewUrls, setAnnexPreviewUrls] = useState<Record<number, string>>({});
-  const [annexHeaderPreviewUrls, setAnnexHeaderPreviewUrls] = useState<Record<number, string>>({});
   const [photos, setPhotos] = useState<PhotoLogEntry[]>([]);
   const [photoPreviewUrls, setPhotoPreviewUrls] = useState<Record<string, string>>({});
   const [photoLogAnnexPreviewUrls, setPhotoLogAnnexPreviewUrls] =
@@ -153,7 +126,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   const [floorplanSvg, setFloorplanSvg] = useState<string | null>(null);
   const [floorplanDraftState, setFloorplanDraftState] = useState<FloorplanDraftPayload | null>(null);
   const [annexEMarkers, setAnnexEMarkers] = useState<AnnexEMarker[] | null>(null);
-  const [annexGState, setAnnexGState] = useState<AnnexGEditorState | null>(null);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const resumeHandledRef = useRef(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -390,8 +362,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
 
   const annexPreviewUrlsRef = useRef(annexPreviewUrls);
   annexPreviewUrlsRef.current = annexPreviewUrls;
-  const annexHeaderPreviewUrlsRef = useRef(annexHeaderPreviewUrls);
-  annexHeaderPreviewUrlsRef.current = annexHeaderPreviewUrls;
   const annexImageOverridesRef = useRef(annexImageOverrides);
   annexImageOverridesRef.current = annexImageOverrides;
   const photoPreviewUrlsRef = useRef(photoPreviewUrls);
@@ -407,9 +377,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   useEffect(() => {
     return () => {
       Object.values(annexPreviewUrlsRef.current).forEach((url) =>
-        URL.revokeObjectURL(url),
-      );
-      Object.values(annexHeaderPreviewUrlsRef.current).forEach((url) =>
         URL.revokeObjectURL(url),
       );
       Object.values(photoPreviewUrlsRef.current).forEach((url) =>
@@ -434,14 +401,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
 
       setPhotoLogPreviewLoading(true);
       try {
-        const header = {
-          incidentNo: reportFields.incidentNo,
-          locationOfFire: reportFields.locationOfFire,
-        };
-
         const [dBlobs, fBlobs] = await Promise.all([
-          dSelected ? generateAnnexDBlobs(photos, header) : Promise.resolve([]),
-          fSelected ? generateAnnexFBlobs(photos, header) : Promise.resolve([]),
+          dSelected ? generateAnnexDBlobs(photos) : Promise.resolve([]),
+          fSelected ? generateAnnexFBlobs(photos) : Promise.resolve([]),
         ]);
 
         revokePhotoLogAnnexUrls(photoLogAnnexPreviewUrlsRef.current);
@@ -466,68 +428,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     reportFields.locationOfFire,
     selectedAnnexes,
     revokePhotoLogAnnexUrls,
-  ]);
-
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      const header = {
-        incidentNo: reportFields.incidentNo,
-        locationOfFire: reportFields.locationOfFire,
-      };
-
-      const requiredPages = getRequiredPageIndices(selectedAnnexes);
-      const pagesToRender = STATIC_HEADER_PAGE_INDICES.filter(
-        (pageIndex) =>
-          requiredPages.includes(pageIndex) &&
-          !annexImageOverridesRef.current.has(pageIndex),
-      );
-
-      if (!hasHeaderValues(header) || pagesToRender.length === 0) {
-        Object.values(annexHeaderPreviewUrlsRef.current).forEach((url) =>
-          URL.revokeObjectURL(url),
-        );
-        annexHeaderPreviewUrlsRef.current = {};
-        setAnnexHeaderPreviewUrls({});
-        return;
-      }
-
-      try {
-        const entries = await Promise.all(
-          pagesToRender.map(async (pageIndex) => {
-            const templateUrl = getDefaultPagePreviewUrl(pageIndex);
-            if (!templateUrl) return null;
-            const response = await fetch(templateUrl);
-            const templateBlob = await response.blob();
-            const withHeader = await compositeHeaderValuesOntoTemplate(
-              templateBlob,
-              header,
-              { boldUnderline: pageIndex === ANNEX_E_PAGE_INDEX },
-            );
-            return [pageIndex, URL.createObjectURL(withHeader)] as const;
-          }),
-        );
-
-        const next: Record<number, string> = {};
-        for (const entry of entries) {
-          if (entry) next[entry[0]] = entry[1];
-        }
-
-        Object.values(annexHeaderPreviewUrlsRef.current).forEach((url) =>
-          URL.revokeObjectURL(url),
-        );
-        annexHeaderPreviewUrlsRef.current = next;
-        setAnnexHeaderPreviewUrls(next);
-      } catch (err) {
-        console.error("Annex header preview failed:", err);
-      }
-    }, 200);
-
-    return () => clearTimeout(timer);
-  }, [
-    reportFields.incidentNo,
-    reportFields.locationOfFire,
-    selectedAnnexes,
-    annexImageOverrides,
   ]);
 
   useEffect(() => {
@@ -628,7 +528,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         setFloorplanSvg(payload.floorplanSvg ?? null);
         setFloorplanDraftState(payload.floorplanDraftState ?? null);
         setAnnexEMarkers(payload.annexEMarkers ?? null);
-        setAnnexGState(payload.annexGState ?? null);
 
         const restoredPhotos = await loadPhotos(resumeDraftIncidentNo);
         if (cancelled) return;
@@ -689,10 +588,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     setAnnexEMarkers(markers);
   }, []);
 
-  const handleAnnexGStateChange = useCallback((state: AnnexGEditorState) => {
-    setAnnexGState(state);
-  }, []);
-
   const handleSaveDraft = useCallback(async () => {
     const incidentNo = reportFields.incidentNo?.trim();
     if (!incidentNo) {
@@ -707,7 +602,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         floorplanSvg,
         floorplanDraftState,
         annexEMarkers: annexEMarkers ?? [],
-        annexGState,
       };
       await upsertIncidentDraft(incidentNo, reportFields.locationOfFire || null, payload);
       await savePhotos(incidentNo, photos);
@@ -718,7 +612,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     } finally {
       setIsSavingDraft(false);
     }
-  }, [annexEMarkers, annexGState, floorplanDraftState, floorplanSvg, photos, reportFields]);
+  }, [annexEMarkers, floorplanDraftState, floorplanSvg, photos, reportFields]);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const previewViewportRef = useRef<HTMLDivElement>(null);
@@ -784,8 +678,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     const selected = parseSelectedAnnexes(reportFields.selectedAnnexes);
     const { valid, missing } = validateAnnexPages(selected, annexImageOverrides);
     if (!valid) {
-      const pages = missing.map((i) => (i === 8 ? "Annex G (page 8)" : `page ${i}`)).join(", ");
-      toast.error(`Missing annex images: ${pages}. Paste or upload before generating.`);
+      const pages = missing.map((i) => `Section ${i + 1} (page ${i + 1})`).join(", ");
+      toast.error(`Missing section images: ${pages}. Paste or upload before generating.`);
       return;
     }
 
@@ -813,8 +707,8 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     const selected = parseSelectedAnnexes(reportFields.selectedAnnexes);
     const { valid, missing } = validateAnnexPages(selected, annexImageOverrides);
     if (!valid) {
-      const pages = missing.map((i) => (i === 8 ? "Annex G (page 8)" : `page ${i}`)).join(", ");
-      toast.error(`Missing annex images: ${pages}. Paste or upload before updating.`);
+      const pages = missing.map((i) => `Section ${i + 1} (page ${i + 1})`).join(", ");
+      toast.error(`Missing section images: ${pages}. Paste or upload before updating.`);
       return;
     }
 
@@ -838,42 +732,9 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
 
   const handleDownload = () => {
     if (!docBlob) return;
-    const name =
-      reportView === "prr"
-        ? getPrrFilename(reportFields.incidentNo)
-        : `${reportFields.incidentNo}_Fire_Investigation_Report.docx`;
+    const name = `${reportFields.incidentNo}_Fire_Investigation_Report.docx`;
     downloadDocx(docBlob, name);
     toast.success("Report downloaded");
-  };
-
-  const handleGeneratePrr = async () => {
-    setIsGeneratingPrr(true);
-    try {
-      const blob = await generatePrrDocx(reportFields);
-      setDocBlob(blob);
-      setActiveSectionId(PREVIEW_NAV_ID);
-      toast.success("Preliminary Report Response generated");
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to generate PRR. Check template placeholders.");
-    } finally {
-      setIsGeneratingPrr(false);
-    }
-  };
-
-  const handleUpdatePreviewPrr = async () => {
-    if (!docBlob) return;
-    setIsGeneratingPrr(true);
-    try {
-      const blob = await generatePrrDocx(reportFields);
-      setDocBlob(blob);
-      await renderPreview(blob);
-      toast.success("Preview updated");
-    } catch {
-      toast.error("Failed to update preview");
-    } finally {
-      setIsGeneratingPrr(false);
-    }
   };
 
   const handleGenerateStatement = async (intervieweeId: string) => {
@@ -959,18 +820,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
     else navigate("/incident");
   };
 
-  const reportTypeLabel = reportView === "fir" ? "Fire investigation report" : "Preliminary report response";
-
-  const handleReportViewChange = (view: ReportView) => {
-    setReportView(view);
-    setActiveSectionId(MENU_NAV_ID);
-    setDocBlob(null);
-    setPreviewVersion(0);
-    setPreviewError(null);
-  };
-
-  const navVisibleSectionIds =
-    reportView === "prr" ? [...PRR_SECTION_IDS] : REPORT_FORM_SECTIONS.map((section) => section.id);
 
   if (phase === "loading") {
     return <ExtractionLoadingScreen variant="report" stopMessagePreview={stopPreview} />;
@@ -979,22 +828,20 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
   return (
     <div className="space-y-8">
       <ReportEditorNav
-        title={reportTypeLabel}
-        reportView={reportView}
-        onReportViewChange={handleReportViewChange}
+        title="Fire investigation report"
         fields={reportFields}
         extractedKeys={extractedKeys}
         floorplanSvg={floorplanSvg}
         photos={photos}
         annexPreviewUrls={annexPreviewUrls}
-        visibleSectionIds={navVisibleSectionIds}
-        showInterviewNav={reportView === "fir"}
+        visibleSectionIds={REPORT_FORM_SECTIONS.map((section) => section.id)}
+        showInterviewNav
         activeSectionId={activeSectionId}
         onSelectSection={setActiveSectionId}
         onSaveDraft={() => void handleSaveDraft()}
         isSavingDraft={isSavingDraft}
-        onGenerate={reportView === "prr" ? () => void handleGeneratePrr() : () => void handleGenerate()}
-        isGenerating={reportView === "prr" ? isGeneratingPrr : isGenerating}
+        onGenerate={() => void handleGenerate()}
+        isGenerating={isGenerating}
         hasGeneratedDoc={Boolean(docBlob)}
       />
 
@@ -1020,7 +867,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         )}
       </StatusBanner>}
 
-      {reportView === "fir" && activeSectionId === MENU_NAV_ID && (
+      {activeSectionId === MENU_NAV_ID && (
         <Card className="rounded-xl border-dashed shadow-sm">
           <CardContent className="py-10 text-center">
             <p className="text-sm text-muted-foreground">
@@ -1030,9 +877,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         </Card>
       )}
 
-      {reportView === "fir" &&
-        activeSectionId !== PREVIEW_NAV_ID &&
-        activeSectionId !== MENU_NAV_ID && (
+      {activeSectionId !== PREVIEW_NAV_ID && activeSectionId !== MENU_NAV_ID && (
         <Card className="rounded-xl shadow-sm">
           <CardContent className="space-y-6 pt-6">
             <ReportFormFields
@@ -1043,7 +888,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               activeSectionId={activeSectionId}
               onActiveSectionChange={setActiveSectionId}
               annexPreviewUrls={annexPreviewUrls}
-              annexHeaderPreviewUrls={annexHeaderPreviewUrls}
               onAnnexOverrideChange={handleAnnexOverrideChange}
               photos={photos}
               photoPreviewUrls={photoPreviewUrls}
@@ -1066,8 +910,6 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               onFloorplanDraftStateChange={handleFloorplanDraftStateChange}
               annexEMarkers={annexEMarkers}
               onAnnexEMarkersChange={handleAnnexEMarkersChange}
-              annexGState={annexGState}
-              onAnnexGStateChange={handleAnnexGStateChange}
               onIntervieweesChange={updateInterviewees}
               onGenerateStatement={handleGenerateStatement}
               onGenerateAllStatements={handleGenerateAllStatements}
@@ -1099,21 +941,21 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
                 <p className="text-sm text-muted-foreground">
                   No document generated yet. Open the menu and choose
                   <span className="font-medium text-foreground">
-                    {reportView === "prr" ? " Generate PRR " : " Generate Word Report "}
+                    Generate Word Report
                   </span>
                   to build a preview.
                 </p>
                 <Button
                   className="mt-4"
-                  onClick={reportView === "prr" ? handleGeneratePrr : handleGenerate}
-                  disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
                 >
-                  {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
+                  {isGenerating ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <FileText className="mr-2 h-4 w-4" />
                   )}
-                  {reportView === "prr" ? "Generate PRR" : "Generate Word Report"}
+                  Generate Word Report
                 </Button>
               </div>
             </div>
@@ -1130,10 +972,10 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
               <DialogFooter>
                 <Button
                   variant="outline"
-                  onClick={reportView === "prr" ? handleUpdatePreviewPrr : handleUpdatePreview}
-                  disabled={reportView === "prr" ? isGeneratingPrr : isGenerating}
+                  onClick={handleUpdatePreview}
+                  disabled={isGenerating}
                 >
-                  {(reportView === "prr" ? isGeneratingPrr : isGenerating) ? (
+                  {isGenerating ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <RefreshCw className="mr-2 h-4 w-4" />
@@ -1150,43 +992,7 @@ export function ReportGeneration({ onBack }: ReportGenerationProps) {
         </DialogContent>
       </Dialog>
 
-      {reportView === "prr" && activeSectionId === MENU_NAV_ID && (
-        <Card className="rounded-xl border-dashed shadow-sm">
-          <CardContent className="py-10 text-center">
-            <p className="text-sm text-muted-foreground">
-              Select a report section from the navigation menu to begin editing.
-            </p>
-          </CardContent>
-        </Card>
-      )}
 
-      {reportView === "prr" &&
-        activeSectionId !== PREVIEW_NAV_ID &&
-        activeSectionId !== MENU_NAV_ID && (
-        <Card className="rounded-xl shadow-sm">
-          <CardContent className="space-y-6 pt-6">
-            <ReportFormFields
-              fields={reportFields}
-              extractedKeys={extractedKeys}
-              onChange={updateField}
-              displayMode="tabs"
-              activeSectionId={activeSectionId}
-              onActiveSectionChange={setActiveSectionId}
-              sectionConfigs={PRR_SECTION_CONFIGS}
-              visibleSectionIds={[...PRR_SECTION_IDS]}
-            />
-            <div className="flex flex-wrap gap-3 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handlePrevious}
-              >
-                Back to Incident
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

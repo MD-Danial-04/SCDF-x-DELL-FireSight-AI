@@ -72,7 +72,7 @@ export function Records() {
     <div className="space-y-8">
       <PageHeader
         title="Records"
-        description="Resume saved incident drafts. Fields and annex edits sync across devices; photos are restored only on the device where they were saved."
+        description="Resume saved incident drafts. Fields and section edits sync across devices; photos are restored only on the device where they were saved."
         actions={
           <Button type="button" variant="outline" onClick={() => void refresh()} disabled={loading}>
             {loading ? (

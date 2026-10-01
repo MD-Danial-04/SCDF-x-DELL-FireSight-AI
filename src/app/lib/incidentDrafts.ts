@@ -2,7 +2,6 @@ import { getSupabaseClient } from "./supabaseClient";
 import type { FireReportData } from "../types/fireReport";
 import type { FloorplanDraftPayload } from "./floorplanDrafts";
 import type { AnnexEMarker } from "./annexEMarkers";
-import type { AnnexGEditorState } from "../components/AnnexGBurnChartEditor";
 
 const TABLE = "incident_drafts";
 
@@ -15,7 +14,6 @@ export interface IncidentDraftPayload {
   floorplanSvg: string | null;
   floorplanDraftState: FloorplanDraftPayload | null;
   annexEMarkers: AnnexEMarker[];
-  annexGState: AnnexGEditorState | null;
 }
 
 /** Lightweight row used to render the Records list. */

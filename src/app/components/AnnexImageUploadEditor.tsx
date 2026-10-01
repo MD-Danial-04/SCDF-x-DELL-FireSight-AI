@@ -130,7 +130,7 @@ export function AnnexImageUploadEditor({
   return (
     <div className="space-y-2">
       <p className="text-xs text-gray-500">
-        Upload or paste an image to place in the centre of the Annex {annexId} template. The
+        Upload or paste an image to place in the centre of the Section {"ABCDEF".indexOf(annexId) + 1} template. The
         header, legend, and footer are kept automatically.
       </p>
 
@@ -148,7 +148,7 @@ export function AnnexImageUploadEditor({
         {displayUrl ? (
           <img
             src={displayUrl}
-            alt={`Annex ${annexId} preview`}
+            alt={`Section ${"ABCDEF".indexOf(annexId) + 1} preview`}
             className="h-full w-full object-contain"
           />
         ) : (

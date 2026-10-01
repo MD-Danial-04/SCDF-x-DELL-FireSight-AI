@@ -536,7 +536,7 @@ export function AnnexEEditor({
         if (!cancelled) onOverrideChange(ANNEX_E_PAGE_INDEX, blob);
       } catch (error) {
         if (!cancelled) {
-          setExportError(error instanceof Error ? error.message : "Unable to prepare Annex E image.");
+          setExportError(error instanceof Error ? error.message : "Unable to prepare Section 5 image.");
         }
       } finally {
         if (!cancelled) setExporting(false);
@@ -772,12 +772,12 @@ export function AnnexEEditor({
         <div>
           <div className="flex items-center gap-2">
             <Compass className="h-4 w-4 text-primary" />
-            <p className="font-semibold text-foreground">Annex E photo-direction editor</p>
+            <p className="font-semibold text-foreground">Section 5 photo layout editor</p>
             <Badge
               variant={enabled ? "secondary" : "outline"}
               className={enabled ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""}
             >
-              {enabled ? "Included in report" : "Select Annex E to attach"}
+          {enabled ? "Included in report" : "Select Section 5 to attach"}
             </Badge>
             {exporting && (
               <Badge variant="outline" className="gap-1">

@@ -5,23 +5,14 @@ import { buildAnnexAttachmentList } from "../constants/annexDefinitions";
 import { parseSelectedAnnexes } from "../components/AnnexSelector";
 import { appendAnnexImagesToDocx } from "./appendAnnexImagesToDocx";
 import {
-  compositeHeaderValuesOntoTemplate,
-  ANNEX_E_PAGE_INDEX,
-  hasHeaderValues,
-} from "./annexHeaderOverlay";
-import {
   detectExtension,
-  getDefaultPagePreviewUrl,
   getImageDimensions,
   type AnnexImageData,
 } from "./annexImageAssets";
 import { generateAnnexDBlobs, generateAnnexFBlobs } from "./photoLogAnnexes";
-import { getRequiredPageIndices } from "../constants/annexDefinitions";
 import type { PhotoLogEntry } from "../types/photoLog";
 import templateUrl from "../../assets/templates/fire-investigation-report.docx?url";
 
-/** Legacy C/E/G pages retain incident headers; demo A/B have no header fields. */
-const STATIC_HEADER_PAGE_INDICES = [2, 4, 8];
 
 function escapeXml(text: string): string {
   return text
@@ -64,35 +55,6 @@ async function blobToAnnexImageData(blob: Blob): Promise<AnnexImageData> {
   return { buffer, extension, width, height };
 }
 
-async function buildAnnexOverridesWithHeaders(
-  selectedAnnexIds: string[],
-  userOverrides: Map<number, Blob> | undefined,
-  header: { incidentNo?: string; locationOfFire?: string },
-): Promise<Map<number, Blob>> {
-  const merged = new Map(userOverrides ?? []);
-  if (!hasHeaderValues(header)) return merged;
-
-  const requiredPages = getRequiredPageIndices(selectedAnnexIds);
-  const pagesToOverlay = STATIC_HEADER_PAGE_INDICES.filter(
-    (pageIndex) => requiredPages.includes(pageIndex) && !merged.has(pageIndex),
-  );
-
-  await Promise.all(
-    pagesToOverlay.map(async (pageIndex) => {
-      const templateUrl = getDefaultPagePreviewUrl(pageIndex);
-      if (!templateUrl) return;
-      const response = await fetch(templateUrl);
-      const templateBlob = await response.blob();
-      const withHeader = await compositeHeaderValuesOntoTemplate(templateBlob, header, {
-        boldUnderline: pageIndex === ANNEX_E_PAGE_INDEX,
-      });
-      merged.set(pageIndex, withHeader);
-    }),
-  );
-
-  return merged;
-}
-
 export function buildFireReportRenderData(data: FireReportData): Record<string, unknown> {
   const { interviewees, ...scalarFields } = data;
   return {
@@ -133,13 +95,8 @@ export async function generateFireReportDocx(
 
   const generatedPages = new Map<string, AnnexImageData[]>();
   if (photos && photos.length > 0) {
-    const header = {
-      incidentNo: data.incidentNo,
-      locationOfFire: data.locationOfFire,
-    };
-
     if (annexIds.includes("D")) {
-      const blobs = await generateAnnexDBlobs(photos, header);
+      const blobs = await generateAnnexDBlobs(photos);
       generatedPages.set(
         "D",
         await Promise.all(blobs.map((blob) => blobToAnnexImageData(blob))),
@@ -147,7 +104,7 @@ export async function generateFireReportDocx(
     }
 
     if (annexIds.includes("F")) {
-      const blobs = await generateAnnexFBlobs(photos, header);
+      const blobs = await generateAnnexFBlobs(photos);
       generatedPages.set(
         "F",
         await Promise.all(blobs.map((blob) => blobToAnnexImageData(blob))),
@@ -158,10 +115,7 @@ export async function generateFireReportDocx(
   await appendAnnexImagesToDocx(
     doc.getZip(),
     annexIds,
-    await buildAnnexOverridesWithHeaders(annexIds, annexImageOverrides, {
-      incidentNo: data.incidentNo,
-      locationOfFire: data.locationOfFire,
-    }),
+    annexImageOverrides,
     generatedPages.size > 0 ? generatedPages : undefined,
   );
 

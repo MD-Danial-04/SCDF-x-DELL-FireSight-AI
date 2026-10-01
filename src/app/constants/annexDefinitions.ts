@@ -7,48 +7,41 @@ export interface AnnexDefinition {
   pageIndices: number[];
 }
 
-/** Stable page slots: A=0, B=1, C=2, D=3, E=4, F=5, G=8.
- * Demo sections 1/2/3/4 replace A/B/F/D; legacy F slots 6/7 are unused.
- */
+/** One supplied slide template for each report section, in annex order. */
 export const ANNEX_DEFINITIONS: AnnexDefinition[] = [
   {
     id: "A",
-    title: "Section 1 – Location Plan (Annex A)",
+    title: "Section 1 – Location Plan",
     pageIndices: [0],
   },
   {
     id: "B",
-    title: "Section 2 – Site Layout Plan (Annex B)",
+    title: "Section 2 – Site Layout Plan",
     pageIndices: [1],
   },
   {
     id: "C",
-    title: "Annex C – Layout Plan of the Affected Area",
+    title: "Section 3 – Affected Area Layout Plan",
     pageIndices: [2],
   },
   {
     id: "D",
-    title: "Section 4 – Photo Description (Annex D)",
+    title: "Section 4 – Photo Repository",
     pageIndices: [3],
   },
   {
     id: "E",
-    title: "Annex E – Photo Log",
+    title: "Section 5 – Photo Layout Plan",
     pageIndices: [4],
   },
   {
     id: "F",
-    title: "Section 3 – Photo Repository (Annex F)",
+    title: "Section 6 – Photo Description",
     pageIndices: [5],
-  },
-  {
-    id: "G",
-    title: "Annex G – Burn Sketch",
-    pageIndices: [8],
   },
 ];
 
-export const ANNEX_REFERENCE_SOURCE = "Demo Report_Final.pptx (Sections 1–4); Annexes (A-G).pptx (C/E/G)";
+export const ANNEX_REFERENCE_SOURCE = "Demo Report_Final.pptx (Sections 1–6)";
 
 export const DEFAULT_SELECTED_ANNEXES = ["A", "B"];
 
@@ -65,7 +58,9 @@ export function buildAnnexAttachmentList(selectedIds: string[]): string {
 
 export function sortAnnexIds(ids: string[]): string[] {
   const order = ANNEX_DEFINITIONS.map((a) => a.id);
-  return [...ids].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  return ids
+    .filter((id) => order.includes(id))
+    .sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
 
 export function getRequiredPageIndices(selectedIds: string[]): number[] {

@@ -10,7 +10,7 @@ interface DocxPreviewSurfaceProps {
 }
 
 /**
- * Shared docx-preview render surface used by the statement and PRR/Fire report
+ * Shared docx-preview render surface used by statement and fire report previews
  * previews so they stay visually identical: an error banner, a spinner loading
  * state, and the 3-layer viewport/scaler/host scaled by the fit helpers.
  */

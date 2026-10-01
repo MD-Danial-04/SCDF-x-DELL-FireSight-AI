@@ -6,7 +6,6 @@ import {
   ANNEX_A_RENDER_SCALE,
   ANNEX_A_WIDTH,
 } from "./annexTemplateLayout";
-import { drawHeaderValuesOnCanvas } from "./annexHeaderOverlay";
 import { getDefaultPagePreviewUrl } from "./annexImageAssets";
 import { normalizeSvgViewBoxToContent, prepareSvgForRasterization } from "./floorplanEditor";
 import type { PhotoLogHeaderInfo } from "../types/photoLog";
@@ -113,7 +112,7 @@ export async function svgStringToAnnexPngBlob(svg: string): Promise<Blob> {
 }
 
 export interface AnnexTemplatePngOptions {
-  /** 0-based bundled template page index (0 = Annex A, 4 = Annex E). */
+  /** 0-based bundled template page index (0 = Section 1, 4 = Section 5). */
   templatePageIndex?: number;
 }
 
@@ -164,10 +163,6 @@ export async function svgStringToAnnexTemplatePngBlob(
 
     ctx.drawImage(svgImg, fill.x, fill.y, fill.width, fill.height);
 
-    if (templatePageIndex !== 0 && templatePageIndex !== 1) {
-      drawHeaderValuesOnCanvas(ctx, header, canvasWidth, canvasHeight);
-    }
-
     return encodeCanvasPng(canvas);
   } finally {
     URL.revokeObjectURL(svgUrl);
@@ -215,10 +210,6 @@ export async function imageBlobToAnnexTemplatePngBlob(
       scale,
     );
     ctx.drawImage(uploadImg, fill.x, fill.y, fill.width, fill.height);
-
-    if (templatePageIndex !== 0 && templatePageIndex !== 1) {
-      drawHeaderValuesOnCanvas(ctx, header, canvasWidth, canvasHeight);
-    }
 
     return encodeCanvasPng(canvas);
   } finally {

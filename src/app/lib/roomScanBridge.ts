@@ -31,7 +31,7 @@ function deliver(json: string): boolean {
   try {
     const item = addRoomScanFromJson(json);
     requestRoomScanFloorplanDelivery(item.id);
-    toast.success(`Room scan "${item.name}" added — opening Annex C floor plan editor`);
+    toast.success(`Room scan "${item.name}" added - opening Section 3 floor plan editor`);
     return true;
   } catch (error) {
     const message =

@@ -6,12 +6,9 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "export-annexes": "node scripts/export-annex-slides.mjs",
     "export-workflow-diagram": "node scripts/export-workflow-diagram.mjs",
     "roomplan-to-svg": "node --import tsx scripts/roomplan-to-svg.mjs",
-    "sync-annexes": "node scripts/sync-annex-pages.mjs",
     "sync-slides": "node scripts/sync-slide-assets.mjs",
-    "prepare-prr-template": "node scripts/prepare-prr-template.mjs",
     "prepare-report-template": "node scripts/prepare-report-template.mjs",
     "prepare-statement-template": "node scripts/prepare-statement-template.mjs",
     "test": "vitest run",

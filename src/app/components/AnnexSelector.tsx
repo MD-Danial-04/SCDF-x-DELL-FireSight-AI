@@ -27,7 +27,6 @@ import { getDefaultPagePreviewUrl } from "../lib/annexImageAssets";
 import { FloorplanAnnexEditor } from "./FloorplanAnnexEditor";
 import { AnnexImageUploadEditor } from "./AnnexImageUploadEditor";
 import { AnnexEEditor } from "./AnnexEEditor";
-import { AnnexGBurnChartEditor, type AnnexGEditorState } from "./AnnexGBurnChartEditor";
 import { PhotoLogEditor } from "./PhotoLogEditor";
 import type { PhotoLogAnnexPreviewUrls, PhotoLogEntry } from "../types/photoLog";
 import type { FloorplanDraftPayload } from "../lib/floorplanDrafts";
@@ -44,10 +43,7 @@ interface AnnexSelectorProps {
   onChange: (selectedIds: string[], attachmentList: string) => void;
   incidentNo?: string;
   locationOfFire?: string;
-  nameOfVictim?: string;
-  nricFinNumber?: string;
   overrides?: Record<number, string>;
-  headerPreviewUrls?: Record<number, string>;
   onOverrideChange?: (pageIndex: number, blob: Blob | null) => void;
   photos?: PhotoLogEntry[];
   photoPreviewUrls?: Record<string, string>;
@@ -68,8 +64,6 @@ interface AnnexSelectorProps {
   onFloorplanDraftStateChange?: (payload: FloorplanDraftPayload) => void;
   annexEMarkers?: AnnexEMarker[] | null;
   onAnnexEMarkersChange?: (markers: AnnexEMarker[]) => void;
-  annexGState?: AnnexGEditorState | null;
-  onAnnexGStateChange?: (state: AnnexGEditorState) => void;
 }
 
 interface EditorCardDefinition {
@@ -89,11 +83,10 @@ const ROW_CARD_IDS: Record<string, string[]> = {
   B: ["annex-b-image"],
   C: ["floorplan"],
   photoLog: ["photo-log", "annex-e"],
-  G: ["annex-g"],
 };
 
 /** Editor cards whose internal state must survive collapse (canvas/painting). */
-const PERSISTENT_CARD_IDS = ["photo-log", "annex-g"];
+const PERSISTENT_CARD_IDS = ["photo-log"];
 
 type SelectorRow =
   | { kind: "single"; annex: (typeof ANNEX_DEFINITIONS)[number] }
@@ -106,7 +99,7 @@ function summarizeRowStatus(cards: EditorCardDefinition[]): string {
 }
 
 function formatAnnexTitle(title: string) {
-  return title.replace(/^Annex [A-G]\s*[–-]\s*/, "");
+  return title.replace(/^Section \d+\s*[^A-Za-z0-9\s]+\s*/, "");
 }
 
 function buildStatusTone(status: string) {
@@ -126,10 +119,7 @@ export function AnnexSelector({
   onChange,
   incidentNo,
   locationOfFire,
-  nameOfVictim,
-  nricFinNumber,
   overrides = {},
-  headerPreviewUrls = {},
   onOverrideChange,
   photos = [],
   photoPreviewUrls = {},
@@ -147,8 +137,6 @@ export function AnnexSelector({
   onFloorplanDraftStateChange,
   annexEMarkers = null,
   onAnnexEMarkersChange,
-  annexGState = null,
-  onAnnexGStateChange,
   floorplanSvg = null,
   floorplanPersistenceKey = null,
   onFloorplanSvgChange,
@@ -228,7 +216,6 @@ export function AnnexSelector({
   const annexASelected = selectedIds.includes("A");
   const annexBSelected = selectedIds.includes("B");
   const annexESelected = selectedIds.includes("E");
-  const annexGSelected = selectedIds.includes("G");
 
   const editorCards = useMemo<EditorCardDefinition[]>(() => {
     const cards: EditorCardDefinition[] = [];
@@ -236,8 +223,8 @@ export function AnnexSelector({
     if (onOverrideChange && annexASelected) {
       cards.push({
         id: "annex-a-image",
-        title: "Annex A location plan",
-        description: "Upload an image to place in the centre of the Annex A template.",
+        title: "Section 1 location plan",
+        description: "Upload an image to place in the Section 1 template.",
         annexes: ["A"],
         status: overrides[0] ? "Edited" : "Not started",
         body: (
@@ -256,8 +243,8 @@ export function AnnexSelector({
     if (onOverrideChange && annexBSelected) {
       cards.push({
         id: "annex-b-image",
-        title: "Annex B site plan",
-        description: "Upload an image to place in the centre of the Annex B template.",
+        title: "Section 2 site layout plan",
+        description: "Upload an image to place in the Section 2 template.",
         annexes: ["B"],
         status: overrides[1] ? "Edited" : "Not started",
         body: (
@@ -277,7 +264,7 @@ export function AnnexSelector({
       cards.push({
         id: "floorplan",
         title: "Floorplan editor",
-        description: "Use the shared layout canvas for Annex C and Annex E.",
+        description: "Use the shared layout canvas for Sections 3 and 5.",
         annexes: ["C", "E"].filter((id) => selectedIds.includes(id)),
         status: floorplanSvg ? "Edited" : "Not started",
         body: (
@@ -309,7 +296,7 @@ export function AnnexSelector({
       cards.push({
         id: "photo-log",
         title: "Photo log",
-        description: "Manage the photo sequence used by Annex D and Annex F.",
+        description: "Manage the photo sequence used by Sections 4 and 6.",
         annexes: ["D", "F"].filter((id) => selectedIds.includes(id)),
         status: photos.length > 0 ? "In progress" : "Not started",
         body: (
@@ -334,8 +321,8 @@ export function AnnexSelector({
     if (onOverrideChange && annexESelected) {
       cards.push({
         id: "annex-e",
-        title: "Annex E photo-direction editor",
-        description: "Place directional markers on the floorplan for Annex E.",
+        title: "Section 5 photo-layout editor",
+        description: "Place photo markers on the Section 5 layout plan.",
         annexes: ["E"],
         status: overrides[4] ? "Edited" : "Not started",
         body: (
@@ -354,42 +341,16 @@ export function AnnexSelector({
       });
     }
 
-    if (onOverrideChange && annexGSelected) {
-      cards.push({
-        id: "annex-g",
-        title: "Annex G burn-chart editor",
-        description: "Fill the burn sketch details and paint the affected area.",
-        annexes: ["G"],
-        status: overrides[8] ? "Edited" : "Not started",
-        body: (
-          <AnnexGBurnChartEditor
-            enabled
-            incidentNo={incidentNo}
-            locationOfFire={locationOfFire}
-            nameOfVictim={nameOfVictim}
-            nricFinNumber={nricFinNumber}
-            persistenceKey={floorplanPersistenceKey}
-            onOverrideChange={onOverrideChange}
-            initialState={annexGState}
-            onStateChange={onAnnexGStateChange}
-          />
-        ),
-      });
-    }
-
     return cards;
   }, [
     annexASelected,
     annexBSelected,
     annexESelected,
-    annexGSelected,
     floorplanSelected,
     floorplanPersistenceKey,
     floorplanSvg,
     incidentNo,
     locationOfFire,
-    nameOfVictim,
-    nricFinNumber,
     onAddPhotos,
     onCopyPhoto,
     onApplyPhotoSection,
@@ -403,8 +364,6 @@ export function AnnexSelector({
     onFloorplanDraftStateChange,
     annexEMarkers,
     onAnnexEMarkersChange,
-    annexGState,
-    onAnnexGStateChange,
     overrides,
     photoAnalysisContext,
     photoLogSelected,
@@ -416,7 +375,6 @@ export function AnnexSelector({
   const annexPreviews = useMemo(() => {
     const resolvePageImage = (pageIndex: number): string | null =>
       overrides[pageIndex] ??
-      headerPreviewUrls[pageIndex] ??
       getDefaultPagePreviewUrl(pageIndex);
 
     return sortAnnexIds(selectedIds)
@@ -439,7 +397,7 @@ export function AnnexSelector({
 
         return { annex, images };
       });
-  }, [selectedIds, overrides, headerPreviewUrls, photoLogAnnexPreviewUrls]);
+  }, [selectedIds, overrides, photoLogAnnexPreviewUrls]);
 
   const cardsByRow = useMemo(() => {
     const map: Record<string, EditorCardDefinition[]> = {};
@@ -469,15 +427,15 @@ export function AnnexSelector({
     : null;
   const mobileTitle = mobileRow
     ? mobileRow.kind === "single"
-      ? `Annex ${mobileRow.annex.id} – ${formatAnnexTitle(mobileRow.annex.title)}`
-      : "Photo Log"
+      ? `Section ${"ABCDEF".indexOf(mobileRow.annex.id) + 1}: ${formatAnnexTitle(mobileRow.annex.title)}`
+      : "Sections 4-6 photo log"
     : "";
 
   return (
     <div className="space-y-4 md:col-span-2">
       <div className="rounded-xl border border-border bg-white p-4">
         <p className="mb-3 text-xs text-gray-500">
-          Tick an annex to include it. Selected annexes with an editor can be expanded to edit the
+          Tick a section to include it. Selected sections with an editor can be expanded to edit the
           page inline; only one editor stays open at a time.
         </p>
 
@@ -501,10 +459,13 @@ export function AnnexSelector({
             const checked = isSingle ? selectedIds.includes(row.annex.id) : photoLogChecked;
             const onToggle = (next: boolean) =>
               isSingle ? toggle(row.annex.id, next) : togglePhotoLog(next);
-            const label = isSingle ? `Annex ${row.annex.id}` : "Photo Log";
+            const sectionNumber = isSingle ? "ABCDEF".indexOf(row.annex.id) + 1 : 0;
+            const label = isSingle
+              ? `Section ${sectionNumber}`
+              : "Sections 4-6 photo log";
             const description = isSingle
               ? formatAnnexTitle(row.annex.title)
-              : "Annexes D–F (table, plan, photographs)";
+              : "Sections 4-6 (photo repository, layout plan, description)";
 
             const ownedCards = cardsByRow[rowId] ?? [];
             const hasEditor = ownedCards.length > 0;
@@ -583,7 +544,7 @@ export function AnnexSelector({
 
       <div className="rounded-xl border border-border bg-white p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-gray-900">Preview all annexes</h3>
+          <h3 className="text-sm font-semibold text-gray-900">Preview all sections</h3>
           {photoLogPreviewLoading && (
             <span className="text-xs text-gray-500">Updating photo log previews…</span>
           )}
@@ -591,14 +552,14 @@ export function AnnexSelector({
 
         {annexPreviews.length === 0 ? (
           <p className="text-xs text-gray-500">
-            Select one or more annexes above to preview them here.
+            Select one or more sections above to preview them here.
           </p>
         ) : (
           <div className="space-y-5">
             {annexPreviews.map(({ annex, images }) => (
               <div key={annex.id} className="space-y-2">
                 <p className="text-sm font-medium text-gray-800">
-                  Annex {annex.id} – {formatAnnexTitle(annex.title)}
+                  Section {"ABCDEF".indexOf(annex.id) + 1}: {formatAnnexTitle(annex.title)}
                 </p>
                 {images.length === 0 ? (
                   <p className="text-xs text-gray-500">
@@ -615,7 +576,7 @@ export function AnnexSelector({
                       >
                         <img
                           src={src}
-                          alt={`Annex ${annex.id} preview ${index + 1}`}
+                          alt={`Section ${"ABCDEF".indexOf(annex.id) + 1} preview ${index + 1}`}
                           loading="lazy"
                           className="block w-full"
                         />

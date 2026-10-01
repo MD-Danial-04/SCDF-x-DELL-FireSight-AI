@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import {
   Check,
-  ClipboardList,
   Eye,
   FileText,
   FolderOpen,
@@ -40,12 +39,8 @@ import {
 import type { FireReportData } from "../types/fireReport";
 import type { PhotoLogEntry } from "../types/photoLog";
 
-export type ReportView = "fir" | "prr";
-
 interface ReportEditorNavProps {
   title: string;
-  reportView: ReportView;
-  onReportViewChange: (view: ReportView) => void;
   fields: FireReportData;
   extractedKeys: Set<string>;
   floorplanSvg: string | null;
@@ -101,8 +96,6 @@ function SectionStatusIndicator({
 
 export function ReportEditorNav({
   title,
-  reportView,
-  onReportViewChange,
   fields,
   extractedKeys,
   floorplanSvg,
@@ -165,7 +158,7 @@ export function ReportEditorNav({
   const statusCtx = { fields, floorplanSvg, photos, annexPreviewUrls };
   const interviewActive = activeSectionId === INTERVIEW_NAV_ID;
   const previewActive = activeSectionId === PREVIEW_NAV_ID;
-  const generateLabel = reportView === "prr" ? "Generate PRR" : "Generate Word Report";
+  const generateLabel = "Generate Word Report";
   const intervieweeStatus = getIntervieweesStatus(fields.interviewees);
   const interviewComplete = showInterviewNav && intervieweeStatus === "complete";
   const totalCount = visibleSections.length + (showInterviewNav ? 1 : 0);
@@ -189,19 +182,8 @@ export function ReportEditorNav({
       key: "fir",
       label: "Fire investigation report",
       icon: FileText,
-      active: reportView === "fir",
+      active: true,
       onClick: () => {
-        onReportViewChange("fir");
-        setOpen(false);
-      },
-    },
-    {
-      key: "prr",
-      label: "Preliminary report response",
-      icon: ClipboardList,
-      active: reportView === "prr",
-      onClick: () => {
-        onReportViewChange("prr");
         setOpen(false);
       },
     },
