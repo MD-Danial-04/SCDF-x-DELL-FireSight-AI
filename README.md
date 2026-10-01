@@ -33,13 +33,17 @@ Local defaults (already in each app `.env` for this machine):
 - Worker: real Whisper on CPU (`WHISPER_DEVICE=cpu`, `WHISPER_COMPUTE_TYPE=int8`), Ollama extraction, `WORKER_ENABLED=true`
 - Web: `VITE_COORDINATOR_URL=http://localhost:8080`, `VITE_WEB_API_KEY=dev-web-key`
 
-## Run everything
+## Run everything (Docker Compose — default)
+
+Requires Docker + Compose plugin.
 
 ```bash
-make up
+make up              # build + start ollama, coordinator, worker, web
+make models          # first time: pull llama3.1:8b + llava into the ollama volume
+make status
+make logs            # or: make logs SERVICE=worker
+make down
 ```
-
-Equivalent: `./scripts/dev.sh up`
 
 | Service      | URL                     |
 |--------------|-------------------------|
@@ -48,14 +52,18 @@ Equivalent: `./scripts/dev.sh up`
 | Worker       | http://localhost:8000   |
 | Ollama       | http://localhost:11434  |
 
+Compose file: [`docker-compose.yml`](docker-compose.yml). Worker talks to coordinator/Ollama on the internal Docker network; the browser still calls `http://localhost:8080`.
+
+### Native (no Docker)
+
 ```bash
-make status          # PIDs + health
-make logs            # tail all logs
-make logs SERVICE=worker
-make down            # stop stack started by the script
+make native-up
+make native-status
+make native-logs
+make native-down
 ```
 
-Logs live in `.logs/`; PIDs in `.pids/`.
+Native logs/PIDs: `.logs/` and `.pids/`.
 
 ## Notes
 
