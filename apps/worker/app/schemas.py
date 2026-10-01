@@ -1,0 +1,158 @@
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+ExtractableField = Literal[
+    "applianceCallSign",
+    "locationOfFire",
+    "fireInvolved",
+    "methodOfExtinguishment",
+    "damagesSustained",
+    "probableCause",
+    "ignitionSource",
+    "ignitionFuel",
+    "eventsCircumstances",
+    "areaOfFireOrigin",
+    "classification",
+    "handoverOfficer",
+    "handoverNpc",
+]
+
+InterviewExtractableField = Literal[
+    "name",
+    "nameChinese",
+    "designation",
+    "nric",
+    "passportNo",
+    "nationality",
+    "sex",
+    "age",
+    "dateAndPlaceOfBirth",
+    "maritalStatus",
+    "numberOfChildren",
+    "citizenshipCertNo",
+    "vehicleNo",
+    "address",
+    "placeOfEmployment",
+    "contactHome",
+    "contactMobile",
+    "contactOffice",
+    "interviewTakenPlace",
+    "interpretedBy",
+]
+
+
+InterviewLanguage = Literal["en", "ms", "ta", "zh"]
+TranslationSource = Literal["none", "fake", "ollama", "nim"]
+
+
+class ExtractRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Stop message or field notes")
+    type: Literal["stop_message", "field_notes", "interview"] = "stop_message"
+    incident_type_name: str | None = None
+
+
+class ExtractResponse(BaseModel):
+    fields: dict[ExtractableField, str]
+    confidence: dict[ExtractableField, float]
+    source: Literal["fake", "ollama", "nim", "regex_fallback"] = "fake"
+
+class ExtractInterviewRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Interview transcript text")
+    interview_language: InterviewLanguage = "en"
+
+
+class ExtractInterviewResponse(BaseModel):
+    fields: dict[InterviewExtractableField, str]
+    confidence: dict[InterviewExtractableField, float]
+    source: Literal["fake", "ollama", "nim", "regex_fallback"] = "fake"
+
+
+class TranscribeResponse(BaseModel):
+    transcript_original: str
+    transcript_english: str
+    interview_language: InterviewLanguage = "en"
+    confidence: float | None = None
+    source: Literal["fake", "whisper"] = "fake"
+    translation_source: TranslationSource = "none"
+
+    @property
+    def transcript(self) -> str:
+        return self.transcript_english
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    fake_extraction: bool
+    fake_transcription: bool
+    fake_photo_analysis: bool
+    llm_base_url: str
+    llm_model: str
+    vision_model: str
+    whisper_model: str
+    whisper_device: str
+
+
+QuestionCoverageStatus = Literal["answered", "partial", "unanswered", "unclear"]
+
+
+class InterviewQuestion(BaseModel):
+    id: str = Field(..., min_length=1)
+    prompt: str = Field(..., min_length=1)
+    hint: str | None = None
+    section: str | None = None
+
+
+class AnalyzeInterviewRequest(BaseModel):
+    transcript: str = Field(..., min_length=1)
+    questions: list[InterviewQuestion] = Field(..., min_length=1)
+    interview_language: InterviewLanguage = "en"
+
+
+class QuestionCoverage(BaseModel):
+    id: str
+    status: QuestionCoverageStatus
+    answer: str = ""
+    evidence: str = ""
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
+class FollowUpSuggestion(BaseModel):
+    related_question_id: str | None = None
+    prompt: str
+    prompt_conduct: str
+    reason: str
+
+
+class AnalyzeInterviewResponse(BaseModel):
+    coverage: list[QuestionCoverage]
+    follow_ups: list[FollowUpSuggestion]
+    source: Literal["fake", "ollama", "nim"] = "fake"
+
+
+class CleanTranscriptRequest(BaseModel):
+    transcript_original: str = Field(..., min_length=1)
+    transcript_english: str = Field(..., min_length=1)
+    interview_language: InterviewLanguage = "en"
+
+
+class CleanTranscriptResponse(BaseModel):
+    transcript_original: str
+    transcript_english: str
+    source: Literal["fake", "ollama", "nim"] = "fake"
+
+
+PhotoAnalysisSource = Literal["fake", "ollama", "nim"]
+
+
+class AnalyzePhotoResponse(BaseModel):
+    caption: str
+    source: PhotoAnalysisSource = "fake"
+
+
+class AnalyzePhotoContext(BaseModel):
+    location_of_fire: str | None = None
+    incident_type_name: str | None = None
+    stop_message_excerpt: str | None = None
+    field_notes_excerpt: str | None = None
