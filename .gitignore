@@ -1,12 +1,31 @@
-node_modules/
-dist/
-.vite/
+# Runtime / tooling
+.logs/
+.pids/
+.DS_Store
+Thumbs.db
+
+# Env / secrets
 .env
 .env.*
 !.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
 *.log
-.DS_Store
-Thumbs.db
+
+# iOS / Xcode (apps/web)
 xcuserdata/
 *.xcuserstate
 DerivedData/
+.docker-data/
+.docker-run/

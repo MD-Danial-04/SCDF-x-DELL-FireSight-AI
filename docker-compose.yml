@@ -1,0 +1,133 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  # One-shot: docker compose --profile models run --rm ollama-pull
+  ollama-pull:
+    profiles: ["models"]
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      ollama pull llama3.1:8b &&
+      ollama pull llava &&
+      echo "Models ready."
+    restart: "no"
+
+  coordinator:
+    build:
+      context: ./apps/coordinator
+    ports:
+      - "8080:8080"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      LOG_LEVEL: info
+      COORDINATOR_BASE_URL: http://localhost:8080
+      USE_FAKE_STORAGE: "true"
+      WEB_API_KEY: ${WEB_API_KEY:-dev-web-key}
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-worker-key}
+      CORS_ORIGINS: http://localhost:5173
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./apps/worker
+    ports:
+      - "8000:8000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      LOG_LEVEL: info
+      USE_FAKE_EXTRACTION: "false"
+      USE_FAKE_TRANSCRIPTION: "false"
+      USE_FAKE_PHOTO_ANALYSIS: "false"
+      LLM_BASE_URL: http://ollama:11434/v1
+      LLM_MODEL: llama3.1:8b
+      LLM_API_KEY: ollama
+      VISION_MODEL: llava
+      WHISPER_MODEL: base
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_LANGUAGE: en
+      WHISPER_INITIAL_PROMPT: >-
+        SCDF stop message. LF812 stop for location at 7 Gul Ave.
+        False alarm malfunction. Zone 7. Handover to SGT3 Alsyraf T190350. Nanyang NPC.
+      WHISPER_VAD_FILTER: "false"
+      WHISPER_BEAM_SIZE: "5"
+      WHISPER_CONDITION_ON_PREVIOUS_TEXT: "false"
+      COORDINATOR_BASE_URL: http://coordinator:8080
+      COORDINATOR_WORKER_API_KEY: ${WORKER_API_KEY:-dev-worker-key}
+      WORKER_POLL_INTERVAL_SEC: "2"
+      WORKER_ENABLED: "true"
+    volumes:
+      - whisper_cache:/root/.cache/huggingface
+    depends_on:
+      coordinator:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 120s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        VITE_COORDINATOR_URL: http://localhost:8080
+        VITE_WEB_API_KEY: ${WEB_API_KEY:-dev-web-key}
+        VITE_SINGPASS_MODE: mock
+    ports:
+      - "5173:80"
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  whisper_cache:
