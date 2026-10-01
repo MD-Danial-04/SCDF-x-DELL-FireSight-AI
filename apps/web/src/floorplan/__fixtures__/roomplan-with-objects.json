@@ -1,0 +1,51 @@
+{
+  "walls": [
+    {
+      "identifier": "wall-south",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [4, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 1]
+    },
+    {
+      "identifier": "wall-north",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [4, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 0, 3, 1]
+    },
+    {
+      "identifier": "wall-west",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [3, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1.5, 1]
+    },
+    {
+      "identifier": "wall-east",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [3, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 4, 0, 1.5, 1]
+    }
+  ],
+  "objects": [
+    {
+      "identifier": "table-1",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [1.2, 0.8, 0.6],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 0, 1.5, 1]
+    }
+  ]
+}

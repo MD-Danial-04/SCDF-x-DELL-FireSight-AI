@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-label="Test floorplan">
+  <rect width="1600" height="1000" fill="#ffffff" />
+  <rect x="70" y="70" width="1460" height="860" fill="none" stroke="#111827" stroke-width="8" />
+
+  <rect id="lobby-room" x="120" y="120" width="260" height="180" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="250" y="220" font-family="Arial, sans-serif" font-size="34" text-anchor="middle" fill="#111827">Lobby</text>
+
+  <rect id="office-room-a" x="430" y="120" width="300" height="180" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="580" y="220" font-family="Arial, sans-serif" font-size="32" text-anchor="middle" fill="#111827">Office A</text>
+
+  <rect id="office-room-b" x="790" y="120" width="300" height="180" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="940" y="220" font-family="Arial, sans-serif" font-size="32" text-anchor="middle" fill="#111827">Office B</text>
+
+  <rect id="meeting-room" x="1150" y="120" width="280" height="180" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="1290" y="220" font-family="Arial, sans-serif" font-size="30" text-anchor="middle" fill="#111827">Meeting</text>
+
+  <rect id="corridor-main" x="120" y="350" width="1310" height="90" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="775" y="405" font-family="Arial, sans-serif" font-size="24" text-anchor="middle" fill="#111827">Main Corridor</text>
+
+  <rect id="open-workspace" x="120" y="500" width="680" height="320" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="460" y="670" font-family="Arial, sans-serif" font-size="38" text-anchor="middle" fill="#111827">Open Workspace</text>
+
+  <rect id="server-room" x="870" y="500" width="220" height="150" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="980" y="590" font-family="Arial, sans-serif" font-size="28" text-anchor="middle" fill="#111827">Server</text>
+
+  <rect id="storage-room" x="1140" y="500" width="290" height="150" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="1285" y="590" font-family="Arial, sans-serif" font-size="28" text-anchor="middle" fill="#111827">Storage</text>
+
+  <rect id="break-room" x="870" y="690" width="260" height="130" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="1000" y="765" font-family="Arial, sans-serif" font-size="26" text-anchor="middle" fill="#111827">Break Room</text>
+
+  <rect id="utility-room" x="1180" y="690" width="250" height="130" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="1305" y="765" font-family="Arial, sans-serif" font-size="26" text-anchor="middle" fill="#111827">Utility</text>
+
+  <circle id="alarm-node" cx="1460" cy="180" r="28" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="1460" y="190" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#111827">FA</text>
+
+  <ellipse id="stair-core" cx="1460" cy="565" rx="42" ry="68" fill="none" stroke="#111827" stroke-width="5" />
+  <text x="1460" y="570" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#111827">Stair</text>
+
+  <line id="egress-line" x1="1440" y1="240" x2="1460" y2="495" stroke="#111827" stroke-width="4" />
+  <polyline id="cable-tray" points="860,320 980,320 980,470 1240,470" fill="none" stroke="#111827" stroke-width="4" />
+  <polygon id="hazard-zone" points="1380,860 1450,910 1520,860 1490,790 1410,790" fill="none" stroke="#111827" stroke-width="4" />
+  <text x="1450" y="855" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#111827">Hazard</text>
+
+  <path id="curved-entry" d="M 60 280 C 85 250, 110 245, 140 250" fill="none" stroke="#111827" stroke-width="4" />
+</svg>

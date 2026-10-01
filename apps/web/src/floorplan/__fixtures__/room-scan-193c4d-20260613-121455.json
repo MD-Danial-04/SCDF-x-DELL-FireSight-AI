@@ -1,0 +1,284 @@
+{
+  "annotations" : [
+    {
+      "id" : "8388D2BE-7028-4753-837C-D0B31C850E3B",
+      "label" : "Annotation",
+      "notes" : "",
+      "position" : {
+        "x" : 0,
+        "y" : 0
+      },
+      "severity" : "info"
+    }
+  ],
+  "objects" : [
+    {
+      "category" : "bed",
+      "depth" : 2.055,
+      "height" : 0.7,
+      "id" : "7CF28220-07DB-4E79-BA4C-6C8614822560",
+      "label" : "Object 1",
+      "notes" : "",
+      "position" : {
+        "x" : -3.147,
+        "y" : -4.016
+      },
+      "rotationDegrees" : 2.156,
+      "width" : 1.408
+    },
+    {
+      "category" : "storage",
+      "depth" : 0.435,
+      "height" : 1.398,
+      "id" : "BB764991-CEAF-4A15-974C-DF6AF7CCC03D",
+      "label" : "Object 2",
+      "notes" : "",
+      "position" : {
+        "x" : -0.587,
+        "y" : -3.377
+      },
+      "rotationDegrees" : 92.156,
+      "width" : 0.829
+    },
+    {
+      "category" : "storage",
+      "depth" : 0.485,
+      "height" : 1.106,
+      "id" : "3F8DEA21-CCAE-49BA-9774-A5A7225FF7D4",
+      "label" : "Object 3",
+      "notes" : "",
+      "position" : {
+        "x" : -0.687,
+        "y" : -1.379
+      },
+      "rotationDegrees" : 92.156,
+      "width" : 0.492
+    },
+    {
+      "category" : "storage",
+      "depth" : 0.413,
+      "height" : 1.801,
+      "id" : "72278D7B-2D0E-4D3B-AE10-CA7B9DF13586",
+      "label" : "Object 4",
+      "notes" : "",
+      "position" : {
+        "x" : -2.319,
+        "y" : -0.094
+      },
+      "rotationDegrees" : -177.844,
+      "width" : 1.934
+    },
+    {
+      "category" : "storage",
+      "depth" : 0.437,
+      "height" : 1.166,
+      "id" : "FA3EE901-40E2-46EA-870B-379FAA8D0911",
+      "label" : "Object 5",
+      "notes" : "",
+      "position" : {
+        "x" : -3.719,
+        "y" : -1.732
+      },
+      "rotationDegrees" : -87.844,
+      "width" : 0.541
+    },
+    {
+      "category" : "table",
+      "depth" : 0.745,
+      "height" : 0.417,
+      "id" : "D4E488CF-FEA1-4F76-BF82-7407A35B9C69",
+      "label" : "Object 6",
+      "notes" : "",
+      "position" : {
+        "x" : -2.048,
+        "y" : -3.996
+      },
+      "rotationDegrees" : -87.844,
+      "width" : 1.179
+    },
+    {
+      "category" : "storage",
+      "depth" : 0.626,
+      "height" : 0.643,
+      "id" : "580D48B5-0745-4E88-B435-9C67B8BC37C0",
+      "label" : "Object 7",
+      "notes" : "",
+      "position" : {
+        "x" : -3.642,
+        "y" : -0.251
+      },
+      "rotationDegrees" : -177.844,
+      "width" : 0.701
+    },
+    {
+      "category" : "storage",
+      "depth" : 0.534,
+      "height" : 1.92,
+      "id" : "F6B3A9DC-B276-4BA1-9659-8F1447A94B69",
+      "label" : "Object 8",
+      "notes" : "",
+      "position" : {
+        "x" : -2,
+        "y" : -4.887
+      },
+      "rotationDegrees" : 2.156,
+      "width" : 0.93
+    },
+    {
+      "category" : "storage",
+      "depth" : 0.499,
+      "height" : 2.192,
+      "id" : "3708E2C0-7B4B-4ACD-831E-AA14C10EBE28",
+      "label" : "Object 9",
+      "notes" : "",
+      "position" : {
+        "x" : -0.579,
+        "y" : -4.447
+      },
+      "rotationDegrees" : 92.156,
+      "width" : 1.308
+    },
+    {
+      "category" : "table",
+      "depth" : 0.623,
+      "height" : 0.802,
+      "id" : "8DE1F17B-6784-45F2-B285-C66590FC10AD",
+      "label" : "Object 10",
+      "notes" : "",
+      "position" : {
+        "x" : -0.722,
+        "y" : -2.297
+      },
+      "rotationDegrees" : 92.156,
+      "width" : 1.282
+    }
+  ],
+  "openings" : [
+    {
+      "height" : 2.385,
+      "id" : "568BBB23-6B67-4E2A-A99B-7D5116A9AC36",
+      "kind" : "door",
+      "label" : "Door 1",
+      "notes" : "",
+      "position" : {
+        "x" : -0.481,
+        "y" : -0.408
+      },
+      "rotationDegrees" : 92.156,
+      "width" : 0.895
+    },
+    {
+      "height" : 2.118,
+      "id" : "BE6461A7-24E4-4845-99FF-E0AC196DF2FC",
+      "kind" : "window",
+      "label" : "Window 1",
+      "notes" : "",
+      "position" : {
+        "x" : -3.905,
+        "y" : -2.604
+      },
+      "rotationDegrees" : -87.844,
+      "width" : 0.812
+    },
+    {
+      "height" : 2.094,
+      "id" : "703E0199-9093-4FCF-A46C-0468357EC2FA",
+      "kind" : "window",
+      "label" : "Window 2",
+      "notes" : "",
+      "position" : {
+        "x" : -3.962,
+        "y" : -1.069
+      },
+      "rotationDegrees" : -87.844,
+      "width" : 0.706
+    },
+    {
+      "height" : 1.882,
+      "id" : "A6E66304-6AC1-4C44-B446-DF766C3ABBE8",
+      "kind" : "window",
+      "label" : "Window 3",
+      "notes" : "",
+      "position" : {
+        "x" : -3.85,
+        "y" : -4.063
+      },
+      "rotationDegrees" : -87.844,
+      "width" : 0.765
+    }
+  ],
+  "room" : {
+    "ceilingHeight" : 3.188,
+    "id" : "7D898D36-BE74-4CAA-A1B1-F77B1753C870",
+    "level" : "",
+    "name" : "Room scan 193C4D",
+    "notes" : "Captured in the FireSight iOS scanner.",
+    "siteName" : "",
+    "units" : "m"
+  },
+  "schemaVersion" : "firesight-room-scan\/v1",
+  "source" : "roomplan-ios",
+  "updatedAt" : "2026-06-13T05:15:07Z",
+  "walls" : [
+    {
+      "end" : {
+        "x" : -0.503,
+        "y" : 0.181
+      },
+      "height" : 3.188,
+      "id" : "E126D94C-44CE-426D-B941-5365C306F3C1",
+      "label" : "Wall 1",
+      "notes" : "",
+      "start" : {
+        "x" : -0.305,
+        "y" : -5.091
+      },
+      "thickness" : 0.05
+    },
+    {
+      "end" : {
+        "x" : -3.806,
+        "y" : -5.223
+      },
+      "height" : 3.188,
+      "id" : "A0100174-6F71-44DE-8A6B-4A024C693A86",
+      "label" : "Wall 2",
+      "notes" : "",
+      "start" : {
+        "x" : -4.004,
+        "y" : 0.049
+      },
+      "thickness" : 0.05
+    },
+    {
+      "end" : {
+        "x" : -4.005,
+        "y" : 0.049
+      },
+      "height" : 3.188,
+      "id" : "50CA692E-A598-41E7-A1C9-17B60A109D1F",
+      "label" : "Wall 3",
+      "notes" : "",
+      "start" : {
+        "x" : -0.503,
+        "y" : 0.181
+      },
+      "thickness" : 0.05
+    },
+    {
+      "end" : {
+        "x" : -0.304,
+        "y" : -5.091
+      },
+      "height" : 3.188,
+      "id" : "C61D5131-D8D0-4E41-BD88-743653EA1200",
+      "label" : "Wall 4",
+      "notes" : "",
+      "start" : {
+        "x" : -3.806,
+        "y" : -5.223
+      },
+      "thickness" : 0.05
+    }
+  ]
+}

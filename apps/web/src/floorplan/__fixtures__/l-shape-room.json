@@ -1,0 +1,32 @@
+{
+  "walls": [
+    {
+      "identifier": "wall-main",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [5, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2.5, 0, 0, 1]
+    },
+    {
+      "identifier": "wall-leg",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [3, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 5, 0, 1.5, 1]
+    },
+    {
+      "identifier": "wall-top",
+      "story": 0,
+      "curve": null,
+      "parentIdentifier": null,
+      "dimensions": [2, 2.4, 0],
+      "polygonCorners": [],
+      "transform": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 4, 0, 3, 1]
+    }
+  ],
+  "openings": []
+}
